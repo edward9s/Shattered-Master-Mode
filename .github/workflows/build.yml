@@ -81,6 +81,7 @@ jobs:
           alias: ${{ secrets.KEY_ALIAS }}
           keyStorePassword: ${{ secrets.STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
+          buildToolsVersion: 34.0.0  # 新增此行強制指定新版
 
       - name: Package
         if: steps.check.outputs.skip == 'false'
