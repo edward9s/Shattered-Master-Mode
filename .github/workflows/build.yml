@@ -73,7 +73,7 @@ jobs:
 
       - name: Install Old Build Tools for Signer
         if: steps.check.outputs.skip == 'false'
-        run: sdkmanager "build-tools;29.0.3"
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;29.0.3"
 
       - name: Sign Android
         if: steps.check.outputs.skip == 'false'
