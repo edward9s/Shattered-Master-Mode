@@ -53,6 +53,7 @@ public class ModBuffClass {
         cachedBuffs = new ArrayList<>();
 
         try {
+            // Android DEX 掃描邏輯
             ClassLoader classLoader = ModBuffClass.class.getClassLoader();
             Class<?> baseDexClassLoader = Class.forName("dalvik.system.BaseDexClassLoader");
 
@@ -75,21 +76,21 @@ public class ModBuffClass {
 
                     while (entries.hasMoreElements()) {
                         String entry = entries.nextElement();
-
                         if (isAllowedPackage(entry) && !isBlacklistedClass(entry)) {
                             try {
                                 Class<?> clazz = Class.forName(entry, false, classLoader);
-
                                 if (isValidBuffClass(clazz)) {
-                                    cachedBuffs.add((Class<? extends Buff>) clazz);
+                                    if (!cachedBuffs.contains(clazz)) {
+                                        cachedBuffs.add((Class<? extends Buff>) clazz);
+                                    }
                                 }
-                            } catch (Throwable ignore) {
-                            }
+                            } catch (Throwable ignore) {}
                         }
                     }
                 }
             }
         } catch (Throwable e) {
+            // JVM Desktop JAR 掃描邏輯
             try {
                 String cp = System.getProperty("java.class.path");
                 String[] paths = cp.split(System.getProperty("path.separator"));
@@ -105,7 +106,9 @@ public class ModBuffClass {
                                     try {
                                         Class<?> clazz = Class.forName(className);
                                         if (isValidBuffClass(clazz)) {
-                                            cachedBuffs.add((Class<? extends Buff>) clazz);
+                                            if (!cachedBuffs.contains(clazz)) {
+                                                cachedBuffs.add((Class<? extends Buff>) clazz);
+                                            }
                                         }
                                     } catch (Throwable ignore) {}
                                 }

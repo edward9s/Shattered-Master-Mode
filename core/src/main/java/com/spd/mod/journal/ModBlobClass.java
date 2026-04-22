@@ -23,6 +23,7 @@ public class ModBlobClass {
         cachedBlobs = new ArrayList<>();
 
         try {
+            // Android DEX 掃描邏輯
             ClassLoader classLoader = ModBlobClass.class.getClassLoader();
             Class<?> baseDexClassLoader = Class.forName("dalvik.system.BaseDexClassLoader");
 
@@ -45,25 +46,25 @@ public class ModBlobClass {
                     
                     while (entries.hasMoreElements()) {
                         String entry = entries.nextElement();
-                        
                         if (entry.startsWith("com.shatteredpixel.shatteredpixeldungeon.actors.blobs")) {
                             try {
                                 Class<?> clazz = Class.forName(entry, false, classLoader);
-                                
                                 if (Blob.class.isAssignableFrom(clazz) && !Blob.class.equals(clazz)) {
                                     if ((clazz.getModifiers() & 0x400) == 0) {
                                         if (!clazz.isMemberClass() || (clazz.getModifiers() & 0x8) != 0) {
-                                            cachedBlobs.add((Class<? extends Blob>) clazz);
+                                            if (!cachedBlobs.contains(clazz)) {
+                                                cachedBlobs.add((Class<? extends Blob>) clazz);
+                                            }
                                         }
                                     }
                                 }
-                            } catch (Exception ignore) {
-                            }
+                            } catch (Exception ignore) {}
                         }
                     }
                 }
             }
         } catch (Exception e) {
+            // JVM Desktop JAR 掃描邏輯
             try {
                 String cp = System.getProperty("java.class.path");
                 String[] paths = cp.split(System.getProperty("path.separator"));
@@ -81,7 +82,9 @@ public class ModBlobClass {
                                         if (Blob.class.isAssignableFrom(clazz) && !Blob.class.equals(clazz)) {
                                             if ((clazz.getModifiers() & 0x400) == 0) {
                                                 if (!clazz.isMemberClass() || (clazz.getModifiers() & 0x8) != 0) {
-                                                    cachedBlobs.add((Class<? extends Blob>) clazz);
+                                                    if (!cachedBlobs.contains(clazz)) {
+                                                        cachedBlobs.add((Class<? extends Blob>) clazz);
+                                                    }
                                                 }
                                             }
                                         }
