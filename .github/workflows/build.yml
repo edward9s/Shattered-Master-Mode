@@ -57,6 +57,9 @@ jobs:
           java-version: '11'
 
       - uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-disabled: true
+
         if: steps.check.outputs.skip == 'false'
 
       - name: Patch & Merge
