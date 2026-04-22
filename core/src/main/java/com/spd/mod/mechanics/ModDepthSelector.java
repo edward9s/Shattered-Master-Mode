@@ -10,6 +10,8 @@ import com.shatteredpixel.shatteredpixeldungeon.windows.WndGame;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTitledMessage;
 import com.watabou.noosa.Game;
 
+import com.spd.mod.ModGame;
+
 public class ModDepthSelector extends WndTitledMessage {
 
     public ModDepthSelector() {
@@ -18,8 +20,8 @@ public class ModDepthSelector extends WndTitledMessage {
         int y = this.height + 2;
 
         int maxDepth = Statistics.deepestFloor;
-        if (maxDepth < 26) {
-            maxDepth = 26;
+        if (maxDepth < ModGame.maxDepth()) {
+            maxDepth = ModGame.maxDepth();
         }
 
         int xOffset = 0;

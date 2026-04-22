@@ -12,7 +12,7 @@ public class ModScrollOfAssassin extends Scroll {
 
     public ModScrollOfAssassin() {
         super();
-        this.icon = ItemSpriteSheet.RING_ACCURACY; // 0
+        this.icon = ItemSpriteSheet.Icons.RING_ACCURACY; // 0
         this.unique = true;
         this.usesTargeting = true;
     }

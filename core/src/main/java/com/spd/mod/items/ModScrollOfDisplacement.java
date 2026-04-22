@@ -17,7 +17,7 @@ public class ModScrollOfDisplacement extends Scroll {
 
     public ModScrollOfDisplacement() {
         super();
-        this.icon = ItemSpriteSheet.SCROLL_PASSAGE; // 0x35
+        this.icon = ItemSpriteSheet.Icons.SCROLL_PASSAGE; // 0x35
         this.unique = true;
         this.usesTargeting = true;
     }

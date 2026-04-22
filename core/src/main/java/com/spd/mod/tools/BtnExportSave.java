@@ -26,9 +26,9 @@ public class BtnExportSave extends RedButton {
         super.onClick();
 
         System.out.println("SPD_Mod: === EXPORT START ===");
-        Dungeon.saveAll();
 
         try {
+            Dungeon.saveAll();
             Object context = ModGame.getSystemContext();
             
             if (context == null) {

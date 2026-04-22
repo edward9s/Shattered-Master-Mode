@@ -10,7 +10,7 @@ public class ModPotionOfWeakness extends Potion {
 
     public ModPotionOfWeakness() {
         super();
-        this.icon = ItemSpriteSheet.SCROLL_TERROR;
+        this.icon = ItemSpriteSheet.Icons.SCROLL_TERROR;
         this.unique = true;
     }
 

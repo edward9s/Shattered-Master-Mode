@@ -15,7 +15,11 @@ public class ModGame {
     }
 
     public static String version() {
-        return "0.1.15";
+        return "0.1.16";
+    }
+    
+    public static int maxDepth() {
+    	return 26;
     }
 
     public static boolean isAndroid() {
