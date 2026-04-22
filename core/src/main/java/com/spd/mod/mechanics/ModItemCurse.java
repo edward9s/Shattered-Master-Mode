@@ -4,11 +4,29 @@ import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
 import com.watabou.noosa.audio.Sample;
 
 public class ModItemCurse {
 
     public ModItemCurse() {
+    }
+
+    public static void openSelector() {
+        GameScene.selectItem(new WndBag.ItemSelector() {
+            @Override
+            public String textPrompt() {
+                return ModItemCurse.textPrompt();
+            }
+            @Override
+            public boolean itemSelectable(Item item) {
+                return ModItemCurse.itemSelectable(item);
+            }
+            @Override
+            public void onSelect(Item item) {
+                ModItemCurse.onSelect(item);
+            }
+        });
     }
 
     public static String textPrompt() {
@@ -42,7 +60,6 @@ public class ModItemCurse {
 
         Sample.INSTANCE.play(Assets.Sounds.READ);
 
-        ModItemSelector selector = new ModItemSelector("com.spd.mod.mechanics.ModItemCurse");
-        GameScene.selectItem(selector);
+        openSelector();
     }
 }

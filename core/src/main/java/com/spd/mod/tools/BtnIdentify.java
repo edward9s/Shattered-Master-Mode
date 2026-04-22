@@ -1,9 +1,8 @@
 package com.spd.mod.tools;
 
-import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 
-import com.spd.mod.mechanics.ModItemSelector;
+import com.spd.mod.mechanics.ModItemIdentify;
 
 public class BtnIdentify extends RedButton {
 
@@ -15,6 +14,6 @@ public class BtnIdentify extends RedButton {
     protected void onClick() {
         super.onClick();
         
-        GameScene.selectItem(new ModItemSelector("com.spd.mod.mechanics.ModItemIdentify"));
+        ModItemIdentify.openSelector();
     }
 }

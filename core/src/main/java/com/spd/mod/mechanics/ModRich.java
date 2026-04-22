@@ -9,13 +9,30 @@ import com.shatteredpixel.shatteredpixeldungeon.items.keys.Key;
 import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
 import com.watabou.noosa.audio.Sample;
-
 
 public class ModRich {
 
     public static Weapon.Enchantment pendingEnchantment = null;
     public static Armor.Glyph pendingGlyph = null;
+
+    public static void openSelector() {
+        GameScene.selectItem(new WndBag.ItemSelector() {
+            @Override
+            public String textPrompt() {
+                return ModRich.textPrompt();
+            }
+            @Override
+            public boolean itemSelectable(Item item) {
+                return ModRich.itemSelectable(item);
+            }
+            @Override
+            public void onSelect(Item item) {
+                ModRich.onSelect(item);
+            }
+        });
+    }
 
     public static boolean handle(Item item, Weapon.Enchantment enchant, Armor.Glyph glyph) {
         if (item != null) {
@@ -63,15 +80,13 @@ public class ModRich {
     private static void processEnchantment(Weapon.Enchantment enchantment) {
         pendingEnchantment = enchantment;
         pendingGlyph = null;
-        ModItemSelector selector = new ModItemSelector("com.spd.mod.mechanics.ModRich");
-        GameScene.selectItem(selector);
+        openSelector();
     }
 
     private static void processGlyph(Armor.Glyph glyph) {
         pendingEnchantment = null;
         pendingGlyph = glyph;
-        ModItemSelector selector = new ModItemSelector("com.spd.mod.mechanics.ModRich");
-        GameScene.selectItem(selector);
+        openSelector();
     }
 
     public static boolean itemSelectable(Item item) {
@@ -120,7 +135,6 @@ public class ModRich {
         } catch (Exception e) {
         }
 
-        ModItemSelector selector = new ModItemSelector("com.spd.mod.mechanics.ModRich");
-        GameScene.selectItem(selector);
+        openSelector();
     }
 }
