@@ -46,7 +46,7 @@ public class ModFlash {
 
         if (oldPos != targetPos) {
             Sample.INSTANCE.play(Assets.Sounds.PUFF);
-            CellEmitter.get(ch.pos).burst(Speck.factory(Speck.LIGHT), 6);
+            CellEmitter.get(ch.pos).burst(Speck.factory(Speck.WOOL), 6);
         }
     }
 
@@ -90,7 +90,7 @@ public class ModFlash {
 
         if (oldPos != targetPos) {
             Sample.INSTANCE.play(Assets.Sounds.TELEPORT);
-            CellEmitter.get(targetPos).start(Speck.factory(Speck.WOOL), 0.2f, 3);
+            CellEmitter.get(targetPos).start(Speck.factory(Speck.LIGHT), 0.2f, 3);
         }
     }
 }

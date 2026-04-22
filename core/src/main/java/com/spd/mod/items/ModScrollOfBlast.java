@@ -12,7 +12,7 @@ public class ModScrollOfBlast extends Scroll {
 
     public ModScrollOfBlast() {
         super();
-        this.icon = ItemSpriteSheet.SCROLL_PSIBLAST;
+        this.icon = ItemSpriteSheet.Icons.SCROLL_PSIBLAST;
         this.unique = true;
     }
 

@@ -34,7 +34,7 @@ public class ModBuffTab extends Component {
                 if (buff.icon() != 127) {
                     if (!buff.name().contains("NO TEXT FOUND")) {
                         BuffIcon icon = new BuffIcon(buff, true);
-                        ModGridBuff gridBuff = new ModGridBuff(icon, buffClass);
+                        ModGridBuff gridBuff = new ModGridBuff(icon, (Class<? extends Buff>) buffClass);
 
                         if (buff.type == Buff.buffType.POSITIVE) {
                             positiveBuffs.add(gridBuff);

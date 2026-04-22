@@ -12,7 +12,7 @@ public class ModScrollOfSight extends Scroll {
 
     public ModScrollOfSight() {
         super();
-        this.icon = ItemSpriteSheet.SCROLL_FORESIGHT;
+        this.icon = ItemSpriteSheet.Icons.SCROLL_FORESIGHT;
         this.unique = true;
     }
 

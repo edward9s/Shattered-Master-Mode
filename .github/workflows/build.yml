@@ -1,0 +1,118 @@
+name: Build SPD Mod
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 台灣時間早上 4:00 (UTC 20:00)
+    - cron: '0 20 * * *'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mod
+
+      - name: Check Version & Release Status
+        id: check
+        run: |
+          REPO="00-Evan/shattered-pixel-dungeon"
+          
+          # 取得官方最新 Tag (例如 v3.2.0)
+          UPSTREAM_TAG=$(curl -s https://api.github.com/repos/$REPO/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          
+          MOD_VER=$(python mod/scripts/extract_version.py mod/core/src/main/java/com/spd/mod/ModGame.java)
+          
+          # 組合預期標籤 (例如 v3.2.0-m0.1.16)
+          EXPECTED_TAG="${UPSTREAM_TAG}-m${MOD_VER}"
+          
+          # 檢查自身 Repo 是否已有此 Release
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/${{ github.repository }}/releases/tags/$EXPECTED_TAG)
+          
+          # 排程執行時若已存在則跳過；手動執行則不跳過
+          if [ "$STATUS" == "200" ] && [ "${{ github.event_name }}" == "schedule" ]; then
+            echo "Release $EXPECTED_TAG exists. Skipping scheduled build."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "Proceeding with build for $EXPECTED_TAG"
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "UPSTREAM_TAG=$UPSTREAM_TAG" >> $GITHUB_ENV
+            echo "MOD_VER=$MOD_VER" >> $GITHUB_ENV
+            echo "EXPECTED_TAG=$EXPECTED_TAG" >> $GITHUB_ENV
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.skip == 'false'
+        with:
+          repository: 00-Evan/shattered-pixel-dungeon
+          ref: ${{ env.UPSTREAM_TAG }}
+          path: spd_src
+
+      - uses: actions/setup-java@v4
+        if: steps.check.outputs.skip == 'false'
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - uses: gradle/actions/setup-gradle@v3
+        if: steps.check.outputs.skip == 'false'
+
+      - name: Patch & Merge
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          python mod/scripts/patch_android.py
+          python mod/scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/WndGame.java
+          
+          # 修改最大層數為 26
+          python mod/scripts/patch_depth.py 26
+          
+          cp -a mod/core spd_src/ 2>/dev/null || true
+          cp -a mod/android spd_src/ 2>/dev/null || true
+          cp -a mod/desktop spd_src/ 2>/dev/null || true
+          cp -a mod/assets spd_src/ 2>/dev/null || true
+
+      - name: Compile
+        if: steps.check.outputs.skip == 'false'
+        working-directory: ./spd_src
+        run: |
+          chmod +x ./gradlew
+          ./gradlew android:assembleRelease :desktop:release
+
+      - name: Sign Android
+        if: steps.check.outputs.skip == 'false'
+        uses: r0adkll/sign-android-release@v1
+        id: sign
+        with:
+          releaseDirectory: spd_src/android/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Package
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          python mod/scripts/package_release.py \
+            "${{ env.UPSTREAM_TAG }}" \
+            "${{ env.MOD_VER }}" \
+            "${{ steps.sign.outputs.signedReleaseFile }}"
+
+      - name: Upload Artifacts (Manual Only)
+        if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Release-SPD-${{ env.UPSTREAM_TAG }}
+          path: out/*
+
+      - name: Create Release (Schedule Only)
+        if: steps.check.outputs.skip == 'false' && github.event_name == 'schedule'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.EXPECTED_TAG }}
+          name: ${{ env.EXPECTED_TAG }}
+          body: "This is an automatic build based on the official version."
+          files: out/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

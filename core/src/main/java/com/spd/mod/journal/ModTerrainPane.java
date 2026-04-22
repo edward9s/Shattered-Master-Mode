@@ -16,7 +16,7 @@ public class ModTerrainPane {
         String defaultName = level.tileName(-1);
 
         for (int i = 0; i < 48; i++) {
-            [span_0](start_span)// 使用 Terrain 常數替換硬編碼 ID[span_0](end_span)
+            // 使用 Terrain 常數替換硬編碼 ID
             if (i == Terrain.SECRET_TRAP ||
                 i == Terrain.INACTIVE_TRAP ||
                 i == Terrain.ENTRANCE ||

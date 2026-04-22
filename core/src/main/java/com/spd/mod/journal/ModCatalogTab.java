@@ -38,10 +38,10 @@ public class ModCatalogTab extends Component {
         injectModItem(new ModScrollOfSight());
         injectModItem(new ModScrollOfLoot());
         injectModItem(new ModScrollOfDisplacement());
-        injectModItem(new ModPotionOfResetTier1());
-        injectModItem(new ModPotionOfResetTier2());
-        injectModItem(new ModPotionOfResetTier3());
-        injectModItem(new ModPotionOfResetTier4());
+        injectModItem(new ModPotionOfResetTier.Tier1());
+        injectModItem(new ModPotionOfResetTier.Tier2());
+        injectModItem(new ModPotionOfResetTier.Tier3());
+        injectModItem(new ModPotionOfResetTier.Tier4());
         injectModItem(new ModPotionOfWeakness());
         injectModItem(new ModBlessedAnkh());
 

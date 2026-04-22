@@ -8,6 +8,7 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndGame;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.watabou.utils.Callback;
+import com.spd.mod.tools.ModToolsWindow;
 
 public class ModBlobSelector extends CellSelector.Listener implements Callback {
 
@@ -24,8 +25,8 @@ public class ModBlobSelector extends CellSelector.Listener implements Callback {
         if (ModJournalWindow.instance != null) {
             ModJournalWindow.instance.hide();
         }
-        if (ModTools.instance != null) {
-            ModTools.instance.hide();
+        if (ModToolsWindow.instance != null) {
+            ModToolsWindow.instance.hide();
         }
         if (WndGame.instance != null) {
             WndGame.instance.hide();

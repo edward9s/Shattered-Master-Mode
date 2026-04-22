@@ -12,7 +12,7 @@ public class ModScrollOfLoot extends Scroll {
 
     public ModScrollOfLoot() {
         super();
-        this.icon = ItemSpriteSheet.RING_WEALTH; // 11
+        this.icon = ItemSpriteSheet.Icons.RING_WEALTH; // 11
         this.unique = true;
     }
 
