@@ -5,6 +5,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
+import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfUpgrade;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
@@ -146,18 +147,10 @@ public class ModScrollOfDisplacement extends Scroll {
             if (targetChar != null) {
                 ModFlash.teleport(targetChar, cell);
             } else if (targetHeap != null) {
-                if (Dungeon.level.heaps.get(cell) != null) {
-                    GLog.w("There is already an item there.");
-                    ShatteredPixelDungeon.runOnRenderThread(this);
-                    return;
-                }
-
-                Dungeon.level.heaps.remove(targetHeap.pos);
-                targetHeap.pos = cell;
-                Dungeon.level.heaps.put(cell, targetHeap);
-
-                if (targetHeap.sprite != null) {
-                    targetHeap.sprite.view(targetHeap).place(cell);
+                java.util.LinkedList<Item> itemsToMove = new java.util.LinkedList<>(targetHeap.items);
+                targetHeap.destroy();
+                for (Item item : itemsToMove) {
+                    Dungeon.level.drop(item, cell);
                 }
             }
 
