@@ -71,6 +71,10 @@ jobs:
           chmod +x ./gradlew
           ./gradlew android:assembleRelease :desktop:release
 
+      - name: Install Old Build Tools for Signer
+        if: steps.check.outputs.skip == 'false'
+        run: sdkmanager "build-tools;29.0.3"
+
       - name: Sign Android
         if: steps.check.outputs.skip == 'false'
         uses: r0adkll/sign-android-release@v1
@@ -81,7 +85,6 @@ jobs:
           alias: ${{ secrets.KEY_ALIAS }}
           keyStorePassword: ${{ secrets.STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
-          buildToolsVersion: 34.0.0  # 新增此行強制指定新版
 
       - name: Package
         if: steps.check.outputs.skip == 'false'
