@@ -89,7 +89,32 @@ public class ModBuffClass {
                     }
                 }
             }
-        } catch (Throwable ignore) {
+        } catch (Throwable e) {
+            try {
+                String cp = System.getProperty("java.class.path");
+                String[] paths = cp.split(System.getProperty("path.separator"));
+                for (String path : paths) {
+                    if (path.endsWith(".jar")) {
+                        java.util.zip.ZipFile zip = new java.util.zip.ZipFile(path);
+                        Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                        while (entries.hasMoreElements()) {
+                            String entry = entries.nextElement().getName();
+                            if (entry.endsWith(".class")) {
+                                String className = entry.replace('/', '.').substring(0, entry.length() - 6);
+                                if (isAllowedPackage(className) && !isBlacklistedClass(className)) {
+                                    try {
+                                        Class<?> clazz = Class.forName(className);
+                                        if (isValidBuffClass(clazz)) {
+                                            cachedBuffs.add((Class<? extends Buff>) clazz);
+                                        }
+                                    } catch (Throwable ignore) {}
+                                }
+                            }
+                        }
+                        zip.close();
+                    }
+                }
+            } catch (Throwable ignore) {}
         }
 
         return cachedBuffs;
