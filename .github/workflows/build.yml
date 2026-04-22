@@ -57,16 +57,13 @@ jobs:
           java-version: '11'
 
       - uses: gradle/actions/setup-gradle@v3
-        with:
-          cache-disabled: true
-
         if: steps.check.outputs.skip == 'false'
 
       - name: Patch & Merge
         if: steps.check.outputs.skip == 'false'
         run: |
           python mod/scripts/patch_android.py
-          python mod/scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/ui/WndGame.java
+          python mod/scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGame.java
           
           # 修改最大層數為 26
           python mod/scripts/patch_depth.py 26
