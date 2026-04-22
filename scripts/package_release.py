@@ -3,6 +3,7 @@ import sys
 import shutil
 import zipfile
 import urllib.request
+import glob
 
 def package():
     if len(sys.argv) < 4:
@@ -35,11 +36,12 @@ def package():
     with zipfile.ZipFile(official_zip, 'r') as zip_ref:
         zip_ref.extractall(temp_win)
 
-    # 精準鎖定 Gradle 編譯產出物
-    new_jar = "spd_src/desktop/build/libs/desktop-release.jar"
-    if not os.path.exists(new_jar):
-        print(f"Error: Compiled desktop JAR not found at {new_jar}")
+    # 精準鎖定 Gradle 動態編譯產出物
+    new_jar_list = glob.glob("spd_src/desktop/build/libs/desktop-*.jar")
+    if not new_jar_list:
+        print("Error: Compiled desktop JAR not found in spd_src/desktop/build/libs/")
         sys.exit(1)
+    new_jar = new_jar_list[0]
 
     # --- 3. 輸出獨立的 Java 執行檔 (JAR) ---
     java_jar_name = f"SPD-{upstream_tag}-m{mod_ver}-Java.jar"
