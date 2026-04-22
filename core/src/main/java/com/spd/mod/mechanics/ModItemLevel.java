@@ -6,6 +6,7 @@ import com.shatteredpixel.shatteredpixeldungeon.items.armor.Armor;
 import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
 import com.watabou.noosa.audio.Sample;
 
 import com.spd.mod.ModGame;
@@ -27,6 +28,23 @@ public class ModItemLevel {
         for (int i = 0; i < count; i++) {
             item.degrade();
         }
+    }
+
+    public static void openSelector() {
+        GameScene.selectItem(new WndBag.ItemSelector() {
+            @Override
+            public String textPrompt() {
+                return ModItemLevel.textPrompt();
+            }
+            @Override
+            public boolean itemSelectable(Item item) {
+                return ModItemLevel.itemSelectable(item);
+            }
+            @Override
+            public void onSelect(Item item) {
+                ModItemLevel.onSelect(item);
+            }
+        });
     }
 
     public static String textPrompt() {
@@ -89,7 +107,6 @@ public class ModItemLevel {
         Item.updateQuickslot();
         GLog.p("Modified: %s", new Object[]{item.name()});
 
-        ModItemSelector selector = new ModItemSelector("com.spd.mod.mechanics.ModItemLevel");
-        GameScene.selectItem(selector);
+        openSelector();
     }
 }

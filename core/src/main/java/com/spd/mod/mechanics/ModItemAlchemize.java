@@ -1,13 +1,12 @@
 package com.spd.mod.mechanics;
 
-import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndEnergizeItem;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndOptions;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTradeItem;
-import com.watabou.noosa.audio.Sample;
 
 public class ModItemAlchemize extends WndOptions {
 
@@ -46,8 +45,20 @@ public class ModItemAlchemize extends WndOptions {
     }
 
     public static void openSelector() {
-        ModItemSelector selector = new ModItemSelector("com.spd.mod.mechanics.ModItemAlchemize");
-        GameScene.selectItem(selector);
+        GameScene.selectItem(new WndBag.ItemSelector() {
+            @Override
+            public String textPrompt() { 
+                return ModItemAlchemize.textPrompt(); 
+            }
+            @Override
+            public boolean itemSelectable(Item item) { 
+                return ModItemAlchemize.itemSelectable(item); 
+            }
+            @Override
+            public void onSelect(Item item) { 
+                ModItemAlchemize.onSelect(item); 
+            }
+        });
     }
 
     public static String textPrompt() {
@@ -82,7 +93,6 @@ public class ModItemAlchemize extends WndOptions {
             WndEnergizeItem.energizeAll(this.targetItem);
         }
 
-        Sample.INSTANCE.play(Assets.Sounds.TELEPORT);
         openSelector();
     }
 }

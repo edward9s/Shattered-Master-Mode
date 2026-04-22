@@ -1,10 +1,8 @@
 package com.spd.mod.tools;
 
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
-import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 
 import com.spd.mod.mechanics.ModItemLevel;
-import com.spd.mod.mechanics.ModItemSelector;
 
 public class BtnDegrade extends RedButton {
 
@@ -17,6 +15,6 @@ public class BtnDegrade extends RedButton {
         super.onClick();
         
         ModItemLevel.opMode = 2;
-        GameScene.selectItem(new ModItemSelector("com.spd.mod.mechanics.ModItemLevel"));
+        ModItemLevel.openSelector();
     }
 }
