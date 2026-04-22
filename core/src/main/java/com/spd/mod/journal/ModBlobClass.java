@@ -63,7 +63,36 @@ public class ModBlobClass {
                     }
                 }
             }
-        } catch (Exception ignore) {
+        } catch (Exception e) {
+            try {
+                String cp = System.getProperty("java.class.path");
+                String[] paths = cp.split(System.getProperty("path.separator"));
+                for (String path : paths) {
+                    if (path.endsWith(".jar")) {
+                        java.util.zip.ZipFile zip = new java.util.zip.ZipFile(path);
+                        Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                        while (entries.hasMoreElements()) {
+                            String entry = entries.nextElement().getName();
+                            if (entry.endsWith(".class")) {
+                                String className = entry.replace('/', '.').substring(0, entry.length() - 6);
+                                if (className.startsWith("com.shatteredpixel.shatteredpixeldungeon.actors.blobs")) {
+                                    try {
+                                        Class<?> clazz = Class.forName(className);
+                                        if (Blob.class.isAssignableFrom(clazz) && !Blob.class.equals(clazz)) {
+                                            if ((clazz.getModifiers() & 0x400) == 0) {
+                                                if (!clazz.isMemberClass() || (clazz.getModifiers() & 0x8) != 0) {
+                                                    cachedBlobs.add((Class<? extends Blob>) clazz);
+                                                }
+                                            }
+                                        }
+                                    } catch (Exception ignore) {}
+                                }
+                            }
+                        }
+                        zip.close();
+                    }
+                }
+            } catch (Exception ignore) {}
         }
 
         return cachedBlobs;
