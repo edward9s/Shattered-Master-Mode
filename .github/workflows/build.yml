@@ -46,7 +46,7 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         with:
           distribution: 'temurin'
-          java-version: '11'
+          java-version: '17'
 
       - uses: gradle/actions/setup-gradle@v3
         if: steps.check.outputs.skip == 'false'
