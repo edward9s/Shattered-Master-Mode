@@ -3,11 +3,14 @@ package com.spd.mod.mechanics;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
+import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndGame;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTitledMessage;
 import com.watabou.noosa.Game;
+
 import com.spd.mod.ModGame;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -18,7 +21,10 @@ public class ModDepthSelector extends WndTitledMessage {
     private static TreeMap<Integer, TreeSet<Integer>> safeFloors;
 
     public ModDepthSelector() {
-        super(Icons.STAIRS.get(), "Teleport", "Select Branch (Top) or Depth (Grid)");
+        super(Icons.STAIRS.get(), "Teleport", null);
+
+        // 退回原版 120 寬度
+        resize(120, 10);
 
         buildSafeRegistry();
 
@@ -26,30 +32,36 @@ public class ModDepthSelector extends WndTitledMessage {
             selectedBranch = 0;
         }
 
-        int y = this.height + 2;
+        RenderedTextBlock tip = PixelScene.renderTextBlock("Pick a Branch (Top) and a Depth (Grid)", 6);
+        tip.setPos(0, this.height + 2);
+        add(tip);
+
+        int y = (int)(tip.bottom() + 6);
         int xOffset = 0;
 
         for (int branchId : safeFloors.keySet()) {
-            if (xOffset + 24 > 120) {
+            // 寬度 120，按鈕加寬至 26 以容納 "B10"
+            if (xOffset + 26 > 120) {
                 xOffset = 0;
-                y += 17;
+                y += 18;
             }
 
             BranchTab btn = new BranchTab(branchId);
-            btn.setRect(xOffset, y, 24, 16);
+            btn.setRect(xOffset, y, 26, 16);
             if (branchId == selectedBranch) {
                 btn.textColor(0xffff44);
             }
             add(btn);
             
-            xOffset += 26;
+            xOffset += 28;
         }
 
-        y += 17; 
+        y += 18; 
         y += 4; 
 
         xOffset = 0;
         int count = 0;
+        // 退回單行 5 格
         for (int depth : safeFloors.get(selectedBranch)) {
             DepthButton btn = new DepthButton(selectedBranch, depth, Integer.toString(depth));
             
@@ -63,18 +75,18 @@ public class ModDepthSelector extends WndTitledMessage {
             xOffset += 24;
             count++;
             if (count % 5 == 0) {
-                y += 17;
+                y += 18;
                 xOffset = 0;
             }
         }
 
-        resize(120, y + (xOffset == 0 ? 0 : 17));
+        resize(120, y + (xOffset == 0 ? 0 : 18));
     }
 
     private void buildSafeRegistry() {
         safeFloors = new TreeMap<>();
 
-        // 預設 B0-B1
+        // 預設僅註冊 B0, B1。B10 將由下方動態掃描捕捉。
         for (int b = 0; b <= 1; b++) {
             TreeSet<Integer> depths = new TreeSet<>();
             for (int d = 1; d <= ModGame.maxDepth(); d++) {
