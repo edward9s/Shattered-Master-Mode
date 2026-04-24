@@ -8,8 +8,6 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndGame;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTitledMessage;
 import com.watabou.noosa.Game;
-import com.watabou.noosa.BitmapText; // 確保引用正確的文字組件
-
 import com.spd.mod.ModGame;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -20,8 +18,7 @@ public class ModDepthSelector extends WndTitledMessage {
     private static TreeMap<Integer, TreeSet<Integer>> safeFloors;
 
     public ModDepthSelector() {
-        // 1. 將 message 設為 null，徹底解決父類別佈局遮擋問題
-        super(Icons.STAIRS.get(), "Teleport", null);
+        super(Icons.STAIRS.get(), "Teleport", "Select Branch (Top) or Depth (Grid)");
 
         buildSafeRegistry();
 
@@ -29,17 +26,9 @@ public class ModDepthSelector extends WndTitledMessage {
             selectedBranch = 0;
         }
 
-        // 2. 手動建立提示文字並固定在標題下方 (y = this.height)
-        BitmapText tip = new BitmapText("Pick a Branch (Top) and a Depth (Grid)", 6);
-        tip.x = 0;
-        tip.y = this.height + 2;
-        add(tip);
-
-        // 3. 按鈕起始 y 坐標必須基於提示文字的底部位置
-        int y = (int)(tip.y + tip.height() + 4);
+        int y = this.height + 2;
         int xOffset = 0;
 
-        // 分支按鈕 (移除 B4，僅保留 B0-B3)
         for (int branchId : safeFloors.keySet()) {
             if (xOffset + 24 > 120) {
                 xOffset = 0;
@@ -56,9 +45,8 @@ public class ModDepthSelector extends WndTitledMessage {
             xOffset += 26;
         }
 
-        // 4. 緊湊動態間距：分支按鈕結束後直接銜接樓層矩陣
         y += 17; 
-        y += 2; 
+        y += 4; 
 
         xOffset = 0;
         int count = 0;
@@ -86,8 +74,8 @@ public class ModDepthSelector extends WndTitledMessage {
     private void buildSafeRegistry() {
         safeFloors = new TreeMap<>();
 
-        // 預設分支 B0-B3，樓層上限由 ModGame.maxDepth() 定義
-        for (int b = 0; b <= 3; b++) {
+        // 預設 B0-B1
+        for (int b = 0; b <= 1; b++) {
             TreeSet<Integer> depths = new TreeSet<>();
             for (int d = 1; d <= ModGame.maxDepth(); d++) {
                 depths.add(d);
@@ -95,7 +83,6 @@ public class ModDepthSelector extends WndTitledMessage {
             safeFloors.put(b, depths);
         }
 
-        // 動態追蹤：只要使用者進入過 B5 或更高樓層，此處會自動記錄並於下次開啟時顯示
         for (int val : Dungeon.generatedLevels) {
             int b = val / 1000;
             int d = val % 1000;
