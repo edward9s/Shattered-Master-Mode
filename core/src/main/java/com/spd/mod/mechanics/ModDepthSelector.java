@@ -23,7 +23,6 @@ public class ModDepthSelector extends WndTitledMessage {
     public ModDepthSelector() {
         super(Icons.STAIRS.get(), "Teleport", null);
 
-        // 退回原版 120 寬度
         resize(120, 10);
 
         buildSafeRegistry();
@@ -32,15 +31,16 @@ public class ModDepthSelector extends WndTitledMessage {
             selectedBranch = 0;
         }
 
+        // 將 Y 偏移量從 +2 增加至 +8，拉開說明文字與標題間的距離
         RenderedTextBlock tip = PixelScene.renderTextBlock("Pick a Branch (Top) and a Depth (Grid)", 6);
-        tip.setPos(0, this.height + 2);
+        tip.setPos(0, this.height + 8); 
         add(tip);
 
+        // 按鈕起始 Y 座標會自動隨文字底部 (bottom) 下移，維持比例
         int y = (int)(tip.bottom() + 6);
         int xOffset = 0;
 
         for (int branchId : safeFloors.keySet()) {
-            // 寬度 120，按鈕加寬至 26 以容納 "B10"
             if (xOffset + 26 > 120) {
                 xOffset = 0;
                 y += 18;
@@ -61,7 +61,6 @@ public class ModDepthSelector extends WndTitledMessage {
 
         xOffset = 0;
         int count = 0;
-        // 退回單行 5 格
         for (int depth : safeFloors.get(selectedBranch)) {
             DepthButton btn = new DepthButton(selectedBranch, depth, Integer.toString(depth));
             
@@ -86,7 +85,6 @@ public class ModDepthSelector extends WndTitledMessage {
     private void buildSafeRegistry() {
         safeFloors = new TreeMap<>();
 
-        // 預設僅註冊 B0, B1。B10 將由下方動態掃描捕捉。
         for (int b = 0; b <= 1; b++) {
             TreeSet<Integer> depths = new TreeSet<>();
             for (int d = 1; d <= ModGame.maxDepth(); d++) {
