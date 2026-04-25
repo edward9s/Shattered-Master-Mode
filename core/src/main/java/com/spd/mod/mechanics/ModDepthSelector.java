@@ -31,12 +31,10 @@ public class ModDepthSelector extends WndTitledMessage {
             selectedBranch = 0;
         }
 
-        // 將 Y 偏移量從 +2 增加至 +8，拉開說明文字與標題間的距離
         RenderedTextBlock tip = PixelScene.renderTextBlock("Pick a Branch (Top) and a Depth (Grid)", 6);
         tip.setPos(0, this.height + 8); 
         add(tip);
 
-        // 按鈕起始 Y 座標會自動隨文字底部 (bottom) 下移，維持比例
         int y = (int)(tip.bottom() + 6);
         int xOffset = 0;
 
@@ -85,14 +83,11 @@ public class ModDepthSelector extends WndTitledMessage {
     private void buildSafeRegistry() {
         safeFloors = new TreeMap<>();
 
-        for (int b = 0; b <= 1; b++) {
-            TreeSet<Integer> depths = new TreeSet<>();
-            for (int d = 1; d <= ModGame.maxDepth(); d++) {
-                depths.add(d);
-            }
-            safeFloors.put(b, depths);
-        }
+        // 1. 確保原版的 B0 與 B1 必定存在
+        safeFloors.put(0, new TreeSet<Integer>());
+        safeFloors.put(1, new TreeSet<Integer>());
 
+        // 2. 動態載入使用者曾進入的樓層與隱藏分支 (如 RKA 的 B10)
         for (int val : Dungeon.generatedLevels) {
             int b = val / 1000;
             int d = val % 1000;
@@ -102,8 +97,17 @@ public class ModDepthSelector extends WndTitledMessage {
             safeFloors.get(b).add(d);
         }
 
-        if (!safeFloors.get(Dungeon.branch).contains(Dungeon.depth)) {
-            safeFloors.get(Dungeon.branch).add(Dungeon.depth);
+        // 3. 確保當前所在座標一定在清單中防呆
+        if (!safeFloors.containsKey(Dungeon.branch)) {
+            safeFloors.put(Dungeon.branch, new TreeSet<Integer>());
+        }
+        safeFloors.get(Dungeon.branch).add(Dungeon.depth);
+
+        // 4. 針對所有存在的 Branch，強制補齊 1 到 ModGame.maxDepth() 的按鈕
+        for (TreeSet<Integer> depths : safeFloors.values()) {
+            for (int d = 1; d <= ModGame.maxDepth(); d++) {
+                depths.add(d);
+            }
         }
     }
 
