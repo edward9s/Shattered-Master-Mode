@@ -3,7 +3,7 @@ name: Build SPD Mod
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 20 * * *'
+    - cron: '0 18 * * *' # 台灣時間凌晨 2 點 (UTC 18:00)
 
 jobs:
   build:
