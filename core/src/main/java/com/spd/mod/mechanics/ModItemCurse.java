@@ -42,21 +42,16 @@ public class ModItemCurse {
             return;
         }
 
-        boolean isCursed = item.cursed;
-        boolean isCursedKnown = item.cursedKnown;
-
-        if (!isCursed) {
-            item.cursed = true;
-            item.cursedKnown = true;
-        } else if (!isCursedKnown) {
-            item.cursedKnown = true;
-        } else {
+        if (item.cursed) {
             item.cursed = false;
-            item.cursedKnown = false;
+            GLog.p("Cleansed %s", new Object[]{item.name()});
+        } else {
+            item.cursed = true;
+            GLog.n("Cursed %s", new Object[]{item.name()});
         }
-
+        
+        item.cursedKnown = true;
         Item.updateQuickslot();
-        GLog.i(item.name());
 
         Sample.INSTANCE.play(Assets.Sounds.READ);
 

@@ -119,18 +119,28 @@ public class ModRich {
         try {
             if (pendingEnchantment != null && item instanceof Weapon) {
                 Weapon weapon = (Weapon) item;
-                Weapon.Enchantment enchant = pendingEnchantment.getClass().newInstance();
-                weapon.enchant(enchant);
+                if (weapon.enchantment != null && weapon.enchantment.getClass() == pendingEnchantment.getClass()) {
+                    weapon.enchant(null);
+                    GLog.p("Removed %s", new Object[]{pendingEnchantment.name()});
+                } else {
+                    Weapon.Enchantment enchant = pendingEnchantment.getClass().newInstance();
+                    weapon.enchant(enchant);
+                    GLog.p("Enchanted with %s", new Object[]{pendingEnchantment.name()});
+                }
                 Item.updateQuickslot();
                 Sample.INSTANCE.play(Assets.Sounds.READ);
-                GLog.p("Enchanted with %s", new Object[]{pendingEnchantment.name()});
             } else if (pendingGlyph != null && item instanceof Armor) {
                 Armor armor = (Armor) item;
-                Armor.Glyph glyph = pendingGlyph.getClass().newInstance();
-                armor.inscribe(glyph);
+                if (armor.glyph != null && armor.glyph.getClass() == pendingGlyph.getClass()) {
+                    armor.inscribe(null);
+                    GLog.p("Removed %s", new Object[]{pendingGlyph.name()});
+                } else {
+                    Armor.Glyph glyph = pendingGlyph.getClass().newInstance();
+                    armor.inscribe(glyph);
+                    GLog.p("Inscribed with %s", new Object[]{pendingGlyph.name()});
+                }
                 Item.updateQuickslot();
                 Sample.INSTANCE.play(Assets.Sounds.READ);
-                GLog.p("Inscribed with %s", new Object[]{pendingGlyph.name()});
             }
         } catch (Exception e) {
         }
