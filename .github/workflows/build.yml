@@ -3,7 +3,7 @@ name: Build SPD Mod
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 20 * * *'
+    - cron: '0 18 * * *' # 台灣時間凌晨 2 點 (UTC18:00)
 
 jobs:
   build:
@@ -12,7 +12,8 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Mod Source
+        uses: actions/checkout@v4
         with:
           path: mod
 
@@ -37,7 +38,8 @@ jobs:
             echo "EXPECTED_TAG=$EXPECTED_TAG" >> $GITHUB_ENV
           fi
 
-      - uses: actions/checkout@v4
+      - name: Checkout SPD Source
+        uses: actions/checkout@v4
         if: steps.check.outputs.skip == 'false'
         with:
           repository: 00-Evan/shattered-pixel-dungeon
@@ -100,7 +102,7 @@ jobs:
         if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: Release-SPD-${{ env.UPSTREAM_TAG }}
+          name: Release-${{ env.EXPECTED_TAG }}
           path: out/*
 
       - name: Create Release (Schedule Only)
@@ -109,7 +111,7 @@ jobs:
         with:
           tag_name: ${{ env.EXPECTED_TAG }}
           name: ${{ env.EXPECTED_TAG }}
-          body: "This is an automatic build based on the official version."
+          body: "This is an automatic build based on the official SPD version."
           files: out/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
