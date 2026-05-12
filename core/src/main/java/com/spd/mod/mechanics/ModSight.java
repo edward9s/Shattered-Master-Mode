@@ -9,6 +9,8 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.AttackIndicator;
+import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
+import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfMagicMapping;
 
 public class ModSight {
 
@@ -34,6 +36,7 @@ public class ModSight {
         // 揭露物品與出口
         revealItems();
         revealExit();
+        magicMapping();
 
         Dungeon.observe();
 
@@ -64,5 +67,32 @@ public class ModSight {
             level.discover(exitPos);
             GameScene.updateFog(exitPos, 2);
         }
+    }
+    
+    public static void magicMapping() {
+    	int length = Dungeon.level.length();
+        int[] map = Dungeon.level.map;
+        boolean[] mapped = Dungeon.level.mapped;
+        boolean[] discoverable = Dungeon.level.discoverable;
+
+        for (int i = 0; i < length; i++) {
+            int terr = map[i];
+            if (discoverable[i]) {
+                mapped[i] = true;
+        
+                // 揭露隱藏地形與陷阱
+                if ((Terrain.flags[terr] & Terrain.SECRET) != 0) {
+                    Dungeon.level.discover(i);
+            
+                    // 若在英雄視野內則觸發視覺特效
+                    if (Dungeon.level.heroFOV[i]) {
+                        GameScene.discoverTile(i, terr);
+                        ScrollOfMagicMapping.discover(i); 
+                   }
+                }
+            }
+        }
+        // 強制刷新畫面迷霧
+        GameScene.updateFog();
     }
 }
