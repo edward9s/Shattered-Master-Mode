@@ -23,7 +23,7 @@ jobs:
           REPO="00-Evan/shattered-pixel-dungeon"
           UPSTREAM_TAG=$(curl -s https://api.github.com/repos/$REPO/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
           MOD_VER=$(python mod/scripts/extract_version.py mod/core/src/main/java/com/spd/mod/ModGame.java)
-          EXPECTED_TAG="${UPSTREAM_TAG}-m${MOD_VER}"
+          EXPECTED_TAG="SPD-${UPSTREAM_TAG}-m${MOD_VER}"
           
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/${{ github.repository }}/releases/tags/$EXPECTED_TAG)
           
