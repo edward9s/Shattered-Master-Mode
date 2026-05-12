@@ -83,7 +83,7 @@ public class ModJournalWindow extends WndTabbed {
         });
 
         // 圖鑑標籤
-        add(new IconTab(new ItemSprite(ItemSpriteSheet.ARTIFACT_HOLDER, null)) {
+        add(new IconTab(new ItemSprite(ItemSpriteSheet.MOB_HOLDER, null)) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
@@ -111,7 +111,7 @@ public class ModJournalWindow extends WndTabbed {
         });
 
         // 環境標籤
-        add(new IconTab(new ItemSprite(ItemSpriteSheet.SEED_HOLDER, null)) {
+        add(new IconTab(new ItemSprite(ItemSpriteSheet.SPELL_HOLDER, null)) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
