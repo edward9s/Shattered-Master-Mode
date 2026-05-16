@@ -22,8 +22,7 @@ public class ModCatalogTab extends Component {
 
     private ScrollingGridPane grid;
 
-    public static int currentTab;
-    public static float[] scrollTops = new float[2];
+    public float scrollTop = 0f;
 
     public ModCatalogTab(ArrayList<Catalog> catalogs) {
         super();
@@ -97,8 +96,8 @@ public class ModCatalogTab extends Component {
     @Override
     public void update() {
         super.update();
-        float y = grid.content().camera.scroll.y;
-        scrollTops[currentTab] = y;
+        // 每個實體只記錄自己的滾動位置
+        scrollTop = grid.content().camera.scroll.y;
     }
 
     @Override
@@ -108,7 +107,7 @@ public class ModCatalogTab extends Component {
     }
 
     public void restoreScroll() {
-        float y = scrollTops[currentTab];
-        grid.scrollTo(0f, y);
+        // 恢復自己專屬的滾動位置
+        grid.scrollTo(0f, scrollTop);
     }
 }
