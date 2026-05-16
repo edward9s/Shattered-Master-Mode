@@ -14,7 +14,7 @@ public class ModGridEntity extends ScrollingGridPane.GridItem {
 
         Image icon = this.icon;
 
-        if (icon.width < 17.0f || icon.height < 17.0f) {
+        if (icon.width() >= 17.0f || icon.height() >= 17.0f) {
             RectF frame = icon.frame();
 
             float wShrink = frame.width() * (1.0f - (17.0f / icon.width));
