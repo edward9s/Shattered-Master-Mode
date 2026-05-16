@@ -22,7 +22,7 @@ public class ModSight {
 
         // 掛載並延長 Foresight 與 MindVision 效果
         Buff.prolong(hero, Foresight.class, duration);
-        Buff.prolong(hero, MindVision.class, MindVision.DURATION);
+        Buff.prolong(hero, MindVision.class, MindVision.DURATION * 0.3);
 
         Level level = Dungeon.level;
         int pos = hero.pos;
