@@ -1,5 +1,5 @@
 # Shattered-Master-Mode
-**In-game Editor** (In-game sandbox tester and editor / Meme generator)
+**In-game Editor** (In-game sandbox tester and editor / Meme generator) for [Shattered Pixel Dungeon](https://github.com/00-Evan/shattered-pixel-dungeon)
 
 **Core Features**
  * Designed for in-game sandbox testing, rapid editing, and easily creating meme images.
