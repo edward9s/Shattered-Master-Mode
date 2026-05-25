@@ -11,7 +11,6 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndGame;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTitledMessage;
 import com.watabou.noosa.Game;
-import com.watabou.noosa.Camera; // 【新增】引入 Camera 來取得螢幕動態高度
 import com.watabou.noosa.ui.Component;
 
 import com.spd.mod.ModGame;
@@ -24,12 +23,15 @@ public class ModDepthSelector extends WndTitledMessage {
     private static int selectedBranch = 0;
     private static TreeMap<Integer, TreeSet<Integer>> safeFloors;
     
+    // 跨視窗記錄滑動位置
     private static float savedScrollY = 0f;
+
+    private DepthSelectorPane scrollPane;
 
     public ModDepthSelector() {
         super(Icons.STAIRS.get(), "Teleport", null);
         
-        // 初始安全尺寸，確保背景渲染正常
+        // 初始安全尺寸
         resize(130, 160);
         
         buildSafeRegistry();
@@ -44,6 +46,7 @@ public class ModDepthSelector extends WndTitledMessage {
 
         float currentY = tip.bottom() + 6;
 
+        // --- 預先計算內容高度 ---
         float btnX = 0;
         float btnY = 0;
         for (int branchId : safeFloors.keySet()) {
@@ -59,22 +62,25 @@ public class ModDepthSelector extends WndTitledMessage {
         }
         float contentH = btnY + (btnX == 0 ? 0 : 18);
         
-        // 【動態高度計算】
-        // 1. 取得當前遊戲畫面的總高度，並扣除上下想要預留的邊界 (這裡設定上下各留 20px，共 40px)
-        float maxWindowHeight = Camera.main.height - 40; 
-        
-        // 2. 扣除標題區塊 (currentY) 與視窗底部預留的 padding (6px)，剩下的就是滾動視窗的極限高度
-        float maxViewHeight = maxWindowHeight - currentY - 6; 
-        
-        // 3. 取內容實際高度與極限高度的最小值，若內容較少視窗就會自動縮小
+        // 【修正 1】：使用標準 UI 偵測，動態給定橫向/直向的最大視窗高度
+        float maxViewHeight = PixelScene.landscape() ? 70f : 140f; 
         float viewHeight = Math.min(contentH, maxViewHeight);
 
-        DepthSelectorPane scrollPane = new DepthSelectorPane();
+        scrollPane = new DepthSelectorPane();
         add(scrollPane); 
         scrollPane.setRect(0, currentY, this.width, viewHeight); 
 
-        // 設定最終視窗高度
+        // 裁切最終視窗
         resize(130, (int)(currentY + viewHeight + 6));
+    }
+
+    // 【修正 2】：當視窗置中位移時，強制抵消內部元件的雙重偏移
+    @Override
+    public void offset(int xOffset, int yOffset) {
+        super.offset(xOffset, yOffset);
+        if (scrollPane != null) {
+            scrollPane.reLayout();
+        }
     }
 
     private void buildSafeRegistry() {
@@ -136,15 +142,21 @@ public class ModDepthSelector extends WndTitledMessage {
             }
         }
 
+        // 開放給外層呼叫的排版更新方法
+        public void reLayout() {
+            layout();
+        }
+
         @Override
         protected void layout() {
             if (branchTabs == null || depthButtons == null) return;
 
+            // 【核心重置】：確保無論視窗被推移到哪裡，按鈕永遠從局部的 0, 0 開始排版
             float cx = 0;
             float cy = 0; 
 
             for (BranchTab btn : branchTabs) {
-                if (cx + 26 > this.width) {
+                if (cx + 26 > ModDepthSelector.this.width) {
                     cx = 0;
                     cy += 18;
                 }
@@ -167,7 +179,7 @@ public class ModDepthSelector extends WndTitledMessage {
             }
 
             float finalY = cy + (cx == 0 ? 0 : 18);
-            content.setSize(this.width, finalY);
+            content.setSize(ModDepthSelector.this.width, finalY);
 
             super.layout();
             scrollTo(0, savedScrollY);
@@ -183,6 +195,7 @@ public class ModDepthSelector extends WndTitledMessage {
         @Override
         protected void onClick() {
             selectedBranch = this.branchId;
+            savedScrollY = 0f; // 切換分頁時將滾動條歸零，體驗較佳
             refresh();
         }
     }
