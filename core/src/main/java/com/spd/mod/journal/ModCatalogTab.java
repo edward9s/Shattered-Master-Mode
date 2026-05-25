@@ -22,10 +22,13 @@ public class ModCatalogTab extends Component {
 
     private ScrollingGridPane grid;
 
-    public float scrollTop = 0f;
+    // 新增靜態陣列儲存高度，與該實體的專屬索引 ID
+    public static float[] savedScrollTops = new float[2];
+    private int tabId;
 
-    public ModCatalogTab(ArrayList<Catalog> catalogs) {
+    public ModCatalogTab(ArrayList<Catalog> catalogs, int tabId) {
         super();
+        this.tabId = tabId;
 
         grid = new ScrollingGridPane();
         add(grid);
@@ -96,8 +99,8 @@ public class ModCatalogTab extends Component {
     @Override
     public void update() {
         super.update();
-        // 每個實體只記錄自己的滾動位置
-        scrollTop = grid.content().camera.scroll.y;
+        // 寫入對應 ID 的靜態陣列位置
+        savedScrollTops[tabId] = grid.content().camera.scroll.y;
     }
 
     @Override
@@ -107,7 +110,7 @@ public class ModCatalogTab extends Component {
     }
 
     public void restoreScroll() {
-        // 恢復自己專屬的滾動位置
-        grid.scrollTo(0f, scrollTop);
+        // 從對應 ID 的靜態陣列位置讀取
+        grid.scrollTo(0f, savedScrollTops[tabId]);
     }
 }
