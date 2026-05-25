@@ -7,103 +7,93 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
+import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndGame;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTitledMessage;
 import com.watabou.noosa.Game;
+import com.watabou.noosa.Camera; // 【新增】引入 Camera 來取得螢幕動態高度
+import com.watabou.noosa.ui.Component;
 
 import com.spd.mod.ModGame;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.ArrayList;
 
 public class ModDepthSelector extends WndTitledMessage {
 
     private static int selectedBranch = 0;
     private static TreeMap<Integer, TreeSet<Integer>> safeFloors;
+    
+    private static float savedScrollY = 0f;
 
     public ModDepthSelector() {
         super(Icons.STAIRS.get(), "Teleport", null);
-
-        resize(120, 10);
-
+        
+        // 初始安全尺寸，確保背景渲染正常
+        resize(130, 160);
+        
         buildSafeRegistry();
 
         if (!safeFloors.containsKey(selectedBranch)) {
             selectedBranch = 0;
         }
 
-        RenderedTextBlock tip = PixelScene.renderTextBlock("Pick a Branch (Top) and a Depth (Grid)", 6);
-        tip.setPos(0, this.height + 8); 
+        RenderedTextBlock tip = PixelScene.renderTextBlock("Pick a Branch & Depth", 6);
         add(tip);
+        tip.setPos((this.width - tip.width()) / 2f, 24);
 
-        int y = (int)(tip.bottom() + 6);
-        int xOffset = 0;
+        float currentY = tip.bottom() + 6;
 
+        float btnX = 0;
+        float btnY = 0;
         for (int branchId : safeFloors.keySet()) {
-            if (xOffset + 26 > 120) {
-                xOffset = 0;
-                y += 18;
-            }
-
-            BranchTab btn = new BranchTab(branchId);
-            btn.setRect(xOffset, y, 26, 16);
-            if (branchId == selectedBranch) {
-                btn.textColor(0xffff44);
-            }
-            add(btn);
-            
-            xOffset += 28;
+            if (btnX + 26 > this.width) { btnX = 0; btnY += 18; }
+            btnX += 28;
         }
-
-        y += 18; 
-        y += 4; 
-
-        xOffset = 0;
+        btnY += 22; 
+        btnX = 0; 
         int count = 0;
         for (int depth : safeFloors.get(selectedBranch)) {
-            DepthButton btn = new DepthButton(selectedBranch, depth, Integer.toString(depth));
-            
-            if (depth == Dungeon.depth && selectedBranch == Dungeon.branch) {
-                btn.textColor(0x44ffff);
-            }
-            
-            btn.setRect(xOffset, y, 23, 16);
-            add(btn);
-
-            xOffset += 24;
-            count++;
-            if (count % 5 == 0) {
-                y += 18;
-                xOffset = 0;
-            }
+            btnX += 24; count++;
+            if (count % 5 == 0) { btnY += 18; btnX = 0; }
         }
+        float contentH = btnY + (btnX == 0 ? 0 : 18);
+        
+        // 【動態高度計算】
+        // 1. 取得當前遊戲畫面的總高度，並扣除上下想要預留的邊界 (這裡設定上下各留 20px，共 40px)
+        float maxWindowHeight = Camera.main.height - 40; 
+        
+        // 2. 扣除標題區塊 (currentY) 與視窗底部預留的 padding (6px)，剩下的就是滾動視窗的極限高度
+        float maxViewHeight = maxWindowHeight - currentY - 6; 
+        
+        // 3. 取內容實際高度與極限高度的最小值，若內容較少視窗就會自動縮小
+        float viewHeight = Math.min(contentH, maxViewHeight);
 
-        resize(120, y + (xOffset == 0 ? 0 : 18));
+        DepthSelectorPane scrollPane = new DepthSelectorPane();
+        add(scrollPane); 
+        scrollPane.setRect(0, currentY, this.width, viewHeight); 
+
+        // 設定最終視窗高度
+        resize(130, (int)(currentY + viewHeight + 6));
     }
 
     private void buildSafeRegistry() {
         safeFloors = new TreeMap<>();
-
-        // 1. 確保原版的 B0 與 B1 必定存在
         safeFloors.put(0, new TreeSet<Integer>());
         safeFloors.put(1, new TreeSet<Integer>());
 
-        // 2. 動態載入使用者曾進入的樓層與隱藏分支 (如 RKA 的 B10)
         for (int val : Dungeon.generatedLevels) {
             int b = val / 1000;
             int d = val % 1000;
-            if (!safeFloors.containsKey(b)) {
-                safeFloors.put(b, new TreeSet<Integer>());
-            }
+            if (!safeFloors.containsKey(b)) safeFloors.put(b, new TreeSet<Integer>());
             safeFloors.get(b).add(d);
         }
 
-        // 3. 確保當前所在座標一定在清單中防呆
         if (!safeFloors.containsKey(Dungeon.branch)) {
             safeFloors.put(Dungeon.branch, new TreeSet<Integer>());
         }
         safeFloors.get(Dungeon.branch).add(Dungeon.depth);
 
-        // 4. 針對所有存在的 Branch，強制補齊 1 到 ModGame.maxDepth() 的按鈕
         for (TreeSet<Integer> depths : safeFloors.values()) {
             for (int d = 1; d <= ModGame.maxDepth(); d++) {
                 depths.add(d);
@@ -114,6 +104,74 @@ public class ModDepthSelector extends WndTitledMessage {
     private void refresh() {
         hide();
         GameScene.show(new ModDepthSelector());
+    }
+
+    private class DepthSelectorPane extends ScrollPane {
+        private ArrayList<BranchTab> branchTabs = new ArrayList<>();
+        private ArrayList<DepthButton> depthButtons = new ArrayList<>();
+
+        public DepthSelectorPane() {
+            super(new Component());
+
+            for (int branchId : safeFloors.keySet()) {
+                BranchTab btn = new BranchTab(branchId);
+                if (branchId == selectedBranch) btn.textColor(0xffff44);
+                branchTabs.add(btn);
+                content.add(btn); 
+            }
+
+            for (int depth : safeFloors.get(selectedBranch)) {
+                DepthButton btn = new DepthButton(selectedBranch, depth, Integer.toString(depth));
+                if (depth == Dungeon.depth && selectedBranch == Dungeon.branch) btn.textColor(0x44ffff);
+                depthButtons.add(btn);
+                content.add(btn);
+            }
+        }
+
+        @Override
+        public void update() {
+            super.update();
+            if (content != null && content.camera != null) {
+                savedScrollY = content.camera.scroll.y;
+            }
+        }
+
+        @Override
+        protected void layout() {
+            if (branchTabs == null || depthButtons == null) return;
+
+            float cx = 0;
+            float cy = 0; 
+
+            for (BranchTab btn : branchTabs) {
+                if (cx + 26 > this.width) {
+                    cx = 0;
+                    cy += 18;
+                }
+                btn.setRect(cx, cy, 26, 16);
+                cx += 28;
+            }
+
+            cy += 22; 
+            cx = 0;
+            int count = 0;
+
+            for (DepthButton btn : depthButtons) {
+                btn.setRect(cx, cy, 23, 16);
+                cx += 24;
+                count++;
+                if (count % 5 == 0) {
+                    cy += 18;
+                    cx = 0;
+                }
+            }
+
+            float finalY = cy + (cx == 0 ? 0 : 18);
+            content.setSize(this.width, finalY);
+
+            super.layout();
+            scrollTo(0, savedScrollY);
+        }
     }
 
     private class BranchTab extends RedButton {
