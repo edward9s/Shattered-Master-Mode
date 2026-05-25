@@ -32,11 +32,11 @@ public class ModJournalWindow extends WndTabbed {
         float h = (float) this.height;
 
         // 1. 初始化內容面板
-        this.tabEquip = new ModCatalogTab(Catalog.equipmentCatalogs);
+        this.tabEquip = new ModCatalogTab(Catalog.equipmentCatalogs, 0);
         add(this.tabEquip);
         this.tabEquip.setRect(0.0f, 0.0f, w, h);
 
-        this.tabConsumable = new ModCatalogTab(Catalog.consumableCatalogs);
+        this.tabConsumable = new ModCatalogTab(Catalog.consumableCatalogs, 1);
         add(this.tabConsumable);
         this.tabConsumable.setRect(0.0f, 0.0f, w, h);
 
