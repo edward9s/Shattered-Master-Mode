@@ -49,15 +49,26 @@ public class ModAssassin {
         int targetPos = target.pos;
         int heroPos = hero.pos;
 
-        ArrayList<Integer> path = findPath(heroPos, targetPos);
+        // 使用 BFS 取得自然繞路路徑 (若被封死則取半截)
+        ArrayList<Integer> path = findSmartPath(targetPos, heroPos);
 
         int bestPos = -1;
         int originalPos = hero.pos;
+        Level level = Dungeon.level;
 
         for (Integer node : path) {
-            hero.pos = node;
-            if (hero.canAttack(target)) {
-                bestPos = node;
+            Char occupant = Actor.findChar(node);
+            boolean isFree = (occupant == null || occupant == hero);
+
+            if (level.passable[node] && isFree) {
+                hero.pos = node;
+                if (hero.canAttack(target)) {
+                    bestPos = node;
+                } else {
+                    break;
+                }
+            } else {
+                break;
             }
         }
 
@@ -65,65 +76,66 @@ public class ModAssassin {
         return bestPos;
     }
 
-    private static ArrayList<Integer> findPath(int startPos, int targetPos) {
-        ArrayList<Integer> path = new ArrayList<>();
-        int currentPos = startPos;
-        path.add(currentPos);
-
-        int steps = 32;
-
-        while (steps > 0) {
-            if (currentPos == targetPos) {
-                break;
-            }
-
-            int bestNeighbor = getBestNeighbor(currentPos, targetPos);
-
-            if (bestNeighbor == -1) {
-                break;
-            }
-
-            path.add(bestNeighbor);
-            currentPos = bestNeighbor;
-            steps--;
-        }
-
-        return path;
-    }
-
-    private static int getBestNeighbor(int pos, int targetPos) {
+    // 結合 BFS 與暫存最近點的尋路演算法
+    private static ArrayList<Integer> findSmartPath(int startPos, int targetPos) {
         Level level = Dungeon.level;
         boolean[] passable = level.passable;
-        int width = level.width();
+        int w = level.width();
+        int[] offsets = { -1, 1, -w, w, -w - 1, -w + 1, w - 1, w + 1 };
 
-        int[] offsets = { -1, 1, -width, width, -width - 1, -width + 1, width - 1, width + 1 };
+        int[] cameFrom = new int[level.length()];
+        for (int i = 0; i < cameFrom.length; i++) {
+            cameFrom[i] = -1;
+        }
+
+        ArrayList<Integer> queue = new ArrayList<>();
+        queue.add(startPos);
+        cameFrom[startPos] = startPos;
+
+        int closestPos = startPos;
+        int minDistance = level.distance(startPos, targetPos);
         
-        int bestNeighbor = -1;
-        int minDist = Integer.MAX_VALUE;
+        // 防呆機制：限制最大探索步數，防止極度開闊地形造成效能問題
+        int maxExplore = 512; 
+        int head = 0;
 
-        for (int i = 0; i < 8; i++) {
-            int neighbor = offsets[i] + pos;
+        while (head < queue.size() && maxExplore > 0) {
+            int current = queue.get(head++);
             
-            if (neighbor >= 0 && neighbor < passable.length) {
-                if (passable[neighbor]) {
-                    
-                    if (neighbor != targetPos) {
-                        Char c = Actor.findChar(neighbor);
-                        if (c != null) {
-                            continue;
-                        }
-                    }
+            if (current == targetPos) {
+                closestPos = current;
+                break; // 順利找到目標，提早結束
+            }
 
-                    int dist = level.distance(neighbor, targetPos);
-                    if (dist < minDist) {
-                        minDist = dist;
-                        bestNeighbor = neighbor;
+            for (int offset : offsets) {
+                int neighbor = current + offset;
+                
+                if (neighbor >= 0 && neighbor < passable.length && passable[neighbor]) {
+                    if (cameFrom[neighbor] == -1) { // 尚未走過
+                        cameFrom[neighbor] = current;
+                        queue.add(neighbor);
+                        
+                        // 記錄探索過程中，離英雄幾何距離最近的格子
+                        int dist = level.distance(neighbor, targetPos);
+                        if (dist < minDistance) {
+                            minDistance = dist;
+                            closestPos = neighbor;
+                        }
                     }
                 }
             }
+            maxExplore--;
         }
 
-        return bestNeighbor;
+        // 從找到的最近點 (或目標點) 往回推導路徑
+        ArrayList<Integer> path = new ArrayList<>();
+        int curr = closestPos;
+        while (curr != startPos && cameFrom[curr] != -1) {
+            path.add(0, curr); // 往前插入，確保最後陣列方向是 敵人 -> 英雄
+            curr = cameFrom[curr];
+        }
+
+        return path;
     }
 
     public static class Selector extends CellSelector.Listener {
