@@ -55,7 +55,16 @@ public class ModDepthSelector extends WndTitledMessage {
             final int fDepth = depth;
             
             VisualRedButton btn = new VisualRedButton(Integer.toString(depth));
-            if (depth == Dungeon.depth && selectedBranch == Dungeon.branch) btn.textColor(0x44ffff);
+            
+            // 當前所在樓層保留青藍色文字
+            if (depth == Dungeon.depth && selectedBranch == Dungeon.branch) {
+                btn.textColor(0x44ffff); 
+            } 
+            
+            // 5 的倍數樓層更改底色 (深色)
+            if (depth % 5 == 0) {
+                btn.tint(0x000000, 0.5f); 
+            }
             
             grid.addItem(new ButtonGridItem(btn, 24f, 18f, () -> {
                 InterlevelScene.returnDepth = fDepth;
@@ -125,6 +134,19 @@ public class ModDepthSelector extends WndTitledMessage {
             // 我們可以直接把它從畫布物件群中 remove 掉。
             // 失去 hotArea 的按鈕就只剩貼圖與文字，觸控事件將 100% 穿透！
             remove(hotArea);
+        }
+        
+        public void hardlight(int colorCode) {
+            if (bg != null) {
+                bg.hardlight(colorCode); 
+            }
+        }
+        
+        // 加入 strength 參數以控制疊加濃度 (0.0f ~ 1.0f)
+        public void tint(int colorCode, float strength) {
+            if (bg != null) {
+                bg.tint(colorCode, strength); 
+            }
         }
     }
 
