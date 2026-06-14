@@ -6,7 +6,6 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.effects.CellEmitter;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Speck;
 import com.shatteredpixel.shatteredpixeldungeon.items.Ankh;
-import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
@@ -16,7 +15,6 @@ import com.watabou.utils.Bundle;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
-import java.util.Collections;
 
 public class ModAnkh extends Ankh {
 
@@ -28,12 +26,16 @@ public class ModAnkh extends Ankh {
         this.keptThoughLostInvent = true;
         this.unique = true;
     }
+    
+    @Override
+    public boolean keptThroughLostInventory() {
+        return true;
+    }
 
     @Override
     public void reset() {
         super.reset();
         this.keptThoughLostInvent = true;
-        this.unique = true;
     }
 
     @Override
@@ -41,7 +43,27 @@ public class ModAnkh extends Ankh {
         this.level(0);
         super.restoreFromBundle(bundle);
         this.keptThoughLostInvent = true;
-        this.unique = true;
+    }
+    
+    @Override
+    protected void onDetach() {
+        super.onDetach();
+        
+        for (StackTraceElement element : Thread.currentThread().getStackTrace()) {
+            String className = element.getClassName();
+            String methodName = element.getMethodName();
+            
+            if (("die".equals(methodName) && className.endsWith("Hero")) || 
+                className.endsWith("WndResurrect")) {
+                if (Dungeon.hero != null && Dungeon.hero.belongings != null && Dungeon.hero.belongings.backpack != null) {
+                    Bag backpack = Dungeon.hero.belongings.backpack;
+                    if (!backpack.contains(this)) {
+                        this.collect(backpack);
+                    }
+                }
+                break;
+            }
+        }
     }
 
     @Override
@@ -108,29 +130,6 @@ public class ModAnkh extends Ankh {
             field.set(this, false);
         } catch (Exception e) {
             e.printStackTrace();
-        }
-    }
-
-    @Override
-    protected void onDetach() {
-        super.onDetach();
-        
-        for (StackTraceElement element : Thread.currentThread().getStackTrace()) {
-            String className = element.getClassName();
-            String methodName = element.getMethodName();
-            
-            if (("die".equals(methodName) && className.endsWith("Hero")) || 
-                className.endsWith("WndResurrect")) {
-                if (Dungeon.hero != null && Dungeon.hero.belongings != null && Dungeon.hero.belongings.backpack != null) {
-                    Bag backpack = Dungeon.hero.belongings.backpack;
-                    if (!backpack.items.contains(this)) {
-                        backpack.items.add(this);
-                        Collections.sort(backpack.items, Item.itemComparator);
-                        Item.updateQuickslot();
-                    }
-                }
-                break;
-            }
         }
     }
 }

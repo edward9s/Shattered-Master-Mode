@@ -25,11 +25,21 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
     // 唯一建構子：private 確保外部只能透過內部類別實體化
     private ModPotionOfResetTier(int tier) {
         this.tier = tier;
+        this.level(1);
         reset();
+        this.keptThoughLostInvent = true;
+        this.unique = true;
+    }
+    
+    @Override
+    public boolean keptThroughLostInventory() {
+        return true;
     }
 
     @Override
     public void reset() {
+        this.keptThoughLostInvent = true;
+        this.unique = true;
         // 防止初始化的極端情況
         if (tier < 1) return; 
 
@@ -55,6 +65,7 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
+        this.level(0);
         super.restoreFromBundle(bundle);
         this.tier = bundle.getInt(TIER);
         reset();
@@ -82,9 +93,8 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
     @Override
     public void apply(Hero hero) {
         identify();
-        Map talentsMap = (Map) hero.talents.get(tier - 1); 
-        for (Object entryObj : talentsMap.entrySet()) {
-            Map.Entry entry = (Map.Entry) entryObj;
+        Map<?, Integer> talentsMap = (Map<?, Integer>) hero.talents.get(tier - 1); 
+        for (Map.Entry<?, Integer> entry : talentsMap.entrySet()) {
             entry.setValue(0);
         }
         hero.updateHT(true);

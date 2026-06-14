@@ -2,6 +2,8 @@ package com.spd.mod.items;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
+import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfMagicMapping;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
@@ -13,27 +15,37 @@ public class ModScrollOfSight extends Scroll {
 
     public ModScrollOfSight() {
         super();
+        this.level(1);
         this.icon = ItemSpriteSheet.Icons.SCROLL_FORESIGHT;
         this.stackable = false;
+        this.keptThoughLostInvent = true;
         this.unique = true;
-        this.level(1);
     }
     
+    @Override
+    public boolean keptThroughLostInventory() {
+        return true;
+    }
+    
+    @Override
+    public void reset() {
+        super.reset();
+        this.image = new ScrollOfMagicMapping().image;
+        this.rune = "scroll_sight";
+        this.keptThoughLostInvent = true;
+    }
+
     @Override
     public void restoreFromBundle(Bundle bundle) {
         // 在讀取存檔前將等級歸零，抵消建構子的預設值，避免 Item 原生機制的 upgrade 疊加
         this.level(0);
         super.restoreFromBundle(bundle);
+        this.keptThoughLostInvent = true;
     }
 
     @Override
     public String name() {
         return "Scroll of Sight";
-    }
-
-    @Override
-    public String info() {
-        return desc();
     }
 
     @Override
@@ -67,12 +79,6 @@ public class ModScrollOfSight extends Scroll {
     @Override
     public boolean isKnown() {
         return true;
-    }
-
-    @Override
-    public void reset() {
-        this.image = new ScrollOfMagicMapping().image;
-        this.rune = "scroll_sight";
     }
 
     @Override
