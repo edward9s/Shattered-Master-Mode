@@ -80,7 +80,6 @@ public class ModAnkh extends Ankh {
             if (!isBlessed()) {
                 bless();
                 GLog.p(Messages.get(this, "bless"));
-                hero.spend(1f);
                 hero.busy();
                 Sample.INSTANCE.play(Assets.Sounds.EVOKE);
                 CellEmitter.get(hero.pos).start(Speck.factory(Speck.LIGHT), 0.2f, 3);
@@ -93,7 +92,6 @@ public class ModAnkh extends Ankh {
             if (isBlessed()) {
                 removeBlessing();
                 GLog.w("The ankh is no longer blessed.");
-                hero.spend(1f);
                 hero.busy();
                 Sample.INSTANCE.play(Assets.Sounds.SHATTER);
                 hero.sprite.operate(hero.pos);
