@@ -45,7 +45,7 @@ public class ModCatalogTab extends Component {
         injectModItem(new ModPotionOfResetTier.Tier3());
         injectModItem(new ModPotionOfResetTier.Tier4());
         injectModItem(new ModPotionOfWeakness());
-        injectModItem(new ModBlessedAnkh());
+        injectModItem(new ModAnkh());
 
         for (Catalog catalog : catalogs) {
             grid.addHeader(Messages.titleCase(catalog.title()));

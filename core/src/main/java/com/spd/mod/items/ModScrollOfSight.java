@@ -5,6 +5,7 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfMagicMapping;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
+import com.watabou.utils.Bundle;
 
 import com.spd.mod.mechanics.ModSight;
 
@@ -13,7 +14,16 @@ public class ModScrollOfSight extends Scroll {
     public ModScrollOfSight() {
         super();
         this.icon = ItemSpriteSheet.Icons.SCROLL_FORESIGHT;
+        this.stackable = false;
         this.unique = true;
+        this.level(1);
+    }
+    
+    @Override
+    public void restoreFromBundle(Bundle bundle) {
+        // 在讀取存檔前將等級歸零，抵消建構子的預設值，避免 Item 原生機制的 upgrade 疊加
+        this.level(0);
+        super.restoreFromBundle(bundle);
     }
 
     @Override

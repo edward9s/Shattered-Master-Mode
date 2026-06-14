@@ -28,6 +28,31 @@ public class BtnExportSave extends RedButton {
         System.out.println("SPD_Mod: === EXPORT START ===");
 
         try {
+            Class<?> buildVersionClass = Class.forName("android.os.Build$VERSION");
+            int sdkInt = buildVersionClass.getField("SDK_INT").getInt(null);
+
+            if (sdkInt >= 30) {
+                Class<?> envClass = Class.forName("android.os.Environment");
+                boolean isManager = (boolean) envClass.getMethod("isExternalStorageManager").invoke(null);
+                
+                if (!isManager) {
+                    Object context = ModGame.getSystemContext();
+                    Class<?> intentClass = Class.forName("android.content.Intent");
+                    Object intent = intentClass.getConstructor(String.class).newInstance("android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION");
+                    
+                    Class<?> uriClass = Class.forName("android.net.Uri");
+                    Method getPackageName = context.getClass().getMethod("getPackageName");
+                    String pkg = (String) getPackageName.invoke(context);
+                    Object uri = uriClass.getMethod("fromParts", String.class, String.class, String.class).invoke(null, "package", pkg, null);
+                    
+                    intentClass.getMethod("setData", uriClass).invoke(intent, uri);
+                    intentClass.getMethod("addFlags", int.class).invoke(intent, 0x10000000);
+                    
+                    context.getClass().getMethod("startActivity", intentClass).invoke(context, intent);
+                    return;
+                }
+            }
+
             Dungeon.saveAll();
             Object context = ModGame.getSystemContext();
             
