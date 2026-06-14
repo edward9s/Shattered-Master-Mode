@@ -11,6 +11,7 @@ import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfUpgrade;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.watabou.utils.Bundle;
 
 import com.spd.mod.mechanics.ModFlash;
 
@@ -19,8 +20,17 @@ public class ModScrollOfDisplacement extends Scroll {
     public ModScrollOfDisplacement() {
         super();
         this.icon = ItemSpriteSheet.Icons.SCROLL_PASSAGE; // 0x35
+        this.stackable = false;
         this.unique = true;
         this.usesTargeting = true;
+        this.level(1);
+    }
+    
+    @Override
+    public void restoreFromBundle(Bundle bundle) {
+        // 在讀取存檔前將等級歸零，抵消建構子的預設值，避免 Item 原生機制的 upgrade 疊加
+        this.level(0);
+        super.restoreFromBundle(bundle);
     }
 
     @Override

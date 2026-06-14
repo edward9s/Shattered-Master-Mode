@@ -63,7 +63,7 @@ public class ModDepthSelector extends WndTitledMessage {
             
             // 5 的倍數樓層更改底色 (深色)
             if (depth % 5 == 0) {
-                btn.tint(0x000000, 0.5f); 
+                btn.tint(0x000000, 0.8f); 
             }
             
             grid.addItem(new ButtonGridItem(btn, 24f, 18f, () -> {
