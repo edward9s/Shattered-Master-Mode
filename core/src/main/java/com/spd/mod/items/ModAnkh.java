@@ -20,13 +20,21 @@ public class ModAnkh extends Ankh {
 
     public static final String AC_UNBLESS = "UNBLESS";
 
+    // Times revived via blessed ankh (kept inventory, instant revive).
+    private int timesRevived = 0;
+    // Times resurrected via unblessed ankh (lost inventory, via WndResurrect).
+    private int timesResurrected = 0;
+
+    private static final String TIMES_REVIVED     = "times_revived";
+    private static final String TIMES_RESURRECTED = "times_resurrected";
+
     public ModAnkh() {
         super();
         this.level(1);
         this.keptThoughLostInvent = true;
         this.unique = true;
     }
-    
+
     @Override
     public boolean keptThroughLostInventory() {
         return true;
@@ -39,23 +47,48 @@ public class ModAnkh extends Ankh {
     }
 
     @Override
+    public void storeInBundle(Bundle bundle) {
+        super.storeInBundle(bundle);
+        bundle.put(TIMES_REVIVED,     timesRevived);
+        bundle.put(TIMES_RESURRECTED, timesResurrected);
+    }
+
+    @Override
     public void restoreFromBundle(Bundle bundle) {
         this.level(0);
         super.restoreFromBundle(bundle);
         this.keptThoughLostInvent = true;
+        timesRevived     = bundle.getInt(TIMES_REVIVED);
+        timesResurrected = bundle.getInt(TIMES_RESURRECTED);
     }
-    
+
     @Override
     protected void onDetach() {
         super.onDetach();
-        
+
         for (StackTraceElement element : Thread.currentThread().getStackTrace()) {
-            String className = element.getClassName();
+            String className  = element.getClassName();
             String methodName = element.getMethodName();
-            
-            if (("die".equals(methodName) && className.endsWith("Hero")) || 
-                className.endsWith("WndResurrect")) {
-                if (Dungeon.hero != null && Dungeon.hero.belongings != null && Dungeon.hero.belongings.backpack != null) {
+
+            if ("die".equals(methodName) && className.endsWith("Hero")) {
+                // Detached from die(): blessed path = instant revive, keeping inventory.
+                timesRevived++;
+
+                if (Dungeon.hero != null && Dungeon.hero.belongings != null
+                        && Dungeon.hero.belongings.backpack != null) {
+                    Bag backpack = Dungeon.hero.belongings.backpack;
+                    if (!backpack.contains(this)) {
+                        this.collect(backpack);
+                    }
+                }
+                break;
+
+            } else if (className.endsWith("WndResurrect")) {
+                // Detached from WndResurrect: unblessed path = resurrection, losing inventory.
+                timesResurrected++;
+
+                if (Dungeon.hero != null && Dungeon.hero.belongings != null
+                        && Dungeon.hero.belongings.backpack != null) {
                     Bag backpack = Dungeon.hero.belongings.backpack;
                     if (!backpack.contains(this)) {
                         this.collect(backpack);
@@ -69,7 +102,7 @@ public class ModAnkh extends Ankh {
     @Override
     public ArrayList<String> actions(Hero hero) {
         ArrayList<String> actions = super.actions(hero);
-        
+
         if (isBlessed()) {
             actions.remove(AC_BLESS);
             if (!actions.contains(AC_UNBLESS)) {
@@ -81,7 +114,7 @@ public class ModAnkh extends Ankh {
                 actions.add(AC_BLESS);
             }
         }
-        
+
         return actions;
     }
 
@@ -121,6 +154,36 @@ public class ModAnkh extends Ankh {
         } else {
             super.execute(hero, action);
         }
+    }
+
+    /**
+     * Appends revival/resurrection history to the standard description.
+     * Only lines whose count > 0 are shown; at most two extra lines are added.
+     *
+     * "Revived"      = blessed ankh path: instant revive, inventory kept.
+     * "Resurrected"  = unblessed ankh path: WndResurrect, inventory lost.
+     */
+    @Override
+    public String desc() {
+        String base = super.desc();
+
+        StringBuilder sb = new StringBuilder(base);
+
+        if (timesRevived > 0) {
+            sb.append("\n\nThis ankh has revived you ")
+              .append(timesRevived)
+              .append(timesRevived == 1 ? " time" : " times")
+              .append(", keeping your inventory intact.");
+        }
+
+        if (timesResurrected > 0) {
+            sb.append("\n\nThis ankh has resurrected you ")
+              .append(timesResurrected)
+              .append(timesResurrected == 1 ? " time" : " times")
+              .append(", at the cost of your lost inventory.");
+        }
+
+        return sb.toString();
     }
 
     private void removeBlessing() {
