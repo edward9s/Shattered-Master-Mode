@@ -33,7 +33,7 @@ public class ModCatalogTab extends Component {
         grid = new ScrollingGridPane();
         add(grid);
 
-        grid.addHeader("Mod Items");
+        grid.addHeader("Mod Tools");
 
         injectModItem(new ModScrollOfAssassin());
         injectModItem(new ModScrollOfBlast());
