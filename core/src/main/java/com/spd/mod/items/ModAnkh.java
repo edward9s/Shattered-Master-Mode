@@ -173,14 +173,14 @@ public class ModAnkh extends Ankh {
             sb.append("\n\nThis ankh has revived you ")
               .append(timesRevived)
               .append(timesRevived == 1 ? " time" : " times")
-              .append(", keeping your inventory intact.");
+              .append(" on the spot, with your inventory still in hand.");
         }
 
         if (timesResurrected > 0) {
             sb.append("\n\nThis ankh has resurrected you ")
               .append(timesResurrected)
               .append(timesResurrected == 1 ? " time" : " times")
-              .append(", at the cost of your lost inventory.");
+              .append(", scattering your inventory at the place you fell.");
         }
 
         return sb.toString();
