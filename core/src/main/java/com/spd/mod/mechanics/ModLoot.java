@@ -117,7 +117,7 @@ public class ModLoot {
             hero.spendConstant(start - end);
         }
 
-        private static boolean isCollectable(Heap.Type type) {
+        public static boolean isCollectable(Heap.Type type) {
             return type == Heap.Type.HEAP ||
                    type == Heap.Type.CHEST ||
                    type == Heap.Type.REMAINS ||
