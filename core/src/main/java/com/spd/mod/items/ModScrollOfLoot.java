@@ -6,6 +6,7 @@ import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfTransmutation;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.watabou.utils.Bundlable;
@@ -50,6 +51,11 @@ public class ModScrollOfLoot extends Scroll {
     /** 數量顯示:把 stored 的數量同步到 level,讓卷軸右下角顯示數字。 */
     private void syncCount() {
         this.level(stored.size());
+    }
+
+    /** 供 WndModLoot 讀取目前暫存清單(回傳實際的 live list,視窗只讀不直接增刪)。 */
+    public ArrayList<Item> getStored() {
+        return stored;
     }
 
     @Override
@@ -107,7 +113,10 @@ public class ModScrollOfLoot extends Scroll {
         if ("READ".equals(action)) {
             doRead();
         } else if (AC_RELEASE.equals(action)) {
-            doRelease(hero);
+            // 只改 release:改為開啟可捲動的挑選視窗,逐件收回 / 丟棄
+            if (!stored.isEmpty()) {
+                GameScene.show(new WndModLoot(this));
+            }
         } else if (AC_RELEASE_ALL.equals(action)) {
             doReleaseAll(hero);
         } else {
@@ -155,32 +164,27 @@ public class ModScrollOfLoot extends Scroll {
     }
 
     /**
-     * 把暫存的道具收回背包,先進先出(FIFO):先吸收的先放回。
-     * 放不下就停(剩下的留在卷軸),清空也停。
+     * 收回單一指定道具(供 WndModLoot 逐件呼叫)。
+     * 先走官方 collect 進背包/合適的原生袋子;放不下就 drop 到英雄腳下。
+     * 無論哪種結果,該道具都會離開 stored。
      */
-    private void doRelease(Hero hero) {
-        int released = 0;
-
-        // 從開頭取,實現 FIFO。成功才 remove(0),失敗立即停止。
-        while (!stored.isEmpty()) {
-            Item item = stored.get(0);
-
-            // collect 走官方標準路徑,自然會優先塞進背包/合適的原生袋子;
-            // 體驗上跟正常撿東西完全一致,不違和。
-            if (item.collect(hero.belongings.backpack)) {
-                stored.remove(0);
-                released++;
-            } else {
-                // 背包(連同原生袋子)都滿了,停止釋放,剩下的留著
-                GLog.w("Backpack full. " + stored.size() + " item(s) still in the scroll.");
-                break;
-            }
+    public boolean releaseSingle(Hero hero, Item item) {
+        if (item == null || !stored.contains(item)) {
+            return false;
         }
 
-        if (released > 0) {
-            GLog.i("Released " + released + " item(s).");
+        if (item.collect(hero.belongings.backpack)) {
+            stored.remove(item);
+            GLog.i("Released " + item.name() + ".");
+        } else {
+            Dungeon.level.drop(item, hero.pos).sprite.drop();
+            stored.remove(item);
+            GLog.w("Dropped " + item.name() + " on the floor (backpack full).");
         }
+
         syncCount();
+        Item.updateQuickslot();
+        return true;
     }
 
     /**
