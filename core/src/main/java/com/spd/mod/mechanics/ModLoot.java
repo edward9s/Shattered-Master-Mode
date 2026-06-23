@@ -26,21 +26,25 @@ public class ModLoot {
         Trample.execute();
     }
 
-    public static void collectHeaps() {
-        Collect.execute();
+    /** @return 真正撿進背包(會播放 ITEM 撿取音效)的件數。 */
+    public static int collectHeaps() {
+        return Collect.execute();
     }
 
-    public static void grabItems() {
-        Grab.execute();
+    /** @return 真正撿進背包(會播放 ITEM 撿取音效)的件數。 */
+    public static int grabItems() {
+        return Grab.execute();
     }
 
     // --- 內部實作：拔箭 ---
     public static class Grab {
-        public static void execute() {
+        /** @return 成功拔進背包的件數(每次成功都會播放 ITEM 音效)。 */
+        public static int execute() {
             Level level = Dungeon.level;
             Hero hero = Dungeon.hero;
-            if (level == null || hero == null) return;
+            if (level == null || hero == null) return 0;
 
+            int pickedUp = 0;
             float start = hero.cooldown();
 
             Iterator<Mob> it = level.mobs.iterator();
@@ -53,9 +57,10 @@ public class ModLoot {
                     Item item = pc.grabOne();
                     if (item == null) break;
 
-                    boolean pickedUp = item.doPickUp(hero, mob.pos);
-                    if (pickedUp) {
+                    boolean picked = item.doPickUp(hero, mob.pos);
+                    if (picked) {
                         GLog.i("Grabbed: " + item.name());
+                        pickedUp++;
                     } else {
                         level.drop(item, mob.pos);
                         break;
@@ -65,16 +70,23 @@ public class ModLoot {
 
             float end = hero.cooldown();
             hero.spendConstant(start - end);
+            return pickedUp;
         }
     }
 
     // --- 內部實作：撿取 ---
     public static class Collect {
-        public static void execute() {
+        /**
+         * @return 真正撿進背包(會播放 ITEM 音效)的件數。
+         *         露珠走的是 Dewdrop.doPickUp:播 DEWDROP 而非 ITEM、且不進背包,故不計入,
+         *         讓「只撿到露珠 + 真道具溢出到卷軸」時,卷軸仍能補一次吸入音效而不會重疊。
+         */
+        public static int execute() {
             Level level = Dungeon.level;
             Hero hero = Dungeon.hero;
-            if (level == null || hero == null) return;
+            if (level == null || hero == null) return 0;
 
+            int pickedUp = 0;
             float start = hero.cooldown();
 
             if (level.heaps != null) {
@@ -93,18 +105,20 @@ public class ModLoot {
                                     break; // 水袋已滿且血滿，跳過這個 Heap
                                 }
                             }
-                            boolean pickedUp = ((Dewdrop) item).doPickUp(hero);
+                            boolean picked = ((Dewdrop) item).doPickUp(hero);
                             Item popped = heap.pickUp();
-                            if (pickedUp) {
+                            if (picked) {
                                 GLog.i("Collected: " + popped.name());
+                                // 露珠播 DEWDROP 而非 ITEM、也不算「進背包」→ 不計入。
                             } else {
                                 level.drop(popped, hero.pos);
                             }
                         } else {
-                            boolean pickedUp = item.doPickUp(hero);
+                            boolean picked = item.doPickUp(hero);
                             Item popped = heap.pickUp();
-                            if (pickedUp) {
+                            if (picked) {
                                 GLog.i("Collected: " + popped.name());
+                                pickedUp++;
                             } else {
                                 level.drop(popped, hero.pos);
                             }
@@ -115,6 +129,7 @@ public class ModLoot {
 
             float end = hero.cooldown();
             hero.spendConstant(start - end);
+            return pickedUp;
         }
 
         public static boolean isCollectable(Heap.Type type) {

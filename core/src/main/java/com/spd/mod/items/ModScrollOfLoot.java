@@ -1,5 +1,6 @@
 package com.spd.mod.items;
 
+import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
@@ -9,6 +10,7 @@ import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfTransmutat
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundlable;
 import com.watabou.utils.Bundle;
 
@@ -127,16 +129,22 @@ public class ModScrollOfLoot extends Scroll {
     public void doRead() {
         Hero hero = Dungeon.hero;
 
-        // ModLoot 負責全地圖(它會跳過英雄腳下那格,避免背包滿時 drop/collect 互踩的無限迴圈)
-        ModLoot.grabItems();
+        // ModLoot 負責全地圖(它會跳過英雄腳下那格,避免背包滿時 drop/collect 互踩的無限迴圈)。
+        // grab/collect 回傳「真正進背包(會播 ITEM 撿取音效)」的件數,供下方決定是否補播。
+        int pickedIntoBags = ModLoot.grabItems();
         ModLoot.trampleGrass();
-        ModLoot.collectHeaps();
+        pickedIntoBags += ModLoot.collectHeaps();
 
         // 全地圖 loot 完後,卷軸只負責「英雄腳下」這一格剩餘的 Heap。
         // 職責與 ModLoot 互不重疊,不會有同一個 Heap 被兩套規則處理的問題。
         int absorbed = absorbUnderfoot(hero);
         if (absorbed > 0) {
             GLog.i("Absorbed " + absorbed + " item(s) into the scroll.");
+            // 只有在整輪 grab+collect 都沒有任何一件進背包(因此沒播過 ITEM 音效)時,
+            // 才為吸入動作補播一次清脆音效;否則交給原生撿取音效,避免重疊。
+            if (pickedIntoBags == 0) {
+                Sample.INSTANCE.play(Assets.Sounds.ITEM);
+            }
         }
         syncCount();
     }
@@ -153,7 +161,7 @@ public class ModScrollOfLoot extends Scroll {
         int count = 0;
         for (Item item : heap.items.toArray(new Item[0])) {
             if (item == null) continue;
-            stored.add(item);
+            absorb(item);
             heap.items.remove(item);
             count++;
         }
@@ -161,6 +169,23 @@ public class ModScrollOfLoot extends Scroll {
             heap.destroy();
         }
         return count;
+    }
+
+    /**
+     * 把單一道具併入 stored:可堆疊者先在既有清單找同類合併,否則作為新項目加入。
+     * 對齊 Item.collect() 的原生堆疊行為:用 isSimilar 判同類、用 merge 把數量相加
+     * (因此會沿用各道具自己的 merge 規則,例如 Dewdrop 把數量上限鎖在 1)。
+     */
+    private void absorb(Item item) {
+        if (item.stackable) {
+            for (Item existing : stored) {
+                if (existing.isSimilar(item)) {
+                    existing.merge(item);   // existing.quantity += item.quantity; item.quantity = 0
+                    return;
+                }
+            }
+        }
+        stored.add(item);
     }
 
     /**
