@@ -8,8 +8,10 @@ import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfTransmutation;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndOptions;
 import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundlable;
 import com.watabou.utils.Bundle;
@@ -19,9 +21,6 @@ import java.util.ArrayList;
 import com.spd.mod.mechanics.ModLoot;
 
 public class ModScrollOfLoot extends Scroll {
-
-    public static final String AC_RELEASE = "RELEASE";
-    public static final String AC_RELEASE_ALL = "RELEASE_ALL";
 
     // 真實資料來源:暫存的溢出道具。level() 只是它的數量鏡像,不是資料本身。
     private ArrayList<Item> stored = new ArrayList<>();
@@ -86,44 +85,61 @@ public class ModScrollOfLoot extends Scroll {
     }
 
     @Override
-    public ArrayList<String> actions(Hero hero) {
-        ArrayList<String> actions = super.actions(hero);
-        if (!stored.isEmpty()) {
-            if (!actions.contains(AC_RELEASE)) {
-                actions.add(AC_RELEASE);
-            }
-            if (!actions.contains(AC_RELEASE_ALL)) {
-                actions.add(AC_RELEASE_ALL);
-            }
-        }
-        return actions;
-    }
-
-    @Override
-    public String actionName(String action, Hero hero) {
-        if (AC_RELEASE.equals(action)) {
-            return "Release (" + stored.size() + ")";
-        }
-        if (AC_RELEASE_ALL.equals(action)) {
-            return "Release All (" + stored.size() + ")";
-        }
-        return super.actionName(action, hero);
-    }
-
-    @Override
     public void execute(Hero hero, String action) {
         if ("READ".equals(action)) {
-            doRead();
-        } else if (AC_RELEASE.equals(action)) {
-            // 只改 release:改為開啟可捲動的挑選視窗,逐件收回 / 丟棄
-            if (!stored.isEmpty()) {
-                GameScene.show(new WndModLoot(this));
-            }
-        } else if (AC_RELEASE_ALL.equals(action)) {
-            doReleaseAll(hero);
+            // 參考 TimekeepersHourglass:讀卷軸不直接動作,先彈出 WndOptions 三選一
+            showLootMenu(hero);
         } else {
             super.execute(hero, action);
         }
+    }
+
+    /**
+     * 卷軸的主選單。三個按鈕分別對應原本的三個 action:
+     *  - Loot        → doRead():全地圖收割 + 把放不下的道具吸進卷軸
+     *  - Release     → 開啟 WndModLoot:逐件挑選收回 / 丟棄
+     *  - Release All → doReleaseAll():一次倒乾淨
+     * 沒有暫存道具時,Release / Release All 兩顆會被禁用(只剩 Loot 可按)。
+     */
+    private void showLootMenu(final Hero hero) {
+        final boolean hasStored = !stored.isEmpty();
+        final int count = stored.size();
+
+        String message = hasStored
+                ? "Loot all heaps on this floor, or retrieve the " + count + " item(s) held in the scroll."
+                : "Loot all heaps on this floor. Items that don't fit in your bags are absorbed into the scroll.";
+
+        GameScene.show(new WndOptions(
+                new ItemSprite(this),
+                name(),
+                message,
+                "Loot",
+                "Release (" + count + ")",
+                "Release All (" + count + ")") {
+
+            @Override
+            protected void onSelect(int index) {
+                switch (index) {
+                    case 0:
+                        doRead();
+                        break;
+                    case 1:
+                        if (!stored.isEmpty()) {
+                            GameScene.show(new WndModLoot(ModScrollOfLoot.this));
+                        }
+                        break;
+                    case 2:
+                        doReleaseAll(hero);
+                        break;
+                }
+            }
+
+            @Override
+            protected boolean enabled(int index) {
+                // Loot 永遠可用;Release / Release All 需要有暫存道具
+                return index == 0 || hasStored;
+            }
+        });
     }
 
     public void doRead() {
