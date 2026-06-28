@@ -85,5 +85,6 @@ public class ModScrollOfBlast extends Scroll {
 
     @Override
     public void setKnown() {
+        // 阻斷系統註冊機制以防崩潰
     }
 }

@@ -57,6 +57,11 @@ public class ModPotionOfWeakness extends Potion {
 
         GLog.n("You feel weaker...");
     }
+    
+    @Override
+	public int value() {
+		return 0;
+	}
 
     @Override
     public boolean isIdentified() {
@@ -66,5 +71,10 @@ public class ModPotionOfWeakness extends Potion {
     @Override
     public boolean isKnown() {
         return true;
+    }
+    
+    @Override
+    public void setKnown() {
+        // 阻斷系統註冊機制以防崩潰
     }
 }

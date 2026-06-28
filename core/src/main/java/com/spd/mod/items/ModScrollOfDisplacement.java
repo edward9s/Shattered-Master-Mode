@@ -91,6 +91,7 @@ public class ModScrollOfDisplacement extends Scroll {
 
     @Override
     public void setKnown() {
+        // 阻斷系統註冊機制以防崩潰
     }
 
     public static class TargetSelector extends com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector.Listener implements com.watabou.utils.Callback {

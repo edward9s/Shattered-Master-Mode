@@ -105,13 +105,24 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
         }
         GLog.h("Tier " + tier + " Reset!");
     }
+    
+    @Override
+	public int value() {
+		return 0;
+	}
 
     @Override
-    public int value() { return (tier <= 2) ? 20 : 50; }
+    public boolean isIdentified() {
+        return true;
+    }
+
     @Override
-    public int energyVal() { return (tier <= 2) ? 2 : 10; }
+    public boolean isKnown() {
+        return true;
+    }
+    
     @Override
-    public boolean isIdentified() { return true; }
-    @Override
-    public boolean isKnown() { return true; }
+    public void setKnown() {
+        // 阻斷系統註冊機制以防崩潰
+    }
 }
