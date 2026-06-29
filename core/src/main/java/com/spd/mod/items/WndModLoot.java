@@ -21,7 +21,7 @@ import java.util.ArrayList;
  * 視覺上重刻 WndBag(含 InventorySlot 等級的格子精緻度),差別在於整個物品區可以「垂直捲動」。
  *
  * 互動規則(對齊使用者需求):
- *  - 點擊某個有物品的格子 → 透過 ModScrollOfLoot.releaseSingle() 把它 collect 回背包,
+ *  - 點擊某個有物品的格子 → 透過 ModScrollOfLoot.takeSingle() 把它 collect 回背包,
  *    背包滿則 drop 到英雄腳下。動作後就地刷新清單,並保留捲動位置。
  *  - 點擊「空格子」或視窗內任何位置 → 不關閉(因為都落在 chrome 範圍內,Window.blocker 不會觸發)。
  *  - 點擊視窗「外」 → 由 Window 內建的 blocker 關閉。
@@ -85,7 +85,7 @@ public class WndModLoot extends Window {
     private void onSelect(Item item) {
         float scrollY = (pane != null) ? pane.content().camera.scroll.y : 0f;
 
-        scroll.releaseSingle(Dungeon.hero, item);
+        scroll.takeSingle(Dungeon.hero, item);
 
         rebuild(scrollY);
     }

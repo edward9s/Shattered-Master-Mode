@@ -3,6 +3,7 @@ package com.spd.mod.items;
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
+import com.shatteredpixel.shatteredpixeldungeon.items.EquipableItem;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll;
@@ -11,6 +12,7 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndOptions;
 import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundlable;
@@ -95,27 +97,29 @@ public class ModScrollOfLoot extends Scroll {
     }
 
     /**
-     * 卷軸的主選單。三個按鈕分別對應原本的三個 action:
-     *  - Loot        → doRead():全地圖收割 + 把放不下的道具吸進卷軸
-     *  - Release     → 開啟 WndModLoot:逐件挑選收回 / 丟棄
-     *  - Release All → doReleaseAll():一次倒乾淨
-     * 沒有暫存道具時,Release / Release All 兩顆會被禁用(只剩 Loot 可按)。
+     * 卷軸的主選單。四個按鈕分別對應四個 action:
+     *  - Loot → doRead():全地圖收割 + 把放不下的道具吸進卷軸
+     *  - Put  → showPutSelector():從背包挑選道具收進卷軸(可連續挑選多件)
+     *  - Take → 開啟 WndModLoot:從卷軸內逐件挑選收回背包 / 丟棄
+     *  - Dump → doDump():把卷軸內的道具一次倒乾淨
+     * 沒有暫存道具時,Take / Dump 兩顆會被禁用;Loot / Put 永遠可用。
      */
     private void showLootMenu(final Hero hero) {
         final boolean hasStored = !stored.isEmpty();
         final int count = stored.size();
 
         String message = hasStored
-                ? "Loot all heaps on this floor, or retrieve the " + count + " item(s) held in the scroll."
-                : "Loot all heaps on this floor. Items that don't fit in your bags are absorbed into the scroll.";
+                ? "Loot all heaps on this floor, store backpack items in the scroll, or retrieve the " + count + " item(s) held inside."
+                : "Loot all heaps on this floor, or store backpack items in the scroll for safekeeping.";
 
         GameScene.show(new WndOptions(
                 new ItemSprite(this),
                 name(),
                 message,
                 "Loot",
-                "Release (" + count + ")",
-                "Release All (" + count + ")") {
+                "Put",
+                "Take (" + count + ")",
+                "Dump (" + count + ")") {
 
             @Override
             protected void onSelect(int index) {
@@ -124,20 +128,55 @@ public class ModScrollOfLoot extends Scroll {
                         doRead();
                         break;
                     case 1:
+                        showPutSelector();
+                        break;
+                    case 2:
                         if (!stored.isEmpty()) {
                             GameScene.show(new WndModLoot(ModScrollOfLoot.this));
                         }
                         break;
-                    case 2:
-                        doReleaseAll(hero);
+                    case 3:
+                        doDump(hero);
                         break;
                 }
             }
 
             @Override
             protected boolean enabled(int index) {
-                // Loot 永遠可用;Release / Release All 需要有暫存道具
-                return index == 0 || hasStored;
+                // Loot / Put 永遠可用;Take / Dump 需要有暫存道具
+                return index == 0 || index == 1 || hasStored;
+            }
+        });
+    }
+
+    /**
+     * Put:從背包挑選道具收進卷軸。
+     * 比照 BtnIdentify → ModItemIdentify 的選物模式:用 GameScene.selectItem 開啟 WndBag,
+     * 選到道具後立刻執行 putSingle(),再呼叫自己重新開啟選物視窗,達成「連續點擊收件」的效果
+     * (WndBag 預設 hideAfterSelecting()=true,所以每次選擇都是「先關閉、再立刻重開」的視覺效果)。
+     * 按返回鍵 / 點外側關閉時 onSelect 會收到 null,直接結束,不重開。
+     */
+    private void showPutSelector() {
+        GameScene.selectItem(new WndBag.ItemSelector() {
+            @Override
+            public String textPrompt() {
+                return "Select an item to store";
+            }
+
+            @Override
+            public boolean itemSelectable(Item item) {
+                // 只排除卷軸自己(不能把自己放進自己)。裝備中的道具可以選,
+                // putSingle 會先嘗試卸裝(對齊 WndTradeItem.sell() 的慣例),卸不掉(例如被詛咒鎖住)就直接放棄這次操作。
+                return item != ModScrollOfLoot.this;
+            }
+
+            @Override
+            public void onSelect(Item item) {
+                if (item == null) {
+                    return;
+                }
+                putSingle(Dungeon.hero, item);
+                showPutSelector();
             }
         });
     }
@@ -205,18 +244,18 @@ public class ModScrollOfLoot extends Scroll {
     }
 
     /**
-     * 收回單一指定道具(供 WndModLoot 逐件呼叫)。
+     * 收回單一指定道具(供 WndModLoot 的 Take 流程逐件呼叫)。
      * 先走官方 collect 進背包/合適的原生袋子;放不下就 drop 到英雄腳下。
      * 無論哪種結果,該道具都會離開 stored。
      */
-    public boolean releaseSingle(Hero hero, Item item) {
+    public boolean takeSingle(Hero hero, Item item) {
         if (item == null || !stored.contains(item)) {
             return false;
         }
 
         if (item.collect(hero.belongings.backpack)) {
             stored.remove(item);
-            GLog.i("Released " + item.name() + ".");
+            GLog.i("Took " + item.name() + " from the scroll.");
         } else {
             Dungeon.level.drop(item, hero.pos).sprite.drop();
             stored.remove(item);
@@ -229,10 +268,38 @@ public class ModScrollOfLoot extends Scroll {
     }
 
     /**
-     * 強制清空:先盡量 collect 回背包,放不下的 drop 到英雄腳下。
-     * 結束後 stored 保證為空。用於處置卷軸(賣出/煉化)前一次倒乾淨。
+     * 收進單一指定道具(供 Put 選物視窗逐件呼叫)。
+     * 裝備中的道具先嘗試卸裝(對齊 WndTradeItem.sell()/WndEnergizeItem 的慣例),
+     * 卸不掉(例如被詛咒鎖住)就直接放棄,不收進卷軸。
+     * 成功後用 detachAll 把整疊從背包(或其巢狀子袋,例如箭袋/聖水瓶)移除,
+     * 再走 absorb() 併入 stored,沿用既有的 isSimilar/merge 堆疊規則。
+     * detachAll 不分數量,一律整疊移除,對齊 WndTradeItem.sell() 的整疊處理方式。
      */
-    private void doReleaseAll(Hero hero) {
+    public boolean putSingle(Hero hero, Item item) {
+        if (item == null || item == this) {
+            return false;
+        }
+
+        if (item.isEquipped(hero) && !((EquipableItem) item).doUnequip(hero, false)) {
+            GLog.w("Can't unequip " + item.name() + ".");
+            return false;
+        }
+
+        item.detachAll(hero.belongings.backpack);
+        absorb(item);
+        GLog.i("Stored " + item.name() + " in the scroll.");
+        Sample.INSTANCE.play(Assets.Sounds.ITEM);
+
+        syncCount();
+        Item.updateQuickslot();
+        return true;
+    }
+
+    /**
+     * 強制清空:先盡量 collect 回背包,放不下的 drop 到英雄腳下。
+     * 結束後 stored 保證為空。用於 Dump 按鈕,以及處置卷軸(賣出/煉化)前一次倒乾淨。
+     */
+    private void doDump(Hero hero) {
         int released = 0;
         int dropped = 0;
 
@@ -247,9 +314,9 @@ public class ModScrollOfLoot extends Scroll {
         stored.clear();
 
         if (dropped > 0) {
-            GLog.w("Released " + released + " item(s); dropped " + dropped + " on the floor (backpack full).");
+            GLog.w("Dumped " + released + " item(s) into your bags; " + dropped + " dropped on the floor (backpack full).");
         } else if (released > 0) {
-            GLog.i("Released " + released + " item(s).");
+            GLog.i("Dumped " + released + " item(s) into your bags.");
         }
         syncCount();
     }
@@ -257,9 +324,10 @@ public class ModScrollOfLoot extends Scroll {
     @Override
     public String desc() {
         String base = "Hero will trample all high-grass and loot all heaps."
-                + " Items that don't fit in your bags are absorbed into the scroll.";
+                + " Items that don't fit in your bags are absorbed into the scroll."
+                + " You can also Put items from your bags into the scroll for safekeeping.";
         if (!stored.isEmpty()) {
-            base += "\n\nCurrently holding " + stored.size() + " item(s). Use Release to retrieve them.";
+            base += "\n\nCurrently holding " + stored.size() + " item(s). Use Take to retrieve them one at a time, or Dump to empty the scroll at once.";
         }
         return base;
     }
