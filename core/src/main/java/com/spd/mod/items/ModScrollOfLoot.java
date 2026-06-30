@@ -262,6 +262,7 @@ public class ModScrollOfLoot extends Scroll {
             GLog.w("Dropped " + item.name() + " on the floor (backpack full).");
         }
 
+        Sample.INSTANCE.play(Assets.Sounds.ITEM);
         syncCount();
         Item.updateQuickslot();
         return true;
@@ -317,6 +318,9 @@ public class ModScrollOfLoot extends Scroll {
             GLog.w("Dumped " + released + " item(s) into your bags; " + dropped + " dropped on the floor (backpack full).");
         } else if (released > 0) {
             GLog.i("Dumped " + released + " item(s) into your bags.");
+        }
+        if (released + dropped > 0) {
+            Sample.INSTANCE.play(Assets.Sounds.ITEM);
         }
         syncCount();
     }
