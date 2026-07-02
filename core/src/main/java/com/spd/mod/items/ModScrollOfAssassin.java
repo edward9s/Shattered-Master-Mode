@@ -24,12 +24,29 @@ public class ModScrollOfAssassin extends Scroll {
         this.unique = true;
         this.usesTargeting = true;
     }
-    
+
+    /**
+     * 關鍵修正：快捷欄的自動瞄準 (QuickSlotButton.autoAim) 會先測
+     * targetingPos(hero, target.pos) == target.pos，預設實作是投射物彈道的
+     * collisionPos——當英雄與敵人之間有牆角截斷彈道時，直瞄失敗，
+     * autoAim 便改回傳「彈道會停在敵人身上」的格子，也就是英雄—敵人
+     * 連線延長到敵人背後的位置。該格上沒有角色，Selector 會誤入
+     * 空地閃現分支：英雄被傳到敵人背後、無攻擊、無訊息。
+     *
+     * 本卷軸的目標選取不是投射物，直接回傳 dst 即可：
+     * autoAim 的直瞄檢查恆成立，永遠把敵人本格送進 Selector，
+     * 二連點快捷欄自動刺殺上次目標的便利性照舊。
+     */
+    @Override
+    public int targetingPos(Hero user, int dst) {
+        return dst;
+    }
+
     @Override
     public boolean keptThroughLostInventory() {
         return true;
     }
-    
+
     @Override
     public void reset() {
         super.reset();
@@ -37,7 +54,7 @@ public class ModScrollOfAssassin extends Scroll {
         this.rune = "scroll_assassin";
         this.keptThoughLostInvent = true;
     }
-    
+
     @Override
     public void restoreFromBundle(Bundle bundle) {
         // 在讀取存檔前將等級歸零，抵消建構子的預設值，避免 Item 原生機制的 upgrade 疊加
@@ -86,18 +103,17 @@ public class ModScrollOfAssassin extends Scroll {
 
     @Override
     public void setKnown() {
-        // 阻斷系統註冊機制以防崩潰
     }
-    
+
     @Override
     protected void onDetach() {
         super.onDetach();
-        
+
         for (StackTraceElement element : Thread.currentThread().getStackTrace()) {
             String className = element.getClassName();
             String methodName = element.getMethodName();
-            
-            if (("die".equals(methodName) && className.endsWith("Hero")) || 
+
+            if (("die".equals(methodName) && className.endsWith("Hero")) ||
                 className.endsWith("WndResurrect")) {
                 if (Dungeon.hero != null && Dungeon.hero.belongings != null && Dungeon.hero.belongings.backpack != null) {
                     Bag backpack = Dungeon.hero.belongings.backpack;
