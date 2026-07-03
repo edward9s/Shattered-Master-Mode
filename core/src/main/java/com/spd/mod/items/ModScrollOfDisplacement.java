@@ -7,6 +7,7 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
+import com.shatteredpixel.shatteredpixeldungeon.items.bags.ScrollHolder;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfUpgrade;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
@@ -34,7 +35,16 @@ public class ModScrollOfDisplacement extends Scroll {
     public boolean keptThroughLostInventory() {
         return true;
     }
-    
+
+    /** 拒絕被收進捲軸筒,讓 Item.collect() 的自動分袋流程改把卷軸放進主背包。 */
+    @Override
+    public boolean collect(Bag container) {
+        if (container instanceof ScrollHolder) {
+            return false;
+        }
+        return super.collect(container);
+    }
+
     @Override
     public void reset() {
         super.reset();

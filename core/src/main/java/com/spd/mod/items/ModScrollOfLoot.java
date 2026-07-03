@@ -6,6 +6,8 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.EquipableItem;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
+import com.shatteredpixel.shatteredpixeldungeon.items.bags.ScrollHolder;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfTransmutation;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
@@ -41,6 +43,19 @@ public class ModScrollOfLoot extends Scroll {
     @Override
     public boolean keptThroughLostInventory() {
         return true;
+    }
+
+    /**
+     * 拒絕被收進捲軸筒:Item.collect() 的自動分袋流程會先問每個子袋 collect,
+     * 這裡回傳 false 讓流程跳過 ScrollHolder,繼續往下把卷軸直接放進主背包。
+     * 舊存檔若卷軸已在筒內也不會遺失:Bag.restoreFromBundle 對 collect 失敗的道具會強制塞回原袋。
+     */
+    @Override
+    public boolean collect(Bag container) {
+        if (container instanceof ScrollHolder) {
+            return false;
+        }
+        return super.collect(container);
     }
 
     @Override
