@@ -15,7 +15,7 @@ public class ModGame {
     }
 
     public static String version() {
-        return "0.2.10";
+        return "0.2.11";
     }
     
     public static int maxDepth() {
