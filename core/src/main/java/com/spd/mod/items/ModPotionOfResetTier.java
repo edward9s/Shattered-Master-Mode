@@ -25,7 +25,7 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
     // 唯一建構子：private 確保外部只能透過內部類別實體化
     private ModPotionOfResetTier(int tier) {
         this.tier = tier;
-        this.level(1);
+        this.level(tier);
         reset();
         this.keptThoughLostInvent = true;
         this.unique = true;
@@ -110,6 +110,12 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
 	public int value() {
 		return 0;
 	}
+
+    @Override
+    public int energyVal() {
+        // ExoticPotion.energyVal() 依賴 exoToReg 對照表，本類別不在表中會 NPE
+        return 0;
+    }
 
     @Override
     public boolean isIdentified() {

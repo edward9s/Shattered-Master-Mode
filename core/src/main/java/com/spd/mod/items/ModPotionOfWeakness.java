@@ -11,7 +11,7 @@ public class ModPotionOfWeakness extends Potion {
 
     public ModPotionOfWeakness() {
         super();
-        this.level(1);
+        this.level(-1);
         this.icon = ItemSpriteSheet.Icons.SCROLL_TERROR;
         this.keptThoughLostInvent = true;
         this.unique = true;
