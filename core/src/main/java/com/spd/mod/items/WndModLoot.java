@@ -52,6 +52,10 @@ public class WndModLoot extends Window {
     private int paneX, paneY, paneW, paneH;
     private int slotSize;
 
+    // 暫存目前的捲動位置。用 static 讓它跨「關閉→重新打開視窗」保存
+    // (每次開啟都是 new 一個新 WndModLoot,實例欄位會歸零;對齊 journal 分頁的 static scrollTop 做法)。
+    private static float lastScrollY = 0f;
+
     public WndModLoot(ModScrollOfLoot scroll) {
         super();
         this.scroll = scroll;
@@ -86,16 +90,27 @@ public class WndModLoot extends Window {
 
         pane = new LootPane();
         add(pane);
-        rebuild(0f);
+        // 開啟時還原上次(關閉前)的捲動位置;超出目前內容範圍時 scrollTo 會自動夾回合法範圍。
+        rebuild(lastScrollY);
+    }
+
+    /**
+     * 每幀持續記錄目前的捲動高度(對齊 ModDepthSelector / ModBestiaryTab 等已驗證可用的視窗做法)。
+     * 只在點擊當下才讀一次 scroll.y 並不可靠,改為逐幀鏡像到 lastScrollY,rebuild 時才有正確的還原值。
+     */
+    @Override
+    public synchronized void update() {
+        super.update();
+        if (pane != null && pane.content() != null && pane.content().camera != null) {
+            lastScrollY = pane.content().camera.scroll.y;
+        }
     }
 
     /** 收回/丟棄一件物品後重建清單,並還原先前的捲動位置(像其他 Mod 視窗那樣)。 */
     private void onSelect(Item item) {
-        float scrollY = (pane != null) ? pane.content().camera.scroll.y : 0f;
-
         scroll.takeSingle(Dungeon.hero, item);
 
-        rebuild(scrollY);
+        rebuild(lastScrollY);
     }
 
     /**
