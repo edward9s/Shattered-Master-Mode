@@ -98,18 +98,20 @@ public class WndModLoot extends Window {
         rebuild(scrollY);
     }
 
-    /** 依目前 stored 內容重建格子,補滿最後一列為空格子(對齊 WndBag 的滿格矩形外觀)。 */
+    /**
+     * 依目前 stored 內容刷新格子,補滿最後一列為空格子(對齊 WndBag 的滿格矩形外觀)。
+     *
+     * 【效能關鍵】不再 clear 後整批重建。存放上百件時,每次 Take 都重建整個面板
+     * (為每一格 new 一個 InventorySlot,底下又各自 new 出 ColorBlock/ItemSprite/多個
+     *  BitmapText/圖示),舊的一整批瞬間變成垃圾,單次點擊就製造數百個物件的配置與回收,
+     * 造成明顯卡頓,且關閉後 GC 仍在追趕而持續頓。
+     *
+     * 改為「就地調整格子池」:沿用既有 Slot / InventorySlot 物件,只重新指派 item
+     * (InventorySlot.item() 原生就支援換綁),並僅依總格數差額增減格子。
+     * 這樣一次 Take 幾乎不產生新配置,消除 GC 壓力。
+     */
     private void rebuild(float scrollY) {
-        pane.clear();
-
-        ArrayList<Item> stored = scroll.getStored();
-        int rows = Math.max(1, (int) Math.ceil(stored.size() / (float) NCOLS));
-        int total = rows * NCOLS;
-
-        for (int i = 0; i < total; i++) {
-            Item item = (i < stored.size()) ? stored.get(i) : null;
-            pane.addSlot(item);
-        }
+        pane.reconcile(scroll.getStored());
 
         pane.setRect(paneX, paneY, paneW, paneH);
         pane.scrollTo(0, scrollY);
@@ -196,15 +198,30 @@ public class WndModLoot extends Window {
             add(controller);
         }
 
-        void addSlot(Item item) {
-            Slot s = new Slot(item);   // 在 LootPane 內建立,隱含的 LootPane.this 在作用域中
-            content.add(s);
-            slots.add(s);
-        }
+        /**
+         * 就地把格子池對齊到目前的 stored:先把格子總數(補滿整列)調到位,
+         * 再把每一格重新指派為對應的 item(多出來的尾格指派為 null 空格)。
+         * 沿用既有 Slot 物件,只有總數變動時才 new/destroy 少量格子,避免整批重建的 GC 風暴。
+         */
+        void reconcile(ArrayList<Item> stored) {
+            int rows = Math.max(1, (int) Math.ceil(stored.size() / (float) NCOLS));
+            int total = rows * NCOLS;
 
-        public synchronized void clear() {
-            content.clear();
-            slots.clear();
+            while (slots.size() < total) {
+                Slot s = new Slot();   // 在 LootPane 內建立,隱含的 LootPane.this 在作用域中
+                content.add(s);
+                slots.add(s);
+            }
+            while (slots.size() > total) {
+                Slot s = slots.remove(slots.size() - 1);
+                content.remove(s);
+                s.destroy();
+            }
+
+            for (int i = 0; i < total; i++) {
+                Item item = (i < stored.size()) ? stored.get(i) : null;
+                slots.get(i).item(item);
+            }
         }
 
         @Override
@@ -322,12 +339,11 @@ public class WndModLoot extends Window {
         /** 單一格子:用 InventorySlot 畫出 WndBag 等級的外觀,點擊命中後回呼視窗。 */
         private class Slot extends Component {
 
-            final Item item;
+            Item item;
             private InventorySlot visual;
 
-            Slot(Item item) {
-                super();                 // 注意:super() 會先觸發 createChildren(),此時 item 尚未指派
-                this.item = item;
+            Slot() {
+                super();
 
                 // 【關鍵一】不再把整個 InventorySlot 設成 active=false。
                 // noosa 的 Group.update() 只會更新 exists && active 的子節點,
@@ -341,12 +357,26 @@ public class WndModLoot extends Window {
                 // 同時 InventorySlot 保持完全 active,動畫照常更新,也不會觸發調暗。
                 // (Button.update() 每幀做 hotArea.active = visible 也無所謂,
                 //  因為不在場景圖裡的 PointerArea 再 active 也收不到事件。)
-                visual = new InventorySlot(item) {
+                visual = new InventorySlot(null) {
                     {
                         remove(hotArea);
                     }
                 };
                 add(visual);
+            }
+
+            /**
+             * 重新指派這一格代表的物品(可傳 null 表示空格)。供格子池就地刷新使用,
+             * 避免整批重建。若目標物件與現況相同就直接跳過,連 InventorySlot 內部
+             * 的文字/圖示刷新都省掉(Take 只會讓被取走那格之後的物品往前遞補,
+             * 前面沒動到的格子因此完全不必重畫)。
+             */
+            void item(Item item) {
+                if (this.item == item) {
+                    return;
+                }
+                this.item = item;
+                visual.item(item);
             }
 
             @Override
