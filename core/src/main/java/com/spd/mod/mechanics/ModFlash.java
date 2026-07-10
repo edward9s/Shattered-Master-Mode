@@ -24,8 +24,10 @@ import com.watabou.noosa.tweeners.AlphaTweener;
 public class ModFlash {
 
     /**
-     * 落點合法性：在地圖內、可站立 (passable 或 avoid)、且無其他角色。
-     * avoid (陷阱/裂隙) 刻意放行——perform() 既有的危險檢查會加上漂浮處理。
+     * 崩潰防護底線：在地圖內、且無其他角色佔據。刻意不檢查牆壁或任何障礙物——
+     * 閃現/位移類功能依設計可落在任何合法地圖點位。
+     * 需要落點「合理性」(可站立) 的功能請另外呼叫 isStandable()，
+     * 目前只有暗殺 (ModAssassin) 需要。
      */
     public static boolean isValidLanding(Char ch, int pos) {
         Level level = Dungeon.level;
@@ -34,17 +36,24 @@ public class ModFlash {
             return false;
         }
 
-        if (!level.passable[pos] && !level.avoid[pos]) {
-            return false;
-        }
-
         Char occupant = Actor.findChar(pos);
         return occupant == null || occupant == ch;
     }
 
     /**
-     * 閃現。回傳是否成功移動；落點不合法時不移動、不做任何改址，
-     * 印出警告並回傳 false。任何呼叫端都不可能藉由本方法把角色放進牆裡。
+     * 可站立性 (牆壁/障礙物檢查)：passable 或 avoid。
+     * avoid (陷阱/裂隙) 放行——perform() 既有的危險檢查會加上漂浮處理。
+     * 只有需要落點合理性的功能 (暗殺) 才呼叫；一般閃現不受此限。
+     */
+    public static boolean isStandable(int pos) {
+        Level level = Dungeon.level;
+        return level.passable[pos] || level.avoid[pos];
+    }
+
+    /**
+     * 閃現。回傳是否成功移動；落點不合法 (出界或被其他角色佔據) 時
+     * 不移動、不做任何改址，印出警告並回傳 false。
+     * 本方法不限制地形：牆壁與障礙物皆為合法落點。
      */
     public static boolean perform(Char ch, int targetPos) {
         int oldPos = ch.pos;

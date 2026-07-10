@@ -284,13 +284,8 @@ public class ModAssassin {
             Char target = Actor.findChar(cell);
 
             if (target == null || target == this.hero) {
-                // 空地閃現分支：落點必須可站立。
-                // passable 為一般地形；avoid (陷阱/裂隙) 交由 ModFlash
-                // 既有的危險檢查加上漂浮處理，此處不擋
-                if (!level.passable[cell] && !level.avoid[cell]) {
-                    GLog.w("Cannot travel there.", new Object[0]);
-                    return;
-                }
+                // 空地閃現分支：依設計不檢查牆壁或障礙物，
+                // 任何合法地圖點位皆可閃現；落點合理性只有暗殺分支才考慮
                 ModFlash.perform(this.hero, cell);
             } else {
                 ModAssassin.perform(this.hero, target);
