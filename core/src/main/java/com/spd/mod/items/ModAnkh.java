@@ -169,14 +169,14 @@ public class ModAnkh extends Ankh {
 
         StringBuilder sb = new StringBuilder(base);
 
-        if (timesRevived > 0) {
+        if (false && timesRevived > 0) {
             sb.append("\n\nThis ankh has revived you ")
               .append(timesRevived)
               .append(timesRevived == 1 ? " time" : " times")
               .append(" on the spot, with your inventory still in hand.");
         }
 
-        if (timesResurrected > 0) {
+        if (false && timesResurrected > 0) {
             sb.append("\n\nThis ankh has resurrected you ")
               .append(timesResurrected)
               .append(timesResurrected == 1 ? " time" : " times")
