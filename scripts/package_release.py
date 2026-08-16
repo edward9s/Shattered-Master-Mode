@@ -4,6 +4,7 @@ import shutil
 import zipfile
 import urllib.request
 import glob
+import json
 
 def package():
     if len(sys.argv) < 4:
@@ -28,7 +29,19 @@ def package():
         sys.exit(1)
 
     # --- 2. 下載並解壓縮官方 Windows ZIP ---
-    win_zip_url = f"https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/{upstream_tag}/ShatteredPD-{upstream_tag}-Windows.zip"
+    release_api_url = f"https://api.github.com/repos/00-Evan/shattered-pixel-dungeon/releases/tags/{upstream_tag}"
+    with urllib.request.urlopen(release_api_url) as response:
+        release = json.load(response)
+
+    win_zip_url = next((
+        asset["browser_download_url"]
+        for asset in release["assets"]
+        if asset["name"].lower().endswith("-windows.zip")
+    ), None)
+    if win_zip_url is None:
+        print(f"Error: Windows ZIP asset not found for {upstream_tag}")
+        sys.exit(1)
+
     official_zip = "official.zip"
     temp_win = "temp_win"
     
