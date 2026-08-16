@@ -6,7 +6,7 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
-import com.shatteredpixel.shatteredpixeldungeon.windows.WndGame;
+import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTitledMessage;
 import com.watabou.noosa.Game;
 
@@ -195,8 +195,8 @@ public class ModDepthSelector extends WndTitledMessage {
         }
         @Override
         protected void onClick() {
-            if (WndGame.instance != null) {
-                WndGame.instance.hide();
+            if (parent instanceof Window) {
+                ((Window) parent).hide();
             }
             selectedBranch = Dungeon.branch;
             GameScene.show(new ModDepthSelector());

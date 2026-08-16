@@ -3,10 +3,14 @@ package com.spd.mod;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.armor.Armor;
 import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
+import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 
 import java.lang.reflect.Method;
+import java.util.function.Consumer;
 
+import com.spd.mod.mechanics.ModDepthSelector;
 import com.spd.mod.tools.ModLevelSlider;
+import com.spd.mod.tools.ModToolsWindow;
 import com.spd.mod.mechanics.ModRich;
 
 public class ModGame {
@@ -43,6 +47,12 @@ public class ModGame {
 
     public static void loadSettings() {
         ModLevelSlider.load();
+    }
+
+    public static void installMenu(Consumer<RedButton> addButton) {
+        loadSettings();
+        addButton.accept(new ModDepthSelector.OpenBtn());
+        addButton.accept(new ModToolsWindow.OpenBtn());
     }
 
     public static void saveSettings() {
