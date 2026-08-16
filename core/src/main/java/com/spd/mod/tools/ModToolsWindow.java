@@ -3,7 +3,7 @@ package com.spd.mod.tools;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
-import com.shatteredpixel.shatteredpixeldungeon.windows.WndGame;
+import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTitledMessage;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 
@@ -98,8 +98,8 @@ public class ModToolsWindow extends WndTitledMessage {
         @Override
         protected void onClick() {
             super.onClick();
-            if (WndGame.instance != null) {
-                WndGame.instance.hide();
+            if (parent instanceof Window) {
+                ((Window) parent).hide();
             }
             GameScene.show(new ModToolsWindow());
         }

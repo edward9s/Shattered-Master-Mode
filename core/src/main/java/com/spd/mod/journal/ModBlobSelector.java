@@ -5,7 +5,6 @@ import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
-import com.shatteredpixel.shatteredpixeldungeon.windows.WndGame;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.watabou.utils.Callback;
 import com.spd.mod.tools.ModToolsWindow;
@@ -28,10 +27,7 @@ public class ModBlobSelector extends CellSelector.Listener implements Callback {
         if (ModToolsWindow.instance != null) {
             ModToolsWindow.instance.hide();
         }
-        if (WndGame.instance != null) {
-            WndGame.instance.hide();
-        }
-        
+
         GameScene.selectCell(new ModBlobSelector(blobClass));
     }
 

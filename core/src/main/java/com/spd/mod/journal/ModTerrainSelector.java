@@ -10,7 +10,6 @@ import com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
-import com.shatteredpixel.shatteredpixeldungeon.windows.WndGame;
 import com.watabou.utils.Callback;
 
 import java.util.Iterator;
@@ -33,9 +32,6 @@ public class ModTerrainSelector extends CellSelector.Listener implements Callbac
         }
         if (ModToolsWindow.instance != null) {
             ModToolsWindow.instance.hide();
-        }
-        if (WndGame.instance != null) {
-            WndGame.instance.hide();
         }
 
         GameScene.selectCell(new ModTerrainSelector(terrainId));
