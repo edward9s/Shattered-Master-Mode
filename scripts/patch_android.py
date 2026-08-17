@@ -1,5 +1,15 @@
+from io import BytesIO
 import re
 import sys
+from urllib.request import urlopen
+import xml.etree.ElementTree as ET
+from zipfile import ZipFile
+
+
+PLAY_GAMES_MAVEN = (
+    'https://dl.google.com/dl/android/maven2/'
+    'com/google/android/gms/play-services-games-v2'
+)
 
 def patch_gradle(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -20,6 +30,57 @@ def patch_gradle(file_path):
     with open(file_path, 'w', encoding='utf-8') as f:
         f.write(data)
 
+
+def patch_play_games_version(build_file, android_build_file):
+    with open(android_build_file, 'r', encoding='utf-8') as f:
+        android_build = f.read()
+
+    dependency = r'(com\.google\.android\.gms:play-services-games-v2:)\+'
+    if not re.search(dependency, android_build):
+        return
+
+    with open(build_file, 'r', encoding='utf-8') as f:
+        build = f.read()
+
+    match = re.search(r'appAndroidMinSDK\s*=\s*(\d+)', build)
+    if not match:
+        raise RuntimeError('Unable to determine appAndroidMinSDK')
+    app_min_sdk = int(match.group(1))
+
+    with urlopen(f'{PLAY_GAMES_MAVEN}/maven-metadata.xml', timeout=30) as response:
+        metadata = ET.fromstring(response.read())
+
+    compatible_version = None
+    for version_node in reversed(metadata.findall('./versioning/versions/version')):
+        version = version_node.text
+        aar_url = f'{PLAY_GAMES_MAVEN}/{version}/play-services-games-v2-{version}.aar'
+        with urlopen(aar_url, timeout=30) as response:
+            with ZipFile(BytesIO(response.read())) as aar:
+                manifest = ET.fromstring(aar.read('AndroidManifest.xml'))
+
+        uses_sdk = manifest.find('uses-sdk')
+        android_min_sdk = uses_sdk.get(
+            '{http://schemas.android.com/apk/res/android}minSdkVersion', '1'
+        )
+        if int(android_min_sdk) <= app_min_sdk:
+            compatible_version = version
+            break
+
+    if not compatible_version:
+        raise RuntimeError(f'No Play Games Services version supports minSdk {app_min_sdk}')
+
+    android_build = re.sub(
+        dependency, rf'\g<1>{compatible_version}', android_build
+    )
+    with open(android_build_file, 'w', encoding='utf-8') as f:
+        f.write(android_build)
+
+    print(
+        f'Using play-services-games-v2:{compatible_version} '
+        f'for minSdk {app_min_sdk}'
+    )
+
+
 def patch_manifest(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         data = f.read()
@@ -39,4 +100,7 @@ def patch_manifest(file_path):
 if __name__ == '__main__':
     # 預設路徑對應 CI/CD 執行時的相對位置
     patch_gradle('spd_src/build.gradle')
+    patch_play_games_version(
+        'spd_src/build.gradle', 'spd_src/android/build.gradle'
+    )
     patch_manifest('spd_src/android/src/main/AndroidManifest.xml')
