@@ -19,7 +19,7 @@ import java.util.Collections;
 
 import com.spd.mod.mechanics.ModFlash;
 
-public class ModScrollOfDisplacement extends Scroll {
+public class ModScrollOfDisplacement extends Scroll implements ModReusable {
 
     public ModScrollOfDisplacement() {
         super();

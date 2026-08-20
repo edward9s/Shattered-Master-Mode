@@ -14,7 +14,7 @@ import java.util.Collections;
 
 import com.spd.mod.mechanics.ModBlast;
 
-public class ModScrollOfBlast extends Scroll {
+public class ModScrollOfBlast extends Scroll implements ModReusable {
 
     public ModScrollOfBlast() {
         super();

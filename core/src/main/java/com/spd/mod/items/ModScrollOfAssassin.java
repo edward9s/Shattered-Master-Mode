@@ -14,7 +14,7 @@ import java.util.Collections;
 
 import com.spd.mod.mechanics.ModAssassin;
 
-public class ModScrollOfAssassin extends Scroll {
+public class ModScrollOfAssassin extends Scroll implements ModReusable {
 
     public ModScrollOfAssassin() {
         super();
