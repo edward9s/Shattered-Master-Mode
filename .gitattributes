@@ -1,0 +1,17 @@
+# repo 內一律存 LF,工作區的換行交給各平台自己決定。
+# 這份設定跟著 repo 走,不像 core.autocrlf 是每台機器各自的設定。
+* text=auto
+
+# 換行會影響能不能執行的檔案,強制指定
+*.sh   text eol=lf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# 二進位檔不要被當成文字處理
+*.png  binary
+*.jpg  binary
+*.ogg  binary
+*.mp3  binary
+*.jar  binary
+*.apk  binary
+*.zip  binary
