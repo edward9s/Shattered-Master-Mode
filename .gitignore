@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# build.py / package_release.py 的產出物
+out/
+official.zip
+temp_win/
+
+# 本機若把上游原始碼放進 repo 內
+spd_src/
+
+# 編輯器與系統檔
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini
