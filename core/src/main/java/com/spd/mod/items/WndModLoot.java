@@ -3,14 +3,18 @@ package com.spd.mod.items;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
+import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.InventorySlot;
+import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
 import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
@@ -24,16 +28,20 @@ import com.watabou.utils.PointF;
 
 import java.util.ArrayList;
 
+import com.spd.mod.mechanics.ModItemKind;
+
 /**
  * 視覺上重刻 WndBag(含 InventorySlot 等級的格子精緻度),差別在於整個物品區可以「垂直捲動」。
+ * 同一個視窗有兩種模式(見 {@link Mode}),差別只在「格子裡列什麼」與「點下去做什麼」,
+ * 捲動、長按看資訊、格子池刷新等機制完全共用。
  *
  * 互動規則(對齊使用者需求):
- *  - 點擊某個有物品的格子 → 透過 ModScrollOfLoot.takeSingle() 把它 collect 回背包,
+ *  - USE 模式點擊有物品的格子 → 關窗後直接使用卷軸內的那件道具(吃/讀/喝/瞄準…)。
+ *  - TAKE 模式點擊有物品的格子 → 透過 ModScrollOfLoot.takeSingle() 把它 collect 回背包,
  *    背包滿則 drop 到英雄腳下。動作後就地刷新清單,並保留捲動位置。
- *  - 長按(或 PC 上右鍵)有物品的格子 → 顯示該物品的資訊視窗(WndInfoItem),不收取。
+ *  - 長按(或 PC 上右鍵)有物品的格子 → 顯示該物品的資訊視窗(WndInfoItem),不觸發動作。
  *  - 點擊「空格子」或視窗內任何位置 → 不關閉(因為都落在 chrome 範圍內,Window.blocker 不會觸發)。
  *  - 點擊視窗「外」 → 由 Window 內建的 blocker 關閉。
- *  => 因此可以連續點擊,直到自己點到外面為止。
  *
  * 點擊派發採用 ScrollPane 既有慣用法(同 ScrollingGridPane / ScrollingListPane):
  * 由 PointerController 統一接管指標輸入,只把「乾淨的點擊」轉成內容座標丟給 pane.onClick(),
@@ -41,12 +49,25 @@ import java.util.ArrayList;
  */
 public class WndModLoot extends Window {
 
+    public enum Mode {
+        /** 讀卷軸開啟:標題下方固定 2x2 功能鍵,格子列出卷軸內「有預設動作」的物品,點擊即發動。 */
+        USE,
+        /** Take 開啟:格子列出卷軸內暫存的所有物品,點擊收回背包。 */
+        TAKE
+    }
+
     private static final int NCOLS      = 5;   // 對齊 WndBag 的 COLS_P / COLS_L
     private static final int SLOT_BASE  = 28;  // 對齊 WndBag 的 SLOT_WIDTH/HEIGHT
     private static final int SLOT_MARGIN = 1;
     private static final int TITLE_HEIGHT = 14;
+    private static final int BTN_HEIGHT = 16;  // 2x2 功能鍵每一列的高度
+    private static final int BTN_MARGIN = 1;
 
     private final ModScrollOfLoot scroll;
+    private final Mode mode;
+
+    /** 目前格子要呈現的清單。TAKE 用卷軸的 live list,USE 用背包的快照。 */
+    private ArrayList<Item> items;
 
     private LootPane pane;
     private int paneX, paneY, paneW, paneH;
@@ -54,11 +75,22 @@ public class WndModLoot extends Window {
 
     // 暫存目前的捲動位置。用 static 讓它跨「關閉→重新打開視窗」保存
     // (每次開啟都是 new 一個新 WndModLoot,實例欄位會歸零;對齊 journal 分頁的 static scrollTop 做法)。
-    private static float lastScrollY = 0f;
+    // 兩種模式列的是完全不同的清單,捲動位置各記各的。
+    private static float lastScrollYUse = 0f;
+    private static float lastScrollYTake = 0f;
+
+    // 上一幀的視窗位置,用來偵測視窗被移動(見 update() / offset())
+    private float lastCamX = Float.NaN;
+    private float lastCamY = Float.NaN;
 
     public WndModLoot(ModScrollOfLoot scroll) {
+        this(scroll, Mode.TAKE);
+    }
+
+    public WndModLoot(ModScrollOfLoot scroll, Mode mode) {
         super();
         this.scroll = scroll;
+        this.mode = mode;
 
         slotSize = SLOT_BASE;
         int windowWidth = slotSize * NCOLS + SLOT_MARGIN * (NCOLS - 1);
@@ -71,46 +103,223 @@ public class WndModLoot extends Window {
             }
         }
 
+        items = collectItems();
+
+        // 表頭 = 標題列(+ USE 模式的兩列功能鍵)。功能鍵固定在表頭,不隨物品區捲動。
+        int headerHeight = TITLE_HEIGHT;
+        if (mode == Mode.USE) {
+            headerHeight += 2 * (BTN_HEIGHT + BTN_MARGIN);
+        }
+
         // 內容高度(含補滿最後一列的空格子),以及可視區高度上限
-        int count = scroll.getStored().size();
-        int rows = Math.max(1, (int) Math.ceil(count / (float) NCOLS));
+        int rows = Math.max(1, (int) Math.ceil(items.size() / (float) NCOLS));
         int contentHeight = rows * slotSize + (rows - 1) * SLOT_MARGIN;
 
-        int maxPaneHeight = (int) (PixelScene.uiCamera.height * 0.85f) - TITLE_HEIGHT;
+        int maxPaneHeight = (int) (PixelScene.uiCamera.height * 0.85f) - headerHeight;
         int paneHeight = Math.min(contentHeight, Math.max(slotSize, maxPaneHeight));
 
         placeTitle(windowWidth);
+        if (mode == Mode.USE) {
+            placeButtons(windowWidth);
+        }
 
-        resize(windowWidth, TITLE_HEIGHT + paneHeight);
+        resize(windowWidth, headerHeight + paneHeight);
 
         paneX = 0;
-        paneY = TITLE_HEIGHT;
+        paneY = headerHeight;
         paneW = windowWidth;
         paneH = paneHeight;
 
         pane = new LootPane();
         add(pane);
         // 開啟時還原上次(關閉前)的捲動位置;超出目前內容範圍時 scrollTo 會自動夾回合法範圍。
-        rebuild(lastScrollY);
+        rebuild(rememberedScrollY());
+    }
+
+    /**
+     * 兩種模式列的都是卷軸內的東西:TAKE 是全部(直接用卷軸的 live list),
+     * USE 只留下「現在就能發動預設動作」的那些。卷軸每次收東西時就已排好序,
+     * 所以這裡篩選後的順序天生就與 TAKE 視窗一致,不必再排一次。
+     */
+    private ArrayList<Item> collectItems() {
+        if (mode == Mode.TAKE) {
+            return scroll.getStored();
+        }
+
+        ArrayList<Item> usable = new ArrayList<>();
+        Hero hero = Dungeon.hero;
+        for (Item item : scroll.getStored()) {
+            if (isUsable(hero, item)) {
+                usable.add(item);
+            }
+        }
+        return usable;
+    }
+
+    /**
+     * 「有預設主動功能」的判準沿用原生 quickslot 的規則:defaultAction() != null
+     * (見 QuickSlotButton.itemSelectable)。因此武器/護甲/戒指這類沒有主動行為的裝備不會出現。
+     *
+     * 再要求這個動作「此刻真的可用」:actions(hero) 是每個道具自己回報目前能做哪些事,
+     * 神器沒裝備(或缺少對應天賦)時就不會列出自己的預設動作,於是自然被擋掉。
+     * 用這個通用問法,就不必去 import 各衍生版本差異很大的神器/天賦類別。
+     *
+     * 另外手動排除三類:
+     *  - 袋子:預設動作只是「打開袋子」,在這裡沒有意義。
+     *  - 法杖:充能來自英雄身上的 buff,收在卷軸裡不會充能,不適合從卷軸內發動。
+     *  - 投擲武器:射出去之後是掉在地上或插在敵人身上,回收走的是原生 pickup、
+     *    一律進背包而不是回卷軸。
+     * 後兩者仍然可以收進卷軸保管、也可以 Take 拿出來,只是不從卷軸內直接使用。
+     */
+    private boolean isUsable(Hero hero, Item item) {
+        if (item == null || hero == null) {
+            return false;
+        }
+        String action = item.defaultAction();
+        if (action == null || item instanceof Bag) {
+            return false;
+        }
+        if (ModItemKind.is(item, ModItemKind.WAND)
+                || ModItemKind.is(item, ModItemKind.MISSILE_WEAPON)) {
+            return false;
+        }
+        ArrayList<String> actions = item.actions(hero);
+        return actions != null && actions.contains(action);
+    }
+
+    /**
+     * USE 模式的 2x2 功能鍵,四個動作與原本的 WndOptions 選單完全相同:
+     * Loot(全地圖收割)/ Put(把背包東西收進卷軸)/ Take(開啟 TAKE 模式)/ Dump(一次倒光)。
+     * 一律先 hide() 再執行:Loot/Dump 會消耗英雄時間,Put/Take 則要另外開視窗。
+     */
+    private void placeButtons(int width) {
+        final int stored = scroll.getStored().size();
+        float half = width / 2f;
+        float top = TITLE_HEIGHT;
+
+        RedButton loot = new RedButton("Loot", 8) {
+            @Override
+            protected void onClick() {
+                hide();
+                scroll.doRead();
+            }
+        };
+        loot.setSize(half, BTN_HEIGHT);
+        loot.setPos(0, top);
+        add(loot);
+
+        RedButton put = new RedButton("Put", 8) {
+            @Override
+            protected void onClick() {
+                hide();
+                scroll.showPutSelector();
+            }
+        };
+        put.setSize(half, BTN_HEIGHT);
+        put.setPos(half, top);
+        add(put);
+
+        top += BTN_HEIGHT + BTN_MARGIN;
+
+        RedButton take = new RedButton("Take (" + stored + ")", 8) {
+            @Override
+            protected void onClick() {
+                hide();
+                GameScene.show(new WndModLoot(scroll, Mode.TAKE));
+            }
+        };
+        take.setSize(half, BTN_HEIGHT);
+        take.setPos(0, top);
+        take.enable(stored > 0);
+        add(take);
+
+        RedButton dump = new RedButton("Dump (" + stored + ")", 8) {
+            @Override
+            protected void onClick() {
+                hide();
+                scroll.doDump(Dungeon.hero);
+            }
+        };
+        dump.setSize(half, BTN_HEIGHT);
+        dump.setPos(half, top);
+        dump.enable(stored > 0);
+        add(dump);
     }
 
     /**
      * 每幀持續記錄目前的捲動高度(對齊 ModDepthSelector / ModBestiaryTab 等已驗證可用的視窗做法)。
-     * 只在點擊當下才讀一次 scroll.y 並不可靠,改為逐幀鏡像到 lastScrollY,rebuild 時才有正確的還原值。
+     * 只在點擊當下才讀一次 scroll.y 並不可靠,改為逐幀鏡像下來,rebuild 時才有正確的還原值。
      */
     @Override
     public synchronized void update() {
         super.update();
         if (pane != null && pane.content() != null && pane.content().camera != null) {
-            lastScrollY = pane.content().camera.scroll.y;
+            rememberScrollY(pane.content().camera.scroll.y);
+        }
+        // 保險:除了 offset() 之外,任何讓視窗換位置的途徑都能被接住(見 offset() 的說明)
+        if (camera() != null && (camera().x != lastCamX || camera().y != lastCamY)) {
+            lastCamX = camera().x;
+            lastCamY = camera().y;
+            relayoutPane();
         }
     }
 
-    /** 收回/丟棄一件物品後重建清單,並還原先前的捲動位置(像其他 Mod 視窗那樣)。 */
-    private void onSelect(Item item) {
-        scroll.takeSingle(Dungeon.hero, item);
+    private void rememberScrollY(float y) {
+        if (mode == Mode.USE) {
+            lastScrollYUse = y;
+        } else {
+            lastScrollYTake = y;
+        }
+    }
 
-        rebuild(lastScrollY);
+    private float rememberedScrollY() {
+        return mode == Mode.USE ? lastScrollYUse : lastScrollYTake;
+    }
+
+    /**
+     * 點到某一格的物品。
+     *
+     * TAKE:收回/丟棄後就地重建清單,並還原先前的捲動位置(像其他 Mod 視窗那樣),可以連續點。
+     * USE :對齊原生 WndQuickBag——先關窗再使用。消耗回合的動作(吃/讀/喝)要讓出畫面,
+     *       需要瞄準的動作(法杖 ZAP、投擲 THROW)則是 execute 內部會呼叫 GameScene.selectCell,
+     *       視窗還開著就點不到地圖。實際的使用流程交給 ModScrollOfLoot.useSingle()。
+     */
+    private void onSelect(Item item) {
+        if (mode == Mode.TAKE) {
+            scroll.takeSingle(Dungeon.hero, item);
+            rebuild(rememberedScrollY());
+            return;
+        }
+
+        Hero hero = Dungeon.hero;
+        if (hero == null || !hero.isAlive() || !scroll.getStored().contains(item)) {
+            ShatteredPixelDungeon.scene().addToFront(new WndInfoItem(item));
+            return;
+        }
+
+        hide();
+        scroll.useSingle(hero, item);
+    }
+
+    /**
+     * 視窗被移動後,捲動面板必須重新 layout 一次。
+     *
+     * ScrollPane 的內容跑在自己的 Camera 上,螢幕座標是在 layout() 當下用視窗位置換算出來的;
+     * 而 GameScene.show() 是在視窗建構完之後才套用「繼承自前一個視窗」的 offset
+     * (桌面版把介面模式設成全螢幕、背包欄常駐時就會走到這條路)。不重新 layout 的話,
+     * 視窗外框會移到新位置,可點擊的格子卻留在原地,看起來就是「點不到物品」。
+     * 原生的 WndJournal / WndHero 也是用同一招處理。
+     */
+    @Override
+    public void offset(int xOffset, int yOffset) {
+        super.offset(xOffset, yOffset);
+        relayoutPane();
+    }
+
+    private void relayoutPane() {
+        if (pane != null) {
+            pane.setRect(paneX, paneY, paneW, paneH);
+        }
     }
 
     /**
@@ -126,7 +335,7 @@ public class WndModLoot extends Window {
      * 這樣一次 Take 幾乎不產生新配置,消除 GC 壓力。
      */
     private void rebuild(float scrollY) {
-        pane.reconcile(scroll.getStored());
+        pane.reconcile(items);
 
         pane.setRect(paneX, paneY, paneW, paneH);
         pane.scrollTo(0, scrollY);
@@ -186,7 +395,10 @@ public class WndModLoot extends Window {
             titleWidth = Math.min(titleWidth, amt.x);
         }
 
-        String title = scroll.name() + " (" + scroll.getStored().size() + ")";
+        // USE 模式的數量已經寫在 Take/Dump 兩顆按鈕上,標題就不再重複
+        String title = mode == Mode.USE
+                ? scroll.name()
+                : scroll.name() + " (" + scroll.getStored().size() + ")";
         RenderedTextBlock txtTitle = PixelScene.renderTextBlock(Messages.titleCase(title), 8);
         txtTitle.hardlight(TITLE_COLOR);
         txtTitle.maxWidth((int) titleWidth - 2);

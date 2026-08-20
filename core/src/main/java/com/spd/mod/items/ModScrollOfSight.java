@@ -12,7 +12,7 @@ import com.watabou.utils.Bundle;
 
 import com.spd.mod.mechanics.ModSight;
 
-public class ModScrollOfSight extends Scroll {
+public class ModScrollOfSight extends Scroll implements ModReusable {
 
     public ModScrollOfSight() {
         super();
