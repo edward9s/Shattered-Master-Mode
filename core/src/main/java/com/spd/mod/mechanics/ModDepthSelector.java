@@ -27,13 +27,17 @@ public class ModDepthSelector extends WndTitledMessage {
     // Window 是垂直置中的，所以這個總量會被上下平分：留 100 代表上下各 50，兩端的
     // 介面按鈕都不會被蓋到。數字對齊 WndModLoot / 原生 WndQuickBag。
     private static final int UI_RESERVE_VER = 100;
-    // 極小畫面（橫向只有 160）時至少留得下標題與一列按鈕（見 grid 的 setRect：上 20、下 10）。
+    // 極小畫面（橫向只有 160）時至少留得下標題與一列按鈕。
     private static final int MIN_HEIGHT = 48;
+    private static final int WIDTH = 130;
+    // 格子區在視窗內的上下留白：上面讓開 IconTitle，下面留一點邊。
+    private static final float GRID_TOP = 20f;
+    private static final float GRID_BOTTOM = 10f;
 
     public ModDepthSelector() {
         super(Icons.STAIRS.get(), "Teleport", null);
         
-        resize(130, windowHeight());
+        resize(WIDTH, maxWindowHeight());
         buildSafeRegistry();
 
         if (!safeFloors.containsKey(selectedBranch)) {
@@ -83,7 +87,8 @@ public class ModDepthSelector extends WndTitledMessage {
             }));
         }
 
-        grid.setRect(0, 20f, this.width, this.height - 30f);
+        layoutGrid();
+        fitHeightToContent();
         grid.scrollTo(0f, savedScrollY);
     }
 
@@ -99,17 +104,34 @@ public class ModDepthSelector extends WndTitledMessage {
     public void offset(int xOffset, int yOffset) {
         super.offset(xOffset, yOffset);
         if (grid != null) {
-            grid.setRect(0, 20f, this.width, this.height - 30f);
+            layoutGrid();
         }
+    }
+
+    private void layoutGrid() {
+        grid.setRect(0, GRID_TOP, this.width, this.height - GRID_TOP - GRID_BOTTOM);
     }
 
     /**
      * 高度上限與 WndModLoot 相同：整個視窗（含外框）不超過 uiCamera.height - UI_RESERVE_VER，
-     * 不往上下擴張去蓋住狀態列/工具列。樓層清單一定比視窗長，所以就直接用到上限，其餘交給捲動。
+     * 不往上下擴張去蓋住狀態列/工具列。
      */
-    private int windowHeight() {
+    private int maxWindowHeight() {
         int maxHeight = PixelScene.uiCamera.height - UI_RESERVE_VER - chrome.marginVer();
         return Math.max(MIN_HEIGHT, maxHeight);
+    }
+
+    /**
+     * 動態高度：格子排完後量內容實際多高，視窗就收到剛好包住內容；
+     * 內容比上限長（分支多／樓層多）才停在上限，看不完的部分交給捲動。
+     */
+    private void fitHeightToContent() {
+        int wanted = (int) Math.ceil(GRID_TOP + grid.content().height() + GRID_BOTTOM);
+        int height = Math.max(MIN_HEIGHT, Math.min(maxWindowHeight(), wanted));
+        if (height != this.height) {
+            resize(WIDTH, height);
+            layoutGrid();
+        }
     }
 
     private void buildSafeRegistry() {
