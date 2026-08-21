@@ -62,6 +62,11 @@ public class WndModLoot extends Window {
     private static final int TITLE_HEIGHT = 14;
     private static final int BTN_HEIGHT = 16;  // 2x2 功能鍵每一列的高度
     private static final int BTN_MARGIN = 1;
+    // 畫面上下兩端是遊戲介面：上方狀態列 38px、下方工具列 26px（大介面模式還有背包欄）。
+    // Window 是垂直置中的，所以這個總量會被上下平分：留 100 代表上下各 50，兩端的
+    // 介面按鈕都不會被蓋到。數字對齊原生 WndQuickBag 的 uiCamera.height - 100（同樣是在
+    // 遊戲畫面內開的物品視窗）。
+    private static final int UI_RESERVE_VER = 100;
 
     private final ModScrollOfLoot scroll;
     private final Mode mode;
@@ -115,7 +120,11 @@ public class WndModLoot extends Window {
         int rows = Math.max(1, (int) Math.ceil(items.size() / (float) NCOLS));
         int contentHeight = rows * slotSize + (rows - 1) * SLOT_MARGIN;
 
-        int maxPaneHeight = (int) (PixelScene.uiCamera.height * 0.85f) - headerHeight;
+        // 可視區上限：整個視窗（含外框）不超過 uiCamera.height - UI_RESERVE_VER，
+        // 不足的部分交給捲動，不再往上下擴張去蓋住狀態列/工具列。
+        int maxWindowHeight = PixelScene.uiCamera.height - UI_RESERVE_VER - chrome.marginVer();
+        // 至少看得到一列格子：極小畫面（或 USE 模式表頭已經很高）時寧可超出一點，也不要縮成看不見內容。
+        int maxPaneHeight = maxWindowHeight - headerHeight;
         int paneHeight = Math.min(contentHeight, Math.max(slotSize, maxPaneHeight));
 
         placeTitle(windowWidth);
