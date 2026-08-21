@@ -3,6 +3,7 @@ package com.spd.mod.mechanics;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
@@ -22,10 +23,17 @@ public class ModDepthSelector extends WndTitledMessage {
     private static float savedScrollY = 0f;
     private ScrollingGridPane grid;
 
+    // 畫面上下兩端是遊戲介面：上方狀態列、下方工具列（大介面模式還有背包欄）。
+    // Window 是垂直置中的，所以這個總量會被上下平分：留 100 代表上下各 50，兩端的
+    // 介面按鈕都不會被蓋到。數字對齊 WndModLoot / 原生 WndQuickBag。
+    private static final int UI_RESERVE_VER = 100;
+    // 極小畫面（橫向只有 160）時至少留得下標題與一列按鈕（見 grid 的 setRect：上 20、下 10）。
+    private static final int MIN_HEIGHT = 48;
+
     public ModDepthSelector() {
         super(Icons.STAIRS.get(), "Teleport", null);
         
-        resize(130, 160);
+        resize(130, windowHeight());
         buildSafeRegistry();
 
         if (!safeFloors.containsKey(selectedBranch)) {
@@ -93,6 +101,15 @@ public class ModDepthSelector extends WndTitledMessage {
         if (grid != null) {
             grid.setRect(0, 20f, this.width, this.height - 30f);
         }
+    }
+
+    /**
+     * 高度上限與 WndModLoot 相同：整個視窗（含外框）不超過 uiCamera.height - UI_RESERVE_VER，
+     * 不往上下擴張去蓋住狀態列/工具列。樓層清單一定比視窗長，所以就直接用到上限，其餘交給捲動。
+     */
+    private int windowHeight() {
+        int maxHeight = PixelScene.uiCamera.height - UI_RESERVE_VER - chrome.marginVer();
+        return Math.max(MIN_HEIGHT, maxHeight);
     }
 
     private void buildSafeRegistry() {
