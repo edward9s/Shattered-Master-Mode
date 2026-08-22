@@ -92,7 +92,7 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
             format = "Detach %s";
         } else {
             resultBuff = Buff.affect(target, buffClass);
-            smartSetDuration(resultBuff, 1000000f);
+            smartSetDuration(resultBuff, 1000000000f);
             format = "Affect %s";
         }
 
