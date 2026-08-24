@@ -69,6 +69,7 @@ public class ModScrollOfAssassin extends Scroll implements ModReusable {
         super.restoreFromBundle(bundle);
         this.level(0);
         this.keptThoughLostInvent = true;
+        this.unique = true;
     }
 
     @Override
