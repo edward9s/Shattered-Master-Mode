@@ -23,8 +23,7 @@ public class ModScrollOfDisplacement extends Scroll implements ModReusable {
 
     public ModScrollOfDisplacement() {
         super();
-        this.level(1);
-        this.icon = ItemSpriteSheet.Icons.SCROLL_PASSAGE; // 0x35
+        this.icon = -1;
         this.stackable = false;
         this.keptThoughLostInvent = true;
         this.unique = true;
@@ -48,16 +47,15 @@ public class ModScrollOfDisplacement extends Scroll implements ModReusable {
     @Override
     public void reset() {
         super.reset();
-        this.image = new ScrollOfUpgrade().image;
+        this.image = ItemSpriteSheet.SCROLL_HOLDER;
         this.rune = "scroll_teleport";
         this.keptThoughLostInvent = true;
     }
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
-        // 在讀取存檔前將等級歸零，抵消建構子的預設值，避免 Item 原生機制的 upgrade 疊加
-        this.level(0);
         super.restoreFromBundle(bundle);
+        this.level(0);
         this.keptThoughLostInvent = true;
     }
 
