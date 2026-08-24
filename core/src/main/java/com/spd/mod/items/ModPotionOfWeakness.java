@@ -2,7 +2,6 @@ package com.spd.mod.items;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.Potion;
-import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfStrength;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.watabou.utils.Bundle;
@@ -24,7 +23,7 @@ public class ModPotionOfWeakness extends Potion {
 
     @Override
     public void reset() {
-        this.image = new PotionOfStrength().image;
+        this.image = ItemSpriteSheet.POTION_HOLDER;
         this.color = "weakness_potion";
         this.keptThoughLostInvent = true;
         this.unique = true;
