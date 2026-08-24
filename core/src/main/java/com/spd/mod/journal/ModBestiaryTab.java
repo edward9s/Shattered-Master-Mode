@@ -13,6 +13,7 @@ import com.watabou.noosa.Image;
 import com.watabou.noosa.ui.Component;
 import com.watabou.utils.Reflection;
 
+import java.util.ArrayList;
 import java.util.Collection;
 
 public class ModBestiaryTab extends Component {
@@ -34,48 +35,81 @@ public class ModBestiaryTab extends Component {
 
             Collection<Class<?>> entities = bestiary.entities();
             for (Class<?> clazz : entities) {
-                try {
-                    Object entityInstance = Reflection.newInstance(clazz);
-                    Image image = null;
-
-                    if (entityInstance instanceof Mob) {
-                        Mob mob = (Mob) entityInstance;
-                        
-                        if (mob instanceof WandOfWarding.Ward) {
-                            WandOfWarding.Ward ward = (WandOfWarding.Ward) mob;
-                            if (ward instanceof WandOfWarding.Ward.WardSentry) {
-                                ward.upgrade(3);
-                                ward.upgrade(3);
-                                ward.upgrade(3);
-                                ward.upgrade(3);
-                            } else {
-                                ward.upgrade(0);
-                            }
-                        }
-                        
-                        CharSprite sprite = mob.sprite();
-                        sprite.idle();
-                        image = sprite;
-                        
-                    } else if (entityInstance instanceof Trap) {
-                        Trap trap = (Trap) entityInstance;
-                        image = TerrainFeaturesTilemap.getTrapVisual(trap);
-                        
-                    } else if (entityInstance instanceof Plant) {
-                        Plant plant = (Plant) entityInstance;
-                        image = TerrainFeaturesTilemap.getPlantVisual(plant);
-                        
-                    } else {
-                        continue;
-                    }
-
-                    ModGridEntity gridEntity = new ModGridEntity(image, clazz);
+                ModGridEntity gridEntity = createGridEntity(clazz);
+                if (gridEntity != null) {
                     grid.addItem(gridEntity);
-
-                } catch (Exception e) {
-                    // Ignore exception and continue to the next entity
                 }
             }
+        }
+
+        addScannedSection("Uncatalogued Mobs", ModBestiaryExtras.mobs());
+        addScannedSection("Uncatalogued Traps", ModBestiaryExtras.traps());
+        addScannedSection("Uncatalogued Plants", ModBestiaryExtras.plants());
+    }
+
+    private void addScannedSection(String title, Iterable<? extends Class<?>> classes) {
+        ArrayList<ModGridEntity> entities = new ArrayList<>();
+
+        for (Class<?> clazz : classes) {
+            ModGridEntity gridEntity = createGridEntity(clazz);
+            if (gridEntity != null) {
+                entities.add(gridEntity);
+            }
+        }
+
+        if (!entities.isEmpty()) {
+            grid.addHeader(title);
+            for (ModGridEntity entity : entities) {
+                grid.addItem(entity);
+            }
+        }
+    }
+
+    private ModGridEntity createGridEntity(Class<?> clazz) {
+        try {
+            Object entityInstance = Reflection.newInstance(clazz);
+            Image image;
+
+            if (entityInstance instanceof Mob) {
+                Mob mob = (Mob) entityInstance;
+
+                if (mob instanceof WandOfWarding.Ward) {
+                    WandOfWarding.Ward ward = (WandOfWarding.Ward) mob;
+                    if (ward instanceof WandOfWarding.Ward.WardSentry) {
+                        ward.upgrade(3);
+                        ward.upgrade(3);
+                        ward.upgrade(3);
+                        ward.upgrade(3);
+                    } else {
+                        ward.upgrade(0);
+                    }
+                }
+
+                CharSprite sprite = mob.sprite();
+                sprite.idle();
+                image = sprite;
+
+            } else if (entityInstance instanceof Trap) {
+                Trap trap = (Trap) entityInstance;
+                image = TerrainFeaturesTilemap.getTrapVisual(trap);
+
+            } else if (entityInstance instanceof Plant) {
+                Plant plant = (Plant) entityInstance;
+                image = TerrainFeaturesTilemap.getPlantVisual(plant);
+
+            } else {
+                return null;
+            }
+
+            if (image == null) {
+                return null;
+            }
+            return new ModGridEntity(image, clazz);
+
+        } catch (Throwable ignore) {
+            // Runtime discovery can include concrete helpers that still require
+            // special constructor/game state. Skip those safely.
+            return null;
         }
     }
 
