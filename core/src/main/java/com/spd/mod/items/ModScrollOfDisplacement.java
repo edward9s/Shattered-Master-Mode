@@ -21,15 +21,6 @@ import com.spd.mod.mechanics.ModFlash;
 
 public class ModScrollOfDisplacement extends Scroll implements ModReusable {
 
-    public ModScrollOfDisplacement() {
-        super();
-        this.icon = ItemSpriteSheet.Icons.SCROLL_PASSAGE;
-        this.stackable = false;
-        this.keptThoughLostInvent = true;
-        this.unique = true;
-        this.usesTargeting = true;
-    }
-    
     @Override
     public boolean keptThroughLostInventory() {
         return true;
@@ -48,15 +39,19 @@ public class ModScrollOfDisplacement extends Scroll implements ModReusable {
     public void reset() {
         super.reset();
         this.image = ItemSpriteSheet.SCROLL_HOLDER;
+        this.icon = ItemSpriteSheet.Icons.SCROLL_PASSAGE;
         this.rune = "scroll_teleport";
+        this.stackable = false;
         this.keptThoughLostInvent = true;
+        this.unique = true;
+        this.usesTargeting = true;
     }
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
         this.level(0);
-        this.keptThoughLostInvent = true;
+        reset();
     }
 
     @Override
