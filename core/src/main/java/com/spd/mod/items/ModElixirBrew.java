@@ -31,8 +31,7 @@ public class ModElixirBrew extends Brew {
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
-        keptThoughLostInvent = true;
-        unique = true;
+        reset();
     }
 
     @Override
