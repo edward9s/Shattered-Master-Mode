@@ -8,10 +8,16 @@ import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfPurity;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.brews.Brew;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.exotic.PotionOfCleansing;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
+import com.watabou.utils.Bundle;
 
 import java.util.ArrayList;
 
-public class ModElixirBrew extends Brew {
+public class ModRestorativeBrew extends Brew {
+
+    public ModRestorativeBrew() {
+        super();
+        level(1);
+    }
 
     @Override
     public void reset() {
@@ -28,6 +34,14 @@ public class ModElixirBrew extends Brew {
     }
 
     @Override
+    public void restoreFromBundle(Bundle bundle) {
+        level(0);
+        super.restoreFromBundle(bundle);
+        keptThoughLostInvent = true;
+        unique = true;
+    }
+
+    @Override
     public ArrayList<String> actions(Hero hero) {
         ArrayList<String> actions = super.actions(hero);
         actions.add(AC_DRINK);
@@ -41,12 +55,12 @@ public class ModElixirBrew extends Brew {
 
     @Override
     public String name() {
-        return "Elixir Brew";
+        return "Restorative Brew";
     }
 
     @Override
     public String desc() {
-        return "Drinking this brew fully restores health, removes negative effects, restores satiety, and grants protection from harmful gases. Throwing it purifies the surrounding area. Throwing it directly at the Blacksmith grants 1,000,000,000 favor.";
+        return "Drinking this brew fully restores health, removes negative effects, restores satiety, and grants protection from harmful gases. Throwing it purifies the surrounding area.";
     }
 
     @Override
