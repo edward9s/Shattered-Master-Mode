@@ -38,7 +38,7 @@ public class ModScrollOfLoot extends Scroll {
     public ModScrollOfLoot() {
         super();
         this.level(0);
-        this.icon = -1;
+        this.icon = ItemSpriteSheet.Icons.RING_WEALTH;
         this.stackable = false;
         this.keptThoughLostInvent = true;
         this.unique = true;
