@@ -16,7 +16,7 @@ public class ModScrollOfSight extends Scroll implements ModReusable {
 
     public ModScrollOfSight() {
         super();
-        this.icon = -1;
+        this.icon = ItemSpriteSheet.Icons.SCROLL_FORESIGHT;
         this.stackable = false;
         this.keptThoughLostInvent = true;
         this.unique = true;
