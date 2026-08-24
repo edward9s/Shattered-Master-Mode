@@ -9,6 +9,7 @@ import com.shatteredpixel.shatteredpixeldungeon.items.Ankh;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundle;
@@ -30,7 +31,7 @@ public class ModAnkh extends Ankh {
 
     public ModAnkh() {
         super();
-        this.level(1);
+        this.icon = ItemSpriteSheet.Icons.POTION_EXP;
         this.keptThoughLostInvent = true;
         this.unique = true;
     }
@@ -55,7 +56,6 @@ public class ModAnkh extends Ankh {
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
-        this.level(0);
         super.restoreFromBundle(bundle);
         this.keptThoughLostInvent = true;
         timesRevived     = bundle.getInt(TIMES_REVIVED);
