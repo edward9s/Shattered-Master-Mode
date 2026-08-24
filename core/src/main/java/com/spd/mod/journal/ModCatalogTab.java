@@ -77,6 +77,10 @@ public class ModCatalogTab extends Component {
         for (Class<?> clazz : classes) {
             try {
                 Object instance = Reflection.newInstance(clazz);
+                if (!hasUsableText(instance)) {
+                    continue;
+                }
+
                 ModGridItem gridItem = createGridItem(instance);
                 if (gridItem != null) {
                     items.add(gridItem);
@@ -93,6 +97,35 @@ public class ModCatalogTab extends Component {
                 grid.addItem(item);
             }
         }
+    }
+
+    /**
+     * Uncatalogued entries are runtime-discovered, so some are internal helper
+     * classes that happen to inherit Item/Enchantment/Glyph. Missing text is a
+     * strong signal that SPD never intended the class to be exposed as a usable
+     * journal entry. Those classes are skipped instead of being handed to the
+     * item installer, where several of them can crash.
+     */
+    private boolean hasUsableText(Object instance) {
+        if (instance instanceof Item) {
+            Item item = (Item) instance;
+            return isRealText(item.name()) && isRealText(item.desc());
+        } else if (instance instanceof Weapon.Enchantment) {
+            Weapon.Enchantment enchant = (Weapon.Enchantment) instance;
+            return isRealText(enchant.name()) && isRealText(enchant.desc());
+        } else if (instance instanceof Armor.Glyph) {
+            Armor.Glyph glyph = (Armor.Glyph) instance;
+            return isRealText(glyph.name()) && isRealText(glyph.desc());
+        }
+        return false;
+    }
+
+    private boolean isRealText(String text) {
+        if (text == null) {
+            return false;
+        }
+        String upper = text.toUpperCase();
+        return !upper.contains("NO TEXT FOUND") && !upper.contains("TEXT NOT FOUND");
     }
 
     private ModGridItem createGridItem(Object instance) {
