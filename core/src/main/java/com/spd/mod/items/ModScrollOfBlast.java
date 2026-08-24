@@ -18,8 +18,7 @@ public class ModScrollOfBlast extends Scroll implements ModReusable {
 
     public ModScrollOfBlast() {
         super();
-        this.level(1);
-        this.icon = ItemSpriteSheet.Icons.SCROLL_PSIBLAST;
+        this.icon = -1;
         this.stackable = false;
         this.keptThoughLostInvent = true;
         this.unique = true;
@@ -42,16 +41,17 @@ public class ModScrollOfBlast extends Scroll implements ModReusable {
     @Override
     public void reset() {
         super.reset();
-        this.image = new ScrollOfRetribution().image;
+        this.image = ItemSpriteSheet.SCROLL_HOLDER;
         this.rune = "scroll_blast";
         this.keptThoughLostInvent = true;
     }
     
     @Override
     public void restoreFromBundle(Bundle bundle) {
-        // 在讀取存檔前將等級歸零，抵消建構子的預設值，避免 Item 原生機制的 upgrade 疊加
-        this.level(0);
         super.restoreFromBundle(bundle);
+        // Older saves stored these reusable mod scrolls at +1. They are not
+        // upgradeable tools, so normalize them to level 0 on load.
+        this.level(0);
         this.keptThoughLostInvent = true;
     }
 
