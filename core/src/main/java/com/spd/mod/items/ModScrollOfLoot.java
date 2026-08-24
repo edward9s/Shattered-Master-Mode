@@ -38,10 +38,6 @@ public class ModScrollOfLoot extends Scroll {
     public ModScrollOfLoot() {
         super();
         this.level(0);
-        this.icon = ItemSpriteSheet.Icons.RING_WEALTH;
-        this.stackable = false;
-        this.keptThoughLostInvent = true;
-        this.unique = true;
     }
 
     @Override
@@ -66,8 +62,11 @@ public class ModScrollOfLoot extends Scroll {
     public void reset() {
         super.reset();
         this.image = ItemSpriteSheet.SCROLL_HOLDER;
+        this.icon = ItemSpriteSheet.Icons.RING_WEALTH;
         this.rune = "scroll_loot";
+        this.stackable = false;
         this.keptThoughLostInvent = true;
+        this.unique = true;
     }
 
     /** 數量顯示:把 stored 的數量同步到 level,讓卷軸右下角顯示數字。 */
@@ -91,7 +90,6 @@ public class ModScrollOfLoot extends Scroll {
         // 在讀取存檔前將等級歸零，抵消建構子的預設值，避免 Item 原生機制的 upgrade 疊加
         this.level(0);
         super.restoreFromBundle(bundle);
-        this.keptThoughLostInvent = true;
 
         stored = new ArrayList<>();
         for (Bundlable b : bundle.getCollection(STORED)) {
@@ -100,6 +98,7 @@ public class ModScrollOfLoot extends Scroll {
         // 舊存檔是照吸入順序存的,讀進來後一併套上目前的排序規則
         sortStored();
         syncCount();
+        reset();
     }
 
     @Override
@@ -366,8 +365,7 @@ public class ModScrollOfLoot extends Scroll {
 
     /**
      * 收進單一指定道具(供 Put 選物視窗逐件呼叫)。
-     * 裝備中的道具先嘗試卸裝(對齊 WndTradeItem.sell()/WndEnergizeItem 的慣例),
-     * 卸不掉(例如被詛咒鎖住)就直接放棄,不收進卷軸。
+     * 裝備中的道具先嘗試卸裝(對齊 WndTradeItem.sell()/WndEnergizeItem 的慣例),卸不掉(例如被詛咒鎖住)就直接放棄,不收進卷軸。
      * 成功後用 detachAll 把整疊從背包(或其巢狀子袋,例如箭袋/聖水瓶)移除,
      * 再走 absorb() 併入 stored,沿用既有的 isSimilar/merge 堆疊規則。
      * detachAll 不分數量,一律整疊移除,對齊 WndTradeItem.sell() 的整疊處理方式。
