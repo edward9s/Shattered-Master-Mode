@@ -15,13 +15,6 @@ import java.util.Set;
  */
 public final class ModBestiaryExtras {
 
-    private static final String MOBS_PACKAGE =
-            "com.shatteredpixel.shatteredpixeldungeon.actors.mobs.";
-    private static final String TRAPS_PACKAGE =
-            "com.shatteredpixel.shatteredpixeldungeon.levels.traps.";
-    private static final String PLANTS_PACKAGE =
-            "com.shatteredpixel.shatteredpixeldungeon.plants.";
-
     private static ArrayList<Class<? extends Mob>> mobs;
     private static ArrayList<Class<? extends Trap>> traps;
     private static ArrayList<Class<? extends Plant>> plants;
@@ -58,22 +51,23 @@ public final class ModBestiaryExtras {
             catalogued.addAll(bestiary.entities());
         }
 
-        for (Class<? extends Mob> clazz :
-                ModClassScanner.subclassesOf(Mob.class, MOBS_PACKAGE)) {
+        // ModClassScanner is already restricted to SPD's namespace. Filtering
+        // only by base type is more future-proof than assuming every entity
+        // lives under actors.mobs / levels.traps / plants; SPD already has Mob
+        // subclasses implemented inside items and hero-ability packages.
+        for (Class<? extends Mob> clazz : ModClassScanner.subclassesOf(Mob.class)) {
             if (!catalogued.contains(clazz) && !isBlacklistedClass(clazz.getName())) {
                 mobs.add(clazz);
             }
         }
 
-        for (Class<? extends Trap> clazz :
-                ModClassScanner.subclassesOf(Trap.class, TRAPS_PACKAGE)) {
+        for (Class<? extends Trap> clazz : ModClassScanner.subclassesOf(Trap.class)) {
             if (!catalogued.contains(clazz) && !isBlacklistedClass(clazz.getName())) {
                 traps.add(clazz);
             }
         }
 
-        for (Class<? extends Plant> clazz :
-                ModClassScanner.subclassesOf(Plant.class, PLANTS_PACKAGE)) {
+        for (Class<? extends Plant> clazz : ModClassScanner.subclassesOf(Plant.class)) {
             if (!catalogued.contains(clazz) && !isBlacklistedClass(clazz.getName())) {
                 plants.add(clazz);
             }
