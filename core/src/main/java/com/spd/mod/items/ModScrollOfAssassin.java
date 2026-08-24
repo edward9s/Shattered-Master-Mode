@@ -18,8 +18,7 @@ public class ModScrollOfAssassin extends Scroll implements ModReusable {
 
     public ModScrollOfAssassin() {
         super();
-        this.level(1);
-        this.icon = ItemSpriteSheet.Icons.RING_ACCURACY; // 0
+        this.icon = -1;
         this.stackable = false;
         this.keptThoughLostInvent = true;
         this.unique = true;
@@ -60,16 +59,15 @@ public class ModScrollOfAssassin extends Scroll implements ModReusable {
     @Override
     public void reset() {
         super.reset();
-        this.image = new ScrollOfTeleportation().image;
+        this.image = ItemSpriteSheet.SCROLL_HOLDER;
         this.rune = "scroll_assassin";
         this.keptThoughLostInvent = true;
     }
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
-        // 在讀取存檔前將等級歸零，抵消建構子的預設值，避免 Item 原生機制的 upgrade 疊加
-        this.level(0);
         super.restoreFromBundle(bundle);
+        this.level(0);
         this.keptThoughLostInvent = true;
     }
 
