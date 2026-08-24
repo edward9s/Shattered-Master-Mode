@@ -16,15 +16,6 @@ import com.spd.mod.mechanics.ModAssassin;
 
 public class ModScrollOfAssassin extends Scroll implements ModReusable {
 
-    public ModScrollOfAssassin() {
-        super();
-        this.icon = ItemSpriteSheet.Icons.RING_ACCURACY;
-        this.stackable = false;
-        this.keptThoughLostInvent = true;
-        this.unique = true;
-        this.usesTargeting = true;
-    }
-
     /**
      * 關鍵修正：快捷欄的自動瞄準 (QuickSlotButton.autoAim) 會先測
      * targetingPos(hero, target.pos) == target.pos，預設實作是投射物彈道的
@@ -60,16 +51,19 @@ public class ModScrollOfAssassin extends Scroll implements ModReusable {
     public void reset() {
         super.reset();
         this.image = ItemSpriteSheet.SCROLL_HOLDER;
+        this.icon = ItemSpriteSheet.Icons.RING_ACCURACY;
         this.rune = "scroll_assassin";
+        this.stackable = false;
         this.keptThoughLostInvent = true;
+        this.unique = true;
+        this.usesTargeting = true;
     }
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
         this.level(0);
-        this.keptThoughLostInvent = true;
-        this.unique = true;
+        reset();
     }
 
     @Override
