@@ -46,7 +46,7 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
             ItemSpriteSheet.Icons.SCROLL_IDENTIFY : 
             ItemSpriteSheet.Icons.SCROLL_DIVINATE;
 
-        this.image = ItemSpriteSheet.POTION_HOLDER;
+        this.image = tier <= 2 ? ItemSpriteSheet.POTION_HOLDER : ItemSpriteSheet.ELIXIR_HOLDER;
         if (tier <= 2) {
             this.color = "tier" + tier + "_reset";
         } else {
