@@ -18,7 +18,7 @@ public class ModScrollOfAssassin extends Scroll implements ModReusable {
 
     public ModScrollOfAssassin() {
         super();
-        this.icon = -1;
+        this.icon = ItemSpriteSheet.Icons.RING_ACCURACY;
         this.stackable = false;
         this.keptThoughLostInvent = true;
         this.unique = true;
