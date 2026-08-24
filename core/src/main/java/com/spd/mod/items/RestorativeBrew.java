@@ -6,8 +6,8 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Blacksmith;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHealing;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfPurity;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.brews.Brew;
-import com.shatteredpixel.shatteredpixeldungeon.items.potions.brews.UnstableBrew;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.exotic.PotionOfCleansing;
+import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.watabou.utils.Bundle;
 
 import java.util.ArrayList;
@@ -22,7 +22,7 @@ public class RestorativeBrew extends Brew {
     @Override
     public void reset() {
         super.reset();
-        image = new UnstableBrew().image;
+        image = ItemSpriteSheet.POTION_HOLDER;
         icon = new PotionOfHealing().icon;
         keptThoughLostInvent = true;
         unique = true;
