@@ -45,7 +45,7 @@ public class ModCatalogTab extends Component {
         injectModItem(new ModPotionOfResetTier.Tier3());
         injectModItem(new ModPotionOfResetTier.Tier4());
         injectModItem(new ModPotionOfWeakness());
-        injectModItem(new ModRestorativeBrew());
+        injectModItem(new ModElixirBrew());
         injectModItem(new ModAnkh());
 
         for (Catalog catalog : catalogs) {
