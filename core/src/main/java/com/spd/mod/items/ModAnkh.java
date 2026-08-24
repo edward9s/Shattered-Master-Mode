@@ -31,9 +31,7 @@ public class ModAnkh extends Ankh {
 
     public ModAnkh() {
         super();
-        this.icon = ItemSpriteSheet.Icons.POTION_EXP;
-        this.keptThoughLostInvent = true;
-        this.unique = true;
+        reset();
     }
 
     @Override
@@ -44,7 +42,9 @@ public class ModAnkh extends Ankh {
     @Override
     public void reset() {
         super.reset();
+        this.icon = ItemSpriteSheet.Icons.POTION_EXP;
         this.keptThoughLostInvent = true;
+        this.unique = true;
     }
 
     @Override
@@ -57,10 +57,9 @@ public class ModAnkh extends Ankh {
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
-        this.keptThoughLostInvent = true;
-        this.unique = true;
         timesRevived     = bundle.getInt(TIMES_REVIVED);
         timesResurrected = bundle.getInt(TIMES_RESURRECTED);
+        reset();
     }
 
     @Override
