@@ -23,7 +23,7 @@ public class ModScrollOfDisplacement extends Scroll implements ModReusable {
 
     public ModScrollOfDisplacement() {
         super();
-        this.icon = -1;
+        this.icon = ItemSpriteSheet.Icons.SCROLL_PASSAGE;
         this.stackable = false;
         this.keptThoughLostInvent = true;
         this.unique = true;
