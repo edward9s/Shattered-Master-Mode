@@ -53,48 +53,80 @@ public class ModCatalogTab extends Component {
 
             for (Class<?> clazz : catalog.items()) {
                 Object instance = Reflection.newInstance(clazz);
-                ModGridItem gridItem = null;
-
-                if (instance instanceof Item) {
-                    Item item = (Item) instance;
-                    ItemSprite sprite = new ItemSprite(item.image, item.glowing());
-                    gridItem = new ModGridItem(sprite, item, null, null);
-
-                    if (item.icon != -1) {
-                        Image iconImage = new Image(Assets.Sprites.ITEM_ICONS);
-                        RectF frame = ItemSpriteSheet.Icons.film.get(item.icon);
-                        iconImage.frame(frame);
-                        gridItem.addSecondIcon(iconImage);
-                    }
-                } else if (instance instanceof Weapon.Enchantment) {
-                    Weapon.Enchantment enchant = (Weapon.Enchantment) instance;
-                    ItemSprite sprite = new ItemSprite(ItemSpriteSheet.WORN_SHORTSWORD, enchant.glowing());
-                    gridItem = new ModGridItem(sprite, null, enchant, null);
-                } else if (instance instanceof Armor.Glyph) {
-                    Armor.Glyph glyph = (Armor.Glyph) instance;
-                    ItemSprite sprite = new ItemSprite(ItemSpriteSheet.ARMOR_CLOTH, glyph.glowing());
-                    gridItem = new ModGridItem(sprite, null, null, glyph);
-                }
-
+                ModGridItem gridItem = createGridItem(instance);
                 if (gridItem != null) {
                     grid.addItem(gridItem);
                 }
             }
         }
+
+        // SPD's Catalog is intentionally curated and can omit real runtime
+        // classes. Add the discovered difference at the end of each tab.
+        if (tabId == 0) {
+            addScannedSection("Uncatalogued Equipment", ModCatalogExtras.equipmentItems());
+            addScannedSection("Uncatalogued Enchantments", ModCatalogExtras.enchantments());
+            addScannedSection("Uncatalogued Glyphs", ModCatalogExtras.glyphs());
+        } else if (tabId == 1) {
+            addScannedSection("Uncatalogued Items", ModCatalogExtras.consumableItems());
+        }
+    }
+
+    private void addScannedSection(String title, Iterable<? extends Class<?>> classes) {
+        ArrayList<ModGridItem> items = new ArrayList<>();
+
+        for (Class<?> clazz : classes) {
+            try {
+                Object instance = Reflection.newInstance(clazz);
+                ModGridItem gridItem = createGridItem(instance);
+                if (gridItem != null) {
+                    items.add(gridItem);
+                }
+            } catch (Throwable ignore) {
+                // A concrete class can still be runtime-only or require state
+                // that makes it unsuitable for direct journal construction.
+            }
+        }
+
+        if (!items.isEmpty()) {
+            grid.addHeader(title);
+            for (ModGridItem item : items) {
+                grid.addItem(item);
+            }
+        }
+    }
+
+    private ModGridItem createGridItem(Object instance) {
+        ModGridItem gridItem = null;
+
+        if (instance instanceof Item) {
+            Item item = (Item) instance;
+            ItemSprite sprite = new ItemSprite(item.image, item.glowing());
+            gridItem = new ModGridItem(sprite, item, null, null);
+
+            if (item.icon != -1) {
+                Image iconImage = new Image(Assets.Sprites.ITEM_ICONS);
+                RectF frame = ItemSpriteSheet.Icons.film.get(item.icon);
+                iconImage.frame(frame);
+                gridItem.addSecondIcon(iconImage);
+            }
+        } else if (instance instanceof Weapon.Enchantment) {
+            Weapon.Enchantment enchant = (Weapon.Enchantment) instance;
+            ItemSprite sprite = new ItemSprite(ItemSpriteSheet.WORN_SHORTSWORD, enchant.glowing());
+            gridItem = new ModGridItem(sprite, null, enchant, null);
+        } else if (instance instanceof Armor.Glyph) {
+            Armor.Glyph glyph = (Armor.Glyph) instance;
+            ItemSprite sprite = new ItemSprite(ItemSpriteSheet.ARMOR_CLOTH, glyph.glowing());
+            gridItem = new ModGridItem(sprite, null, null, glyph);
+        }
+
+        return gridItem;
     }
 
     private void injectModItem(Item item) {
-        ItemSprite sprite = new ItemSprite(item.image, item.glowing());
-        ModGridItem gridItem = new ModGridItem(sprite, item, null, null);
-
-        if (item.icon != -1) {
-            Image iconImage = new Image(Assets.Sprites.ITEM_ICONS);
-            RectF frame = ItemSpriteSheet.Icons.film.get(item.icon);
-            iconImage.frame(frame);
-            gridItem.addSecondIcon(iconImage);
+        ModGridItem gridItem = createGridItem(item);
+        if (gridItem != null) {
+            grid.addItem(gridItem);
         }
-
-        grid.addItem(gridItem);
     }
 
     @Override
