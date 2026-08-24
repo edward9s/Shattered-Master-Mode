@@ -58,6 +58,7 @@ public class ModAnkh extends Ankh {
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
         this.keptThoughLostInvent = true;
+        this.unique = true;
         timesRevived     = bundle.getInt(TIMES_REVIVED);
         timesResurrected = bundle.getInt(TIMES_RESURRECTED);
     }
