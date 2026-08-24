@@ -12,12 +12,7 @@ import com.watabou.utils.Bundle;
 
 import java.util.ArrayList;
 
-public class ModRestorativeBrew extends Brew {
-
-    public ModRestorativeBrew() {
-        super();
-        level(1);
-    }
+public class ModElixirBrew extends Brew {
 
     @Override
     public void reset() {
@@ -35,7 +30,6 @@ public class ModRestorativeBrew extends Brew {
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
-        level(0);
         super.restoreFromBundle(bundle);
         keptThoughLostInvent = true;
         unique = true;
@@ -55,12 +49,12 @@ public class ModRestorativeBrew extends Brew {
 
     @Override
     public String name() {
-        return "Restorative Brew";
+        return "Elixir Brew";
     }
 
     @Override
     public String desc() {
-        return "Drinking this brew fully restores health, removes negative effects, restores satiety, and grants protection from harmful gases. Throwing it purifies the surrounding area.";
+        return "Drinking this brew fully restores health, removes negative effects, restores satiety, and grants protection from harmful gases. Throwing it purifies the surrounding area. Throwing it directly at the Blacksmith grants 1,000,000,000 favor.";
     }
 
     @Override
