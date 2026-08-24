@@ -38,7 +38,7 @@ public class ModScrollOfLoot extends Scroll {
     public ModScrollOfLoot() {
         super();
         this.level(0);
-        this.icon = ItemSpriteSheet.Icons.RING_WEALTH; // 11
+        this.icon = -1;
         this.stackable = false;
         this.keptThoughLostInvent = true;
         this.unique = true;
@@ -65,7 +65,7 @@ public class ModScrollOfLoot extends Scroll {
     @Override
     public void reset() {
         super.reset();
-        this.image = new ScrollOfTransmutation().image;
+        this.image = ItemSpriteSheet.SCROLL_HOLDER;
         this.rune = "scroll_loot";
         this.keptThoughLostInvent = true;
     }
