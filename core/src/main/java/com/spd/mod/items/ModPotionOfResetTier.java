@@ -3,9 +3,7 @@ package com.spd.mod.items;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
-import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfExperience;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.exotic.ExoticPotion;
-import com.shatteredpixel.shatteredpixeldungeon.items.potions.exotic.PotionOfDivineInspiration;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.watabou.utils.Bundle;
@@ -48,11 +46,10 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
             ItemSpriteSheet.Icons.SCROLL_IDENTIFY : 
             ItemSpriteSheet.Icons.SCROLL_DIVINATE;
 
+        this.image = ItemSpriteSheet.POTION_HOLDER;
         if (tier <= 2) {
-            this.image = new PotionOfExperience().image;
             this.color = "tier" + tier + "_reset";
         } else {
-            this.image = new PotionOfDivineInspiration().image;
             this.color = "exotic_tier" + tier;
         }
     }
