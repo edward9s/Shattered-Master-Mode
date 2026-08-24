@@ -25,8 +25,6 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
         this.tier = tier;
         this.level(tier);
         reset();
-        this.keptThoughLostInvent = true;
-        this.unique = true;
     }
     
     @Override
@@ -41,7 +39,6 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
         // 防止初始化的極端情況
         if (tier < 1) return; 
 
-        this.unique = true;
         this.icon = (tier % 2 != 0) ? 
             ItemSpriteSheet.Icons.SCROLL_IDENTIFY : 
             ItemSpriteSheet.Icons.SCROLL_DIVINATE;
