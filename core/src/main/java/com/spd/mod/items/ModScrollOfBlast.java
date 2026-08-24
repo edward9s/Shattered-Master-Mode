@@ -16,14 +16,6 @@ import com.spd.mod.mechanics.ModBlast;
 
 public class ModScrollOfBlast extends Scroll implements ModReusable {
 
-    public ModScrollOfBlast() {
-        super();
-        this.icon = ItemSpriteSheet.Icons.SCROLL_PSIBLAST;
-        this.stackable = false;
-        this.keptThoughLostInvent = true;
-        this.unique = true;
-    }
-    
     @Override
     public boolean keptThroughLostInventory() {
         return true;
@@ -42,8 +34,11 @@ public class ModScrollOfBlast extends Scroll implements ModReusable {
     public void reset() {
         super.reset();
         this.image = ItemSpriteSheet.SCROLL_HOLDER;
+        this.icon = ItemSpriteSheet.Icons.SCROLL_PSIBLAST;
         this.rune = "scroll_blast";
+        this.stackable = false;
         this.keptThoughLostInvent = true;
+        this.unique = true;
     }
     
     @Override
@@ -52,7 +47,7 @@ public class ModScrollOfBlast extends Scroll implements ModReusable {
         // Older saves stored these reusable mod scrolls at +1. They are not
         // upgradeable tools, so normalize them to level 0 on load.
         this.level(0);
-        this.keptThoughLostInvent = true;
+        reset();
     }
 
     @Override
