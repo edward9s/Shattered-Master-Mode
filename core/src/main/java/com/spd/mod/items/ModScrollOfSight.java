@@ -14,14 +14,6 @@ import com.spd.mod.mechanics.ModSight;
 
 public class ModScrollOfSight extends Scroll implements ModReusable {
 
-    public ModScrollOfSight() {
-        super();
-        this.icon = ItemSpriteSheet.Icons.SCROLL_FORESIGHT;
-        this.stackable = false;
-        this.keptThoughLostInvent = true;
-        this.unique = true;
-    }
-    
     @Override
     public boolean keptThroughLostInventory() {
         return true;
@@ -40,15 +32,18 @@ public class ModScrollOfSight extends Scroll implements ModReusable {
     public void reset() {
         super.reset();
         this.image = ItemSpriteSheet.SCROLL_HOLDER;
+        this.icon = ItemSpriteSheet.Icons.SCROLL_FORESIGHT;
         this.rune = "scroll_sight";
+        this.stackable = false;
         this.keptThoughLostInvent = true;
+        this.unique = true;
     }
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
         this.level(0);
-        this.keptThoughLostInvent = true;
+        reset();
     }
 
     @Override
