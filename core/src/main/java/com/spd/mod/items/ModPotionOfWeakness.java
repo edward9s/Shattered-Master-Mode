@@ -58,7 +58,12 @@ public class ModPotionOfWeakness extends Potion {
 	public int value() {
 		return 0;
 	}
-
+	
+	@Override
+    public int energyVal() {
+        return 6;
+    }
+	
     @Override
     public boolean isIdentified() {
         return true;
