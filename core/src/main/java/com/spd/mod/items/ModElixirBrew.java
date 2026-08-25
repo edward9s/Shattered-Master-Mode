@@ -89,6 +89,6 @@ public class ModElixirBrew extends Brew {
 
     @Override
     public int energyVal() {
-        return 0;
+        return 6;
     }
 }
