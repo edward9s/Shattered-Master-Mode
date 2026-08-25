@@ -108,7 +108,7 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
     @Override
     public int energyVal() {
         // ExoticPotion.energyVal() 依賴 exoToReg 對照表，本類別不在表中會 NPE
-        return 0;
+        return 6;
     }
 
     @Override
