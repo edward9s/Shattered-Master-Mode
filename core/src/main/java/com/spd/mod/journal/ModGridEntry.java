@@ -14,12 +14,12 @@ abstract class ModGridEntry extends ScrollingGridPane.GridItem {
     ModGridEntry(Image image, String infoTitle, String infoDescription) {
         super(image);
 
-        if (!hasUsableText(infoTitle) || !hasUsableText(infoDescription)) {
-            throw new IllegalArgumentException("Journal entries require a title and description");
+        if (!hasUsableText(infoTitle)) {
+            throw new IllegalArgumentException("Journal entries require a title");
         }
 
         this.infoTitle = infoTitle;
-        this.infoDescription = infoDescription;
+        this.infoDescription = normalizeDescription(infoDescription);
     }
 
     public final boolean onLongClick(float x, float y) {
@@ -40,5 +40,12 @@ abstract class ModGridEntry extends ScrollingGridPane.GridItem {
         String upper = text.toUpperCase();
         return !upper.contains(Messages.NO_TEXT_FOUND)
                 && !upper.contains("TEXT NOT FOUND");
+    }
+
+    private static String normalizeDescription(String description) {
+        if (description == null || description.trim().isEmpty()) {
+            return Messages.NO_TEXT_FOUND;
+        }
+        return description;
     }
 }
