@@ -2,7 +2,7 @@ package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon;
-import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
+import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.watabou.noosa.ui.Component;
 import com.watabou.utils.Reflection;
 
@@ -13,13 +13,13 @@ public class ModBuffTab extends Component {
     public static ModBuffTab instance;
     public static float scrollTop;
 
-    private ScrollingGridPane grid;
+    private ModScrollingGridPane grid;
 
     public ModBuffTab() {
         super();
         instance = this;
 
-        grid = new ScrollingGridPane();
+        grid = new ModScrollingGridPane();
         add(grid);
 
         ArrayList<ModGridBuff> positiveBuffs = new ArrayList<>();
@@ -28,13 +28,18 @@ public class ModBuffTab extends Component {
 
         for (Class<?> buffClass : ModBuffClass.allBuffs()) {
             try {
-                Buff buff = (Buff) Reflection.newInstance(buffClass);
+                Buff buff = (Buff) Reflection.newInstanceUnhandled(buffClass);
                 ModCharSelector.smartSetDuration(buff, 1.0f);
 
                 if (buff.icon() != 127) {
-                    if (!buff.name().contains("NO TEXT FOUND")) {
+                    String name = buff.name();
+                    if (!name.contains("NO TEXT FOUND")) {
                         BuffIcon icon = new BuffIcon(buff, true);
-                        ModGridBuff gridBuff = new ModGridBuff(icon, (Class<? extends Buff>) buffClass);
+                        ModGridBuff gridBuff = new ModGridBuff(
+                                icon,
+                                (Class<? extends Buff>) buffClass,
+                                Messages.titleCase(name),
+                                buff.desc());
 
                         if (buff.type == Buff.buffType.POSITIVE) {
                             positiveBuffs.add(gridBuff);

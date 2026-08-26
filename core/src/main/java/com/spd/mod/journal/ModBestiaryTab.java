@@ -8,7 +8,6 @@ import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.plants.Plant;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.TerrainFeaturesTilemap;
-import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
 import com.watabou.noosa.Image;
 import com.watabou.noosa.ui.Component;
 import com.watabou.utils.Reflection;
@@ -21,13 +20,13 @@ public class ModBestiaryTab extends Component {
     public static ModBestiaryTab instance;
     public static float scrollTop;
 
-    private ScrollingGridPane grid;
+    private ModScrollingGridPane grid;
 
     public ModBestiaryTab() {
         super();
         instance = this;
 
-        grid = new ScrollingGridPane();
+        grid = new ModScrollingGridPane();
         add(grid);
 
         for (Bestiary bestiary : Bestiary.values()) {
@@ -35,7 +34,7 @@ public class ModBestiaryTab extends Component {
 
             Collection<Class<?>> entities = bestiary.entities();
             for (Class<?> clazz : entities) {
-                ModGridEntity gridEntity = createGridEntity(clazz);
+                ModGridEntity gridEntity = createGridEntity(clazz, false);
                 if (gridEntity != null) {
                     grid.addItem(gridEntity);
                 }
@@ -51,7 +50,7 @@ public class ModBestiaryTab extends Component {
         ArrayList<ModGridEntity> entities = new ArrayList<>();
 
         for (Class<?> clazz : classes) {
-            ModGridEntity gridEntity = createGridEntity(clazz);
+            ModGridEntity gridEntity = createGridEntity(clazz, true);
             if (gridEntity != null) {
                 entities.add(gridEntity);
             }
@@ -65,10 +64,14 @@ public class ModBestiaryTab extends Component {
         }
     }
 
-    private ModGridEntity createGridEntity(Class<?> clazz) {
+    private ModGridEntity createGridEntity(Class<?> clazz, boolean runtimeDiscovered) {
         try {
-            Object entityInstance = Reflection.newInstance(clazz);
+            Object entityInstance = runtimeDiscovered
+                    ? Reflection.newInstanceUnhandled(clazz)
+                    : Reflection.newInstance(clazz);
             Image image;
+            String infoTitle;
+            String infoDescription;
 
             if (entityInstance instanceof Mob) {
                 Mob mob = (Mob) entityInstance;
@@ -85,17 +88,32 @@ public class ModBestiaryTab extends Component {
                     }
                 }
 
-                CharSprite sprite = mob.sprite();
+                if (mob.spriteClass == null) {
+                    return null;
+                }
+
+                CharSprite sprite = runtimeDiscovered
+                        ? Reflection.newInstanceUnhandled(mob.spriteClass)
+                        : mob.sprite();
+                if (sprite == null) {
+                    return null;
+                }
                 sprite.idle();
                 image = sprite;
+                infoTitle = Messages.titleCase(mob.name());
+                infoDescription = mob.description();
 
             } else if (entityInstance instanceof Trap) {
                 Trap trap = (Trap) entityInstance;
                 image = TerrainFeaturesTilemap.getTrapVisual(trap);
+                infoTitle = Messages.titleCase(trap.name());
+                infoDescription = trap.desc();
 
             } else if (entityInstance instanceof Plant) {
                 Plant plant = (Plant) entityInstance;
                 image = TerrainFeaturesTilemap.getPlantVisual(plant);
+                infoTitle = Messages.titleCase(plant.name());
+                infoDescription = plant.desc();
 
             } else {
                 return null;
@@ -104,7 +122,7 @@ public class ModBestiaryTab extends Component {
             if (image == null) {
                 return null;
             }
-            return new ModGridEntity(image, clazz);
+            return new ModGridEntity(image, clazz, infoTitle, infoDescription);
 
         } catch (Throwable ignore) {
             // Runtime discovery can include concrete helpers that still require

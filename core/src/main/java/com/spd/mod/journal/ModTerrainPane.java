@@ -3,6 +3,7 @@ package com.spd.mod.journal;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
+import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTerrainTilemap;
 import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
 import com.watabou.noosa.Image;
@@ -35,7 +36,11 @@ public class ModTerrainPane {
             try {
                 int heroPos = Dungeon.hero.pos;
                 Image tileImage = DungeonTerrainTilemap.tile(heroPos, i);
-                pane.addItem(new ModGridTerrain(tileImage, i));
+                pane.addItem(new ModGridTerrain(
+                        tileImage,
+                        i,
+                        Messages.titleCase(tileName),
+                        level.tileDesc(i)));
             } catch (Exception e) {
                 // Ignore generation failure
             }

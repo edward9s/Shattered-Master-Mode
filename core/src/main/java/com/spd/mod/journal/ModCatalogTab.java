@@ -8,7 +8,6 @@ import com.shatteredpixel.shatteredpixeldungeon.journal.Catalog;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
-import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
 import com.watabou.noosa.Image;
 import com.watabou.noosa.ui.Component;
 import com.watabou.utils.RectF;
@@ -20,7 +19,7 @@ import com.spd.mod.items.*;
 
 public class ModCatalogTab extends Component {
 
-    private ScrollingGridPane grid;
+    private ModScrollingGridPane grid;
 
     // 新增靜態陣列儲存高度，與該實體的專屬索引 ID
     public static float[] savedScrollTops = new float[2];
@@ -30,7 +29,7 @@ public class ModCatalogTab extends Component {
         super();
         this.tabId = tabId;
 
-        grid = new ScrollingGridPane();
+        grid = new ModScrollingGridPane();
         add(grid);
 
         grid.addHeader("Mod Tools");
@@ -76,7 +75,7 @@ public class ModCatalogTab extends Component {
 
         for (Class<?> clazz : classes) {
             try {
-                Object instance = Reflection.newInstance(clazz);
+                Object instance = Reflection.newInstanceUnhandled(clazz);
                 if (!hasUsableText(instance)) {
                     continue;
                 }
