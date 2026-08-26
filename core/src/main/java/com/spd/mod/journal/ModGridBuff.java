@@ -1,15 +1,15 @@
 package com.spd.mod.journal;
 
-import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
 import com.watabou.noosa.Image;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 
-public class ModGridBuff extends ScrollingGridPane.GridItem {
+public class ModGridBuff extends ModGridEntry {
 
     public Class<? extends Buff> buffClass;
 
-    public ModGridBuff(Image image, Class<? extends Buff> buffClass) {
-        super(image);
+    public ModGridBuff(Image image, Class<? extends Buff> buffClass,
+                       String infoTitle, String infoDescription) {
+        super(image, infoTitle, infoDescription);
         this.buffClass = buffClass;
     }
 

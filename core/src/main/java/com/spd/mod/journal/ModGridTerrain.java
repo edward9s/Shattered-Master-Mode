@@ -1,14 +1,14 @@
 package com.spd.mod.journal;
 
-import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
 import com.watabou.noosa.Image;
 
-public class ModGridTerrain extends ScrollingGridPane.GridItem {
+public class ModGridTerrain extends ModGridEntry {
 
     public int terrainId;
 
-    public ModGridTerrain(Image image, int terrainId) {
-        super(image);
+    public ModGridTerrain(Image image, int terrainId,
+                          String infoTitle, String infoDescription) {
+        super(image, infoTitle, infoDescription);
         this.terrainId = terrainId;
     }
 

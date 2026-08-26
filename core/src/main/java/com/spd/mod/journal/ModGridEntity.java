@@ -1,15 +1,15 @@
 package com.spd.mod.journal;
 
-import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
 import com.watabou.noosa.Image;
 import com.watabou.utils.RectF;
 
-public class ModGridEntity extends ScrollingGridPane.GridItem {
+public class ModGridEntity extends ModGridEntry {
 
     private Class<?> entityClass;
 
-    public ModGridEntity(Image image, Class<?> entityClass) {
-        super(new Image(image));
+    public ModGridEntity(Image image, Class<?> entityClass,
+                         String infoTitle, String infoDescription) {
+        super(new Image(image), infoTitle, infoDescription);
         this.entityClass = entityClass;
 
         Image icon = this.icon;

@@ -1,18 +1,17 @@
 package com.spd.mod.journal;
 
-import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
 import com.watabou.noosa.ui.Component;
 
 public class ModEnvironmentTab extends Component {
 
     public static float scrollTop;
 
-    public ScrollingGridPane sharedGrid;
+    public ModScrollingGridPane sharedGrid;
 
     public ModEnvironmentTab() {
         super();
 
-        sharedGrid = new ScrollingGridPane();
+        sharedGrid = new ModScrollingGridPane();
         add(sharedGrid);
 
         // 呼叫子模組填充資料
