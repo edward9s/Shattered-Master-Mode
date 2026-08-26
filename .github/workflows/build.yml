@@ -10,12 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      copilot-requests: write
 
     steps:
       - name: Checkout Mod Source
         uses: actions/checkout@v4
         with:
           path: mod
+          fetch-depth: 0
 
       - name: Check Version & Release Status
         id: check
@@ -37,6 +39,119 @@ jobs:
             echo "MOD_VER=$MOD_VER" >> $GITHUB_ENV
             echo "EXPECTED_TAG=$EXPECTED_TAG" >> $GITHUB_ENV
           fi
+
+      - name: Prepare Release Notes Context
+        if: steps.check.outputs.skip == 'false' && github.event_name == 'schedule'
+        working-directory: ./mod
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PREV_TAG=$(gh api repos/${{ github.repository }}/releases/latest --jq '.tag_name' 2>/dev/null || true)
+
+          echo "PREV_TAG=$PREV_TAG" >> $GITHUB_ENV
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "PREV_SPD=" >> $GITHUB_ENV
+            echo "SPD_CHANGED=true" >> $GITHUB_ENV
+            echo "HAS_SMM_COMMITS=false" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          PREV_BODY="${PREV_TAG#SPD-}"
+          PREV_SPD="${PREV_BODY%-m*}"
+          echo "PREV_SPD=$PREV_SPD" >> $GITHUB_ENV
+
+          if [ "$PREV_SPD" != "$UPSTREAM_TAG" ]; then
+            echo "SPD_CHANGED=true" >> $GITHUB_ENV
+          else
+            echo "SPD_CHANGED=false" >> $GITHUB_ENV
+          fi
+
+          if git rev-parse --verify "$PREV_TAG^{commit}" >/dev/null 2>&1 && \
+             [ -n "$(git rev-list "$PREV_TAG"..HEAD)" ]; then
+            echo "HAS_SMM_COMMITS=true" >> $GITHUB_ENV
+          else
+            echo "HAS_SMM_COMMITS=false" >> $GITHUB_ENV
+          fi
+
+      - name: Set Up Node.js for Copilot
+        if: steps.check.outputs.skip == 'false' && github.event_name == 'schedule' && env.HAS_SMM_COMMITS == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Copilot CLI
+        if: steps.check.outputs.skip == 'false' && github.event_name == 'schedule' && env.HAS_SMM_COMMITS == 'true'
+        run: npm install -g @github/copilot
+
+      - name: Generate SMM Changelog with Copilot
+        if: steps.check.outputs.skip == 'false' && github.event_name == 'schedule' && env.HAS_SMM_COMMITS == 'true'
+        continue-on-error: true
+        working-directory: ./mod
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          rm -f release-notes-ai.md
+
+          copilot -p "Generate a concise player-facing changelog for Shattered Master Mode by comparing git tag ${PREV_TAG} to HEAD.
+
+          Use git log and git diff to inspect the actual final changes.
+
+          Rules:
+          - Describe only meaningful user-visible Shattered Master Mode changes.
+          - Merge related commits into one bullet and describe the final behavior, not intermediate implementation steps.
+          - Ignore version bumps, CI/build/release workflow changes, refactors, cleanup, formatting, tests, and reverted or superseded changes unless they alter player-visible behavior.
+          - Do not mention Shattered Pixel Dungeon upstream version changes; the workflow handles those separately.
+          - Do not invent changes or infer features not supported by the diff.
+          - Use concise English suitable for GitHub release notes.
+          - Use at most 6 Markdown bullet points, with no heading, preamble, links, or trailing commentary.
+          - If there are no meaningful user-visible changes, write exactly: NO_USER_FACING_CHANGES
+          - Write only the final result to release-notes-ai.md in the current directory." \
+            --allow-tool='shell(git:*)' \
+            --allow-tool=write \
+            --no-ask-user
+
+          test -s release-notes-ai.md
+
+      - name: Compose Release Notes
+        if: steps.check.outputs.skip == 'false' && github.event_name == 'schedule'
+        working-directory: ./mod
+        run: |
+          CHANGES_FILE="../release-notes-changes.md"
+          NOTES_FILE="../release-notes.md"
+          : > "$CHANGES_FILE"
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "- Built against Shattered Pixel Dungeon ${UPSTREAM_TAG}." >> "$CHANGES_FILE"
+          elif [ "$SPD_CHANGED" == "true" ]; then
+            echo "- Updated base game from Shattered Pixel Dungeon ${PREV_SPD} to ${UPSTREAM_TAG}." >> "$CHANGES_FILE"
+          fi
+
+          if [ "$HAS_SMM_COMMITS" == "true" ]; then
+            if [ -s release-notes-ai.md ]; then
+              AI_NOTES=$(cat release-notes-ai.md)
+              if [ "$AI_NOTES" != "NO_USER_FACING_CHANGES" ]; then
+                cat release-notes-ai.md >> "$CHANGES_FILE"
+                echo >> "$CHANGES_FILE"
+              fi
+            else
+              echo "- Shattered Master Mode changes are included; see the commit history since ${PREV_TAG} for details." >> "$CHANGES_FILE"
+            fi
+          fi
+
+          if [ ! -s "$CHANGES_FILE" ]; then
+            echo "- Maintenance release with no user-facing gameplay changes." >> "$CHANGES_FILE"
+          fi
+
+          {
+            echo "## Changes"
+            echo
+            cat "$CHANGES_FILE"
+            echo
+            echo "> Automatically built from Shattered Pixel Dungeon ${UPSTREAM_TAG}."
+          } > "$NOTES_FILE"
+
+          cat "$NOTES_FILE"
 
       - name: Checkout SPD Source
         uses: actions/checkout@v4
@@ -111,7 +226,7 @@ jobs:
         with:
           tag_name: ${{ env.EXPECTED_TAG }}
           name: ${{ env.EXPECTED_TAG }}
-          body: "This is an automatic build based on the official SPD version."
+          body_path: release-notes.md
           files: out/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
