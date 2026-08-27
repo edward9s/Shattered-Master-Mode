@@ -1,5 +1,6 @@
 package com.spd.mod.journal;
 
+import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mimic;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.items.wands.WandOfWarding;
 import com.shatteredpixel.shatteredpixeldungeon.journal.Bestiary;
@@ -75,6 +76,10 @@ public class ModBestiaryTab extends Component {
 
             if (entityInstance instanceof Mob) {
                 Mob mob = (Mob) entityInstance;
+
+                if (mob instanceof Mimic && ((Mimic) mob).items == null) {
+                    ((Mimic) mob).items = new ArrayList<>();
+                }
 
                 if (mob instanceof WandOfWarding.Ward) {
                     WandOfWarding.Ward ward = (WandOfWarding.Ward) mob;
