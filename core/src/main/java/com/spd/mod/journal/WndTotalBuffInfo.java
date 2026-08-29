@@ -26,6 +26,7 @@ public class WndTotalBuffInfo extends WndInfoBuff {
                 }
 
                 buff.toggleRiposte();
+                ModTotalInfoOverlay.refreshIndicators();
 
                 // Rebuild the same info window so its description, icon and
                 // button state immediately reflect the new setting.
