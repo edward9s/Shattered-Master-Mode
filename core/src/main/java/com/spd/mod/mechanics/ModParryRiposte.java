@@ -174,7 +174,7 @@ public class ModParryRiposte extends Buff {
     }
 
     private static void ensureHookKeeper() {
-        if (hookKeeper == null || !Actor.all().contains(hookKeeper)) {
+        if (hookKeeper == null || !hookKeeper.exists || !Actor.all().contains(hookKeeper)) {
             hookKeeper = new HookKeeper();
             Actor.add(hookKeeper);
         }
