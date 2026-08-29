@@ -1,5 +1,6 @@
 package com.spd.mod.mechanics;
 
+import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
@@ -9,6 +10,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
+import java.lang.reflect.Method;
 import java.util.HashSet;
 
 /**
@@ -205,6 +207,32 @@ public class ModParryRiposte extends Buff {
         }
     }
 
+    /**
+     * Calls the character's own canAttack(Char) implementation when it has one.
+     * Mob keeps this method protected and several ranged mobs override it, so
+     * reflection preserves each character's native attack reach without any
+     * vanilla source changes. Plain Char subclasses fall back to adjacency.
+     */
+    private static boolean canRiposte(Char riposter, Char attacker) {
+        Class<?> type = riposter.getClass();
+        while (type != null) {
+            try {
+                Method method = type.getDeclaredMethod("canAttack", Char.class);
+                method.setAccessible(true);
+                Object result = method.invoke(riposter, attacker);
+                if (result instanceof Boolean) {
+                    return (Boolean) result;
+                }
+                break;
+            } catch (NoSuchMethodException e) {
+                type = type.getSuperclass();
+            } catch (Exception e) {
+                break;
+            }
+        }
+        return Dungeon.level != null && Dungeon.level.adjacent(riposter.pos, attacker.pos);
+    }
+
     private static void scheduleRiposte(final Char riposter, final Char attacker) {
         Actor.add(new Actor() {
             {
@@ -218,7 +246,7 @@ public class ModParryRiposte extends Buff {
                         && buff.mode == Mode.RIPOSTE
                         && riposter.isAlive()
                         && attacker.isAlive()
-                        && riposter.canAttack(attacker)) {
+                        && canRiposte(riposter, attacker)) {
                     if (riposter.sprite != null) {
                         riposter.sprite.attack(attacker.pos);
                     }
