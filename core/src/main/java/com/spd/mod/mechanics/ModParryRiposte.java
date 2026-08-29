@@ -9,6 +9,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
+import com.watabou.utils.Callback;
 
 import java.util.HashSet;
 
@@ -110,17 +111,17 @@ public class ModParryRiposte extends Buff {
 
     @Override
     public String name() {
-        return "Total";
+        return "Total Parry / Riposte";
     }
 
     @Override
     public String desc() {
         if (riposteEnabled) {
-            return "Permanent Master Mode buff. Total always parries incoming attacks handled by the normal hit check. "
-                    + "Riposte is ON: every attack parried by Total immediately triggers a guaranteed normal "
+            return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
+                    + "Riposte is ON: every attack parried by Total Parry immediately triggers a guaranteed normal "
                     + "counterattack, regardless of distance. Use the button below to turn riposte off.";
         } else {
-            return "Permanent Master Mode buff. Total always parries incoming attacks handled by the normal hit check. "
+            return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
                     + "Riposte is OFF, so the buff only parries. Use the button below to turn riposte on.";
         }
     }
@@ -210,18 +211,36 @@ public class ModParryRiposte extends Buff {
                         && buff.riposteEnabled
                         && riposter.isAlive()
                         && attacker.isAlive()) {
-                    if (riposter.sprite != null) {
-                        riposter.sprite.attack(attacker.pos);
+                    if (riposter.sprite != null
+                            && (riposter.sprite.visible
+                            || (attacker.sprite != null && attacker.sprite.visible))) {
+                        riposter.sprite.attack(attacker.pos, new Callback() {
+                            @Override
+                            public void call() {
+                                performRiposte(riposter, attacker);
+                            }
+                        });
+                    } else {
+                        performRiposte(riposter, attacker);
                     }
-                    // Intentionally no canAttack/range check. "Total Riposte"
-                    // must always be able to answer an attack that it parried.
-                    riposter.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
                 }
 
                 Actor.remove(this);
                 return true;
             }
         });
+    }
+
+    private static void performRiposte(Char riposter, Char attacker) {
+        ModParryRiposte buff = riposter.buff(ModParryRiposte.class);
+        if (buff != null
+                && buff.riposteEnabled
+                && riposter.isAlive()
+                && attacker.isAlive()) {
+            // Intentionally no canAttack/range check. Total Riposte must always
+            // be able to answer an attack that Total Parry intercepted.
+            riposter.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
+        }
     }
 
     /**
