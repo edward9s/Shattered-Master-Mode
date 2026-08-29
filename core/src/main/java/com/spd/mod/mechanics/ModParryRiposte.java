@@ -1,42 +1,40 @@
 package com.spd.mod.mechanics;
 
-import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.MonkEnergy;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
+import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
-import java.lang.reflect.Method;
 import java.util.HashSet;
 
 /**
- * Permanent Master Mode combat buff with two mutually-exclusive modes.
+ * Permanent Master Mode combat buff.
  *
- * PARRY reuses SPD's generic FocusBuff hit hook, which makes every attack
- * roll against the target miss. RIPOSTE leaves incoming attacks untouched
- * and counters successful standard attacks with a guaranteed normal attack.
+ * Total always parries normal hit-checked attacks. Riposte is an independent
+ * per-buff switch: when enabled, every attack intercepted by Total immediately
+ * schedules a guaranteed normal counterattack. Counterattacks deliberately do
+ * not perform a range check.
  *
- * The nested AttackWatcher is intentionally invisible and mechanically inert
- * except for ChampionEnemy's existing onAttackProc callback. This lets the
- * mod observe standard attacks without patching any vanilla Char/Mob/Hero
- * source files.
+ * This class does not modify vanilla SPD source. CombatHook uses the generic
+ * ChampionEnemy accuracy/evasion callback already present in Char.hit().
  */
 public class ModParryRiposte extends Buff {
 
-    public enum Mode {
-        PARRY,
-        RIPOSTE
-    }
+    private static final String RIPOSTE_ENABLED = "riposte_enabled";
 
-    private static final String MODE = "mode";
-    private static final String OWNS_FOCUS = "owns_focus";
+    // Keys used by the previous implementation; read only for save migration.
+    private static final String LEGACY_MODE = "mode";
+    private static final String LEGACY_OWNS_FOCUS = "owns_focus";
 
-    private Mode mode = Mode.PARRY;
-    private boolean ownsFocus;
+    private boolean riposteEnabled;
+    private boolean removeLegacyFocus;
+
+    private static HookKeeper hookKeeper;
 
     {
         type = buffType.POSITIVE;
@@ -44,193 +42,159 @@ public class ModParryRiposte extends Buff {
         revivePersists = true;
     }
 
-    public Mode mode() {
-        return mode;
+    public boolean riposteEnabled() {
+        return riposteEnabled;
     }
 
-    public static ModParryRiposte apply(Char target, Mode mode) {
-        ModParryRiposte buff = target.buff(ModParryRiposte.class);
-        if (buff == null) {
-            buff = new ModParryRiposte();
-            buff.mode = mode;
-            if (!buff.attachTo(target)) {
-                return null;
-            }
-            buff.maintainModeState();
-        } else {
-            buff.setMode(mode);
-        }
-        return buff;
-    }
-
-    public void setMode(Mode newMode) {
-        if (newMode == null) {
-            return;
-        }
-
-        Mode oldMode = mode;
-        mode = newMode;
-        maintainModeState();
-
-        if (oldMode == Mode.RIPOSTE && newMode != Mode.RIPOSTE) {
-            cleanupAttackWatchersIfUnused();
-        }
-
+    public void setRiposteEnabled(boolean enabled) {
+        riposteEnabled = enabled;
         BuffIndicator.refreshHero();
     }
 
-    private void maintainModeState() {
-        if (target == null) {
-            return;
-        }
+    public void toggleRiposte() {
+        setRiposteEnabled(!riposteEnabled);
+    }
 
-        if (mode == Mode.PARRY) {
-            if (target.buff(MonkEnergy.MonkAbility.Focus.FocusBuff.class) == null) {
-                Buff.affect(target, MonkEnergy.MonkAbility.Focus.FocusBuff.class);
-                ownsFocus = true;
-            }
-        } else {
-            // RIPOSTE is deliberately pure: do not keep the Focus parry effect.
+    @Override
+    public boolean attachTo(Char target) {
+        if (!super.attachTo(target)) {
+            return false;
+        }
+        ensureInfrastructure();
+        return true;
+    }
+
+    @Override
+    public boolean act() {
+        // Clean up the hidden Focus left by the previous PARRY implementation
+        // only when that old save explicitly says this buff owned it.
+        if (removeLegacyFocus && target != null) {
             MonkEnergy.MonkAbility.Focus.FocusBuff focus =
                     target.buff(MonkEnergy.MonkAbility.Focus.FocusBuff.class);
             if (focus != null) {
                 focus.detach();
             }
-            ownsFocus = false;
-            ensureAttackWatchers();
+            removeLegacyFocus = false;
         }
-    }
 
-    @Override
-    public boolean act() {
-        maintainModeState();
+        ensureInfrastructure();
         spend(TICK);
         return true;
     }
 
     @Override
     public void detach() {
-        if (mode == Mode.PARRY && ownsFocus && target != null) {
-            MonkEnergy.MonkAbility.Focus.FocusBuff focus =
-                    target.buff(MonkEnergy.MonkAbility.Focus.FocusBuff.class);
-            if (focus != null) {
-                focus.detach();
-            }
-        }
-        ownsFocus = false;
-
         super.detach();
-        cleanupAttackWatchersIfUnused();
+        cleanupInfrastructureIfUnused();
         BuffIndicator.refreshHero();
     }
 
     @Override
     public int icon() {
-        return mode == Mode.PARRY ? BuffIndicator.DUEL_GUARD : BuffIndicator.DUEL_CLEAVE;
+        return riposteEnabled ? BuffIndicator.DUEL_CLEAVE : BuffIndicator.DUEL_GUARD;
     }
 
     @Override
     public void tintIcon(Image icon) {
-        if (mode == Mode.PARRY) {
-            icon.hardlight(0x55CCFF);
-        } else {
+        if (riposteEnabled) {
             icon.hardlight(0xFF5577);
+        } else {
+            icon.hardlight(0x55CCFF);
         }
     }
 
     @Override
     public String iconTextDisplay() {
-        return mode == Mode.PARRY ? "P" : "R";
+        return riposteEnabled ? "R" : "P";
     }
 
     @Override
     public String name() {
-        return mode == Mode.PARRY ? "Mod Parry" : "Mod Riposte";
+        return "Total";
     }
 
     @Override
     public String desc() {
-        if (mode == Mode.PARRY) {
-            return "Permanent Master Mode buff. Parry mode makes every attack roll against this character miss. "
-                    + "Use the Master Mode entry at the top of Journal > Buff to switch modes or remove it.";
+        if (riposteEnabled) {
+            return "Permanent Master Mode buff. Total always parries incoming attacks handled by the normal hit check. "
+                    + "Riposte is ON: every attack parried by Total immediately triggers a guaranteed normal "
+                    + "counterattack, regardless of distance. Use the button below to turn riposte off.";
         } else {
-            return "Permanent Master Mode buff. Riposte mode leaves incoming attacks unchanged, but every successful "
-                    + "standard attack triggers an immediate guaranteed normal counterattack whenever this character "
-                    + "can attack the attacker. Use the Master Mode entry at the top of Journal > Buff to switch modes "
-                    + "or remove it.";
+            return "Permanent Master Mode buff. Total always parries incoming attacks handled by the normal hit check. "
+                    + "Riposte is OFF, so the buff only parries. Use the button below to turn riposte on.";
         }
     }
 
     @Override
     public void storeInBundle(Bundle bundle) {
         super.storeInBundle(bundle);
-        bundle.put(MODE, mode.name());
-        bundle.put(OWNS_FOCUS, ownsFocus);
+        bundle.put(RIPOSTE_ENABLED, riposteEnabled);
     }
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
-        String storedMode = bundle.getString(MODE);
-        try {
-            mode = Mode.valueOf(storedMode);
-        } catch (Exception ignored) {
-            mode = Mode.PARRY;
+
+        if (bundle.contains(RIPOSTE_ENABLED)) {
+            riposteEnabled = bundle.getBoolean(RIPOSTE_ENABLED);
+        } else if (bundle.contains(LEGACY_MODE)) {
+            // Old RIPOSTE meant "counterattack mode". Migrate it to Total with
+            // riposte enabled; old PARRY becomes Total with riposte disabled.
+            riposteEnabled = "RIPOSTE".equals(bundle.getString(LEGACY_MODE));
         }
-        ownsFocus = bundle.getBoolean(OWNS_FOCUS);
+
+        removeLegacyFocus = bundle.contains(LEGACY_OWNS_FOCUS)
+                && bundle.getBoolean(LEGACY_OWNS_FOCUS);
     }
 
-    private static boolean hasRiposteUser() {
+    private static boolean hasTotalUser() {
         for (Char ch : Actor.chars()) {
-            ModParryRiposte buff = ch.buff(ModParryRiposte.class);
-            if (buff != null && buff.mode == Mode.RIPOSTE) {
+            if (ch.buff(ModParryRiposte.class) != null) {
                 return true;
             }
         }
         return false;
     }
 
-    private static void ensureAttackWatchers() {
-        for (Char ch : Actor.chars()) {
-            if (ch.buff(AttackWatcher.class) == null) {
-                Buff.affect(ch, AttackWatcher.class);
-            }
-        }
+    private static void ensureInfrastructure() {
+        ensureCombatHooks();
+        ensureHookKeeper();
+        ModTotalInfoOverlay.ensureInstalled();
     }
 
-    private static void cleanupAttackWatchersIfUnused() {
-        if (hasRiposteUser()) {
+    public static void ensureCombatHooks() {
+        if (!hasTotalUser()) {
             return;
         }
         for (Char ch : Actor.chars()) {
-            Buff.detach(ch, AttackWatcher.class);
+            if (ch.buff(CombatHook.class) == null) {
+                CombatHook.attachRuntime(ch);
+            }
         }
     }
 
-    /**
-     * Calls the character's own canAttack(Char) implementation when it has one.
-     * Mob keeps this method protected and several ranged mobs override it, so
-     * reflection preserves each character's native attack reach without any
-     * vanilla source changes. Plain Char subclasses fall back to adjacency.
-     */
-    private static boolean canRiposte(Char riposter, Char attacker) {
-        Class<?> type = riposter.getClass();
-        while (type != null) {
-            try {
-                Method method = type.getDeclaredMethod("canAttack", Char.class);
-                method.setAccessible(true);
-                Object result = method.invoke(riposter, attacker);
-                if (result instanceof Boolean) {
-                    return (Boolean) result;
-                }
-                break;
-            } catch (NoSuchMethodException e) {
-                type = type.getSuperclass();
-            } catch (Exception e) {
-                break;
-            }
+    private static void ensureHookKeeper() {
+        if (hookKeeper == null || !hookKeeper.exists) {
+            hookKeeper = new HookKeeper();
+            Actor.add(hookKeeper);
         }
-        return Dungeon.level != null && Dungeon.level.adjacent(riposter.pos, attacker.pos);
+    }
+
+    private static void cleanupInfrastructureIfUnused() {
+        if (hasTotalUser()) {
+            return;
+        }
+
+        for (Char ch : Actor.chars()) {
+            Buff.detach(ch, CombatHook.class);
+        }
+
+        CombatHook.resetPairing();
+
+        if (hookKeeper != null) {
+            Actor.remove(hookKeeper);
+            hookKeeper = null;
+        }
     }
 
     private static void scheduleRiposte(final Char riposter, final Char attacker) {
@@ -243,13 +207,14 @@ public class ModParryRiposte extends Buff {
             protected boolean act() {
                 ModParryRiposte buff = riposter.buff(ModParryRiposte.class);
                 if (buff != null
-                        && buff.mode == Mode.RIPOSTE
+                        && buff.riposteEnabled
                         && riposter.isAlive()
-                        && attacker.isAlive()
-                        && canRiposte(riposter, attacker)) {
+                        && attacker.isAlive()) {
                     if (riposter.sprite != null) {
                         riposter.sprite.attack(attacker.pos);
                     }
+                    // Intentionally no canAttack/range check. "Total Riposte"
+                    // must always be able to answer an attack that it parried.
                     riposter.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
                 }
 
@@ -260,10 +225,46 @@ public class ModParryRiposte extends Buff {
     }
 
     /**
-     * Invisible observer attached while at least one RIPOSTE user exists.
-     * All ChampionEnemy stat hooks remain at their vanilla neutral values.
+     * One lightweight keeper is enough to attach CombatHook to newly-added
+     * characters before normal actor turns at the same timestamp.
      */
-    public static class AttackWatcher extends ChampionEnemy {
+    private static class HookKeeper extends Actor {
+
+        {
+            actPriority = VFX_PRIO;
+        }
+
+        @Override
+        protected boolean act() {
+            if (!hasTotalUser()) {
+                for (Char ch : Actor.chars()) {
+                    Buff.detach(ch, CombatHook.class);
+                }
+                CombatHook.resetPairing();
+                Actor.remove(this);
+                if (hookKeeper == this) {
+                    hookKeeper = null;
+                }
+                return true;
+            }
+
+            ensureCombatHooks();
+            ModTotalInfoOverlay.ensureInstalled();
+            spend(TICK);
+            return true;
+        }
+    }
+
+    /**
+     * Runtime-only hook attached to every active Char while any Total buff is
+     * present. Char.hit() evaluates ChampionEnemy accuracy/evasion modifiers
+     * for the attacker first and defender second, so two consecutive calls let
+     * us identify the attack pair without modifying Char.java.
+     */
+    public static class CombatHook extends ChampionEnemy {
+
+        private static Char pendingAttacker;
+        private static boolean waitingForDefender;
 
         private boolean restoredFromBundle;
 
@@ -271,10 +272,20 @@ public class ModParryRiposte extends Buff {
             revivePersists = false;
         }
 
+        static void attachRuntime(Char target) {
+            CombatHook hook = new CombatHook();
+            hook.attachTo(target);
+        }
+
+        static void resetPairing() {
+            pendingAttacker = null;
+            waitingForDefender = false;
+        }
+
         @Override
         public boolean attachTo(Char target) {
-            // Watchers are runtime plumbing. Do not restore saved watcher instances;
-            // the visible ModParryRiposte buff recreates fresh ones on its next act.
+            // Saved hook objects are implementation plumbing and must not be
+            // restored. The visible Total buff recreates fresh hooks instead.
             if (restoredFromBundle) {
                 restoredFromBundle = false;
                 return false;
@@ -286,6 +297,41 @@ public class ModParryRiposte extends Buff {
         public void restoreFromBundle(Bundle bundle) {
             super.restoreFromBundle(bundle);
             restoredFromBundle = true;
+        }
+
+        @Override
+        public float evasionAndAccuracyFactor() {
+            if (!waitingForDefender) {
+                pendingAttacker = target;
+                waitingForDefender = true;
+                return 1f;
+            }
+
+            Char attacker = pendingAttacker;
+            pendingAttacker = null;
+            waitingForDefender = false;
+
+            ModParryRiposte total = target == null
+                    ? null
+                    : target.buff(ModParryRiposte.class);
+
+            if (total != null) {
+                if (total.riposteEnabled
+                        && attacker != null
+                        && attacker != target
+                        && attacker.isAlive()
+                        && target.isAlive()) {
+                    scheduleRiposte(target, attacker);
+                }
+
+                // For positive defense rolls this becomes infinite evasion.
+                // For a zero defense roll Java produces NaN (0 * Infinity),
+                // and Char.hit's >= comparison is still false, so the attack
+                // is also parried. This keeps Total applicable to any Char.
+                return Float.POSITIVE_INFINITY;
+            }
+
+            return 1f;
         }
 
         @Override
@@ -305,12 +351,11 @@ public class ModParryRiposte extends Buff {
 
         @Override
         public void fx(boolean on) {
-            // No champion aura: this is an implementation detail, not a status effect.
+            // No champion aura. This is an invisible implementation hook.
         }
 
         @Override
         public HashSet<Class> immunities() {
-            // ChampionEnemy normally grants AllyBuff immunity; the watcher must be inert.
             return new HashSet<>();
         }
 
@@ -320,20 +365,7 @@ public class ModParryRiposte extends Buff {
         }
 
         @Override
-        public void onAttackProc(Char enemy) {
-            if (target == null || enemy == null) {
-                return;
-            }
-
-            ModParryRiposte defenderBuff = enemy.buff(ModParryRiposte.class);
-            if (defenderBuff != null && defenderBuff.mode == Mode.RIPOSTE) {
-                scheduleRiposte(enemy, target);
-            }
-        }
-
-        @Override
         public boolean act() {
-            // attackProc() callbacks do not require this observer to consume turns.
             diactivate();
             return true;
         }
