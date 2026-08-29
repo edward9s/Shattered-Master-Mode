@@ -66,6 +66,16 @@ public class ModParryRiposte extends Buff {
     }
 
     @Override
+    public void fx(boolean on) {
+        // CharSprite.link() reapplies buff FX while a GameScene is being built.
+        // Reinstall Total's mod-only UI here so a restored save has the custom
+        // info-window button before the player needs to take another turn.
+        if (on) {
+            ensureInfrastructure();
+        }
+    }
+
+    @Override
     public boolean act() {
         // Clean up the hidden Focus left by the previous PARRY implementation
         // only when that old save explicitly says this buff owned it.
