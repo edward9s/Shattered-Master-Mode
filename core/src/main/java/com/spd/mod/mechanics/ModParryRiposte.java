@@ -2,7 +2,6 @@ package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.MonkEnergy;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
@@ -11,41 +10,32 @@ import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
 
+import java.lang.reflect.Field;
 import java.util.HashSet;
 
 /**
  * Permanent Master Mode combat buff.
  *
- * Total always parries normal hit-checked attacks. Riposte is an independent
- * per-buff switch: when enabled, every attack intercepted by Total immediately
- * schedules a guaranteed normal counterattack. Counterattacks deliberately do
- * not perform a range check.
- *
- * This class does not modify vanilla SPD source. CombatHook uses the generic
- * ChampionEnemy accuracy/evasion callback already present in Char.hit().
+ * Total is itself a ChampionEnemy accuracy/evasion hook, so it only needs to
+ * exist on the character that owns Total. This avoids the old global pairing
+ * scheme which depended on every active Char carrying a synchronized helper.
  */
-public class ModParryRiposte extends Buff {
+public class ModParryRiposte extends ChampionEnemy {
 
     private static final String RIPOSTE_ENABLED = "riposte_enabled";
 
-    // Keys used by the previous implementation; read only for save migration.
+    // Keys used by previous implementations; read only for save migration.
     private static final String LEGACY_MODE = "mode";
     private static final String LEGACY_OWNS_FOCUS = "owns_focus";
+
+    private static Field currentActorField;
 
     private boolean riposteEnabled;
     private boolean removeLegacyFocus;
 
-    private static HookKeeper hookKeeper;
-
     {
-        type = buffType.POSITIVE;
         announced = true;
         revivePersists = true;
-
-        // Total must rebuild its runtime-only combat plumbing before the hero
-        // or mobs can act after loading a save. Keeping the visible buff at VFX
-        // priority lets act() do that safely without mutating buff collections
-        // from fx(), which is called while Char.updateSpriteState() is iterating.
         actPriority = VFX_PRIO;
     }
 
@@ -67,11 +57,6 @@ public class ModParryRiposte extends Buff {
         if (!super.attachTo(target)) {
             return false;
         }
-
-        // Actor.clear() does not know about these mod-side static pairing fields.
-        // A fresh application or restored Total therefore starts from a clean
-        // pairing state. Runtime hooks themselves are installed from act().
-        CombatHook.resetPairing();
         timeToNow();
         ModTotalInfoOverlay.ensureInstalled();
         return true;
@@ -79,20 +64,16 @@ public class ModParryRiposte extends Buff {
 
     @Override
     public void fx(boolean on) {
+        // Do not attach helper buffs or create combat infrastructure here.
+        // Char.updateSpriteState() calls fx() while iterating the live buff set.
         if (on) {
-            // Char.updateSpriteState() iterates the live buff set while calling
-            // fx(). Never attach CombatHook from here; doing so can invalidate
-            // that iterator during save restoration. Only restore the UI and
-            // schedule Total to rebuild runtime hooks from act().
             ModTotalInfoOverlay.ensureInstalled();
-            timeToNow();
         }
     }
 
     @Override
     public boolean act() {
-        // Clean up the hidden Focus left by the previous PARRY implementation
-        // only when that old save explicitly says this buff owned it.
+        // Compatibility cleanup for saves from the old PARRY implementation.
         if (removeLegacyFocus && target != null) {
             MonkEnergy.MonkAbility.Focus.FocusBuff focus =
                     target.buff(MonkEnergy.MonkAbility.Focus.FocusBuff.class);
@@ -102,19 +83,14 @@ public class ModParryRiposte extends Buff {
             removeLegacyFocus = false;
         }
 
-        // Runtime-only helpers are installed here, outside any save-restore or
-        // sprite-state buff iteration. VFX priority makes this run before normal
-        // Hero/Mob actions at the same timestamp.
-        ensureInfrastructure();
-        spend(TICK);
+        // Total has no periodic runtime plumbing anymore.
+        diactivate();
         return true;
     }
 
     @Override
     public void detach() {
-        CombatHook.resetPairing();
         super.detach();
-        cleanupInfrastructureIfUnused();
         BuffIndicator.refreshHero();
     }
 
@@ -167,100 +143,68 @@ public class ModParryRiposte extends Buff {
         if (bundle.contains(RIPOSTE_ENABLED)) {
             riposteEnabled = bundle.getBoolean(RIPOSTE_ENABLED);
         } else if (bundle.contains(LEGACY_MODE)) {
-            // Old RIPOSTE meant "counterattack mode". Migrate it to Total with
-            // riposte enabled; old PARRY becomes Total with riposte disabled.
             riposteEnabled = "RIPOSTE".equals(bundle.getString(LEGACY_MODE));
         }
 
         removeLegacyFocus = bundle.contains(LEGACY_OWNS_FOCUS)
                 && bundle.getBoolean(LEGACY_OWNS_FOCUS);
 
-        // These are runtime-only static fields and are not cleared by SPD's
-        // bundle restoration. Never carry a half-paired attack across scenes.
-        CombatHook.resetPairing();
+        // Run compatibility cleanup before normal character turns after load.
+        timeToNow();
     }
 
-    private static boolean hasTotalUser() {
-        for (Char ch : Actor.chars()) {
-            if (ch.buff(ModParryRiposte.class) != null) {
-                return true;
+    /**
+     * Char.hit() invokes ChampionEnemy.evasionAndAccuracyFactor() once for the
+     * attacker and once for the defender. The currently-processing Actor is the
+     * attack source for normal Hero/Mob attacks. Because Total itself is only on
+     * its owner, no cross-character callback pairing is required.
+     */
+    @Override
+    public float evasionAndAccuracyFactor() {
+        Char attacker = currentAttackSource();
+
+        // If Total's owner is the current attack source, this is the attacker's
+        // accuracy pass. Total must not modify its own accuracy.
+        if (attacker == null || attacker == target) {
+            return 1f;
+        }
+
+        if (target == null || !target.isAlive()) {
+            return 1f;
+        }
+
+        if (riposteEnabled && attacker.isAlive()) {
+            scheduleRiposte(target, attacker);
+        }
+
+        // Defender pass: make the normal hit check fail.
+        return Float.POSITIVE_INFINITY;
+    }
+
+    private static Char currentAttackSource() {
+        Actor current = currentActor();
+        if (current instanceof RiposteActor) {
+            return ((RiposteActor) current).riposter;
+        }
+        return current instanceof Char ? (Char) current : null;
+    }
+
+    private static Actor currentActor() {
+        try {
+            if (currentActorField == null) {
+                currentActorField = Actor.class.getDeclaredField("current");
+                currentActorField.setAccessible(true);
             }
-        }
-        return false;
-    }
-
-    private static void ensureInfrastructure() {
-        ensureCombatHooks();
-        ensureHookKeeper();
-        ModTotalInfoOverlay.ensureInstalled();
-    }
-
-    public static void ensureCombatHooks() {
-        if (!hasTotalUser()) {
-            return;
-        }
-        for (Char ch : Actor.chars()) {
-            if (ch.buff(CombatHook.class) == null) {
-                CombatHook.attachRuntime(ch);
-            }
+            return (Actor) currentActorField.get(null);
+        } catch (Exception ignored) {
+            // If SPD changes this private implementation detail, fail closed:
+            // do not guess an attacker and accidentally corrupt combat state.
+            return null;
         }
     }
 
-    private static void ensureHookKeeper() {
-        if (hookKeeper == null || !Actor.all().contains(hookKeeper)) {
-            hookKeeper = new HookKeeper();
-            Actor.add(hookKeeper);
-        }
-    }
-
-    private static void cleanupInfrastructureIfUnused() {
-        if (hasTotalUser()) {
-            return;
-        }
-
-        for (Char ch : Actor.chars()) {
-            Buff.detach(ch, CombatHook.class);
-        }
-
-        CombatHook.resetPairing();
-
-        if (hookKeeper != null) {
-            Actor.remove(hookKeeper);
-            hookKeeper = null;
-        }
-    }
-
-    private static void scheduleRiposte(final Char riposter, final Char attacker) {
-        Actor.add(new Actor() {
-            {
-                actPriority = VFX_PRIO;
-            }
-
-            @Override
-            protected boolean act() {
-                ModParryRiposte buff = riposter.buff(ModParryRiposte.class);
-                if (buff != null
-                        && buff.riposteEnabled
-                        && riposter.isAlive()
-                        && attacker.isAlive()) {
-                    if (riposter.sprite != null
-                            && (riposter.sprite.visible
-                            || (attacker.sprite != null && attacker.sprite.visible))) {
-                        riposter.sprite.attack(attacker.pos, new Callback() {
-                            @Override
-                            public void call() {
-                                performRiposte(riposter, attacker);
-                            }
-                        });
-                    } else {
-                        performRiposte(riposter, attacker);
-                    }
-                }
-
-                Actor.remove(this);
-                return true;
-            }
-        });
+    private static void scheduleRiposte(Char riposter, Char attacker) {
+        Actor.add(new RiposteActor(riposter, attacker));
     }
 
     private static void performRiposte(Char riposter, Char attacker) {
@@ -276,46 +220,81 @@ public class ModParryRiposte extends Buff {
     }
 
     /**
-     * One lightweight keeper is enough to attach CombatHook to newly-added
-     * characters before normal actor turns at the same timestamp.
+     * Holds Actor processing while a visible riposte animation is running, just
+     * like vanilla character attacks do. The previous implementation removed
+     * its scheduling Actor immediately and let later turns overlap the callback.
      */
-    private static class HookKeeper extends Actor {
+    private static class RiposteActor extends Actor {
 
-        {
+        private final Char riposter;
+        private final Char attacker;
+        private boolean waitingForAnimation;
+
+        RiposteActor(Char riposter, Char attacker) {
+            this.riposter = riposter;
+            this.attacker = attacker;
             actPriority = VFX_PRIO;
         }
 
         @Override
         protected boolean act() {
-            if (!hasTotalUser()) {
-                for (Char ch : Actor.chars()) {
-                    Buff.detach(ch, CombatHook.class);
-                }
-                CombatHook.resetPairing();
+            ModParryRiposte buff = riposter.buff(ModParryRiposte.class);
+            if (buff == null
+                    || !buff.riposteEnabled
+                    || !riposter.isAlive()
+                    || !attacker.isAlive()) {
                 Actor.remove(this);
-                if (hookKeeper == this) {
-                    hookKeeper = null;
-                }
                 return true;
             }
 
-            ensureCombatHooks();
-            ModTotalInfoOverlay.ensureInstalled();
-            spend(TICK);
+            if (riposter.sprite != null
+                    && (riposter.sprite.visible
+                    || (attacker.sprite != null && attacker.sprite.visible))) {
+                waitingForAnimation = true;
+                riposter.sprite.attack(attacker.pos, new Callback() {
+                    @Override
+                    public void call() {
+                        if (!waitingForAnimation) {
+                            return;
+                        }
+                        waitingForAnimation = false;
+                        try {
+                            performRiposte(riposter, attacker);
+                        } finally {
+                            // act() returned false, so this Actor is still the
+                            // current actor. Release processing only after the
+                            // animation callback has finished the counterattack.
+                            RiposteActor.this.next();
+                            Actor.remove(RiposteActor.this);
+                        }
+                    }
+                });
+                return false;
+            }
+
+            performRiposte(riposter, attacker);
+            Actor.remove(this);
             return true;
         }
     }
 
-    /**
-     * Runtime-only hook attached to every active Char while any Total buff is
-     * present. Char.hit() evaluates ChampionEnemy accuracy/evasion modifiers
-     * for the attacker first and defender second, so two consecutive calls let
-     * us identify the attack pair without modifying Char.java.
-     */
-    public static class CombatHook extends ChampionEnemy {
+    @Override
+    public HashSet<Class> immunities() {
+        // ChampionEnemy normally grants AllyBuff immunity; Total must not.
+        return new HashSet<>();
+    }
 
-        private static Char pendingAttacker;
-        private static boolean waitingForDefender;
+    @Override
+    public HashSet<Class> resistances() {
+        return new HashSet<>();
+    }
+
+    /**
+     * Compatibility shell for saves made by the removed all-character hook
+     * implementation. Restored instances refuse attachment and disappear.
+     */
+    @Deprecated
+    public static class CombatHook extends ChampionEnemy {
 
         private boolean restoredFromBundle;
 
@@ -323,25 +302,14 @@ public class ModParryRiposte extends Buff {
             revivePersists = false;
         }
 
-        static void attachRuntime(Char target) {
-            CombatHook hook = new CombatHook();
-            hook.attachTo(target);
-        }
-
-        static void resetPairing() {
-            pendingAttacker = null;
-            waitingForDefender = false;
-        }
-
         @Override
         public boolean attachTo(Char target) {
-            // Saved hook objects are implementation plumbing and must not be
-            // restored. The visible Total buff recreates fresh hooks instead.
             if (restoredFromBundle) {
                 restoredFromBundle = false;
                 return false;
             }
-            return super.attachTo(target);
+            // This helper is no longer used at runtime.
+            return false;
         }
 
         @Override
@@ -351,82 +319,15 @@ public class ModParryRiposte extends Buff {
         }
 
         @Override
-        public float evasionAndAccuracyFactor() {
-            if (!waitingForDefender) {
-                pendingAttacker = target;
-                waitingForDefender = true;
-                return 1f;
-            }
-
-            Char attacker = pendingAttacker;
-            pendingAttacker = null;
-            waitingForDefender = false;
-
-            ModParryRiposte total = target == null
-                    ? null
-                    : target.buff(ModParryRiposte.class);
-
-            if (total != null) {
-                if (total.riposteEnabled
-                        && attacker != null
-                        && attacker != target
-                        && attacker.isAlive()
-                        && target.isAlive()) {
-                    scheduleRiposte(target, attacker);
-                }
-
-                // For positive defense rolls this becomes infinite evasion.
-                // For a zero defense roll Java produces NaN (0 * Infinity),
-                // and Char.hit's >= comparison is still false, so the attack
-                // is also parried. This keeps Total applicable to any Char.
-                return Float.POSITIVE_INFINITY;
-            }
-
-            return 1f;
-        }
-
-        @Override
         public int icon() {
             return BuffIndicator.NONE;
         }
 
         @Override
-        public String name() {
-            return "\u200B";
-        }
-
-        @Override
-        public String desc() {
-            return "";
-        }
-
-        @Override
         public void fx(boolean on) {
-            // No champion aura. This is an invisible implementation hook.
-        }
-
-        @Override
-        public HashSet<Class> immunities() {
-            return new HashSet<>();
-        }
-
-        @Override
-        public HashSet<Class> resistances() {
-            return new HashSet<>();
-        }
-
-        @Override
-        public boolean act() {
-            diactivate();
-            return true;
         }
     }
 
-    /**
-     * Compatibility shell for saves produced by the two earlier broken
-     * implementations. CombatHook's restore guard makes restored instances
-     * refuse attachment, so this class has no runtime behavior.
-     */
     @Deprecated
     public static class AttackWatcher extends CombatHook {
     }
