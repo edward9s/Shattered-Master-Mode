@@ -1,6 +1,8 @@
 package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
+import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
+import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
@@ -8,6 +10,7 @@ import com.spd.mod.mechanics.ModParryRiposte;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.ui.Component;
+import com.watabou.utils.Callback;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -28,9 +31,11 @@ import java.util.WeakHashMap;
 public class ModTotalInfoOverlay extends Gizmo {
 
     private static ModTotalInfoOverlay instance;
+    private static boolean installPending;
 
     private static Field groupMembersField;
     private static Field buffButtonsField;
+    private static Field needsRefreshField;
 
     private final WeakHashMap<Component, TotalInfoButton> overlays = new WeakHashMap<>();
 
@@ -39,11 +44,59 @@ public class ModTotalInfoOverlay extends Gizmo {
             return;
         }
 
-        Group scene = (Group) ShatteredPixelDungeon.scene();
-        if (instance == null || !instance.exists || instance.parent != scene) {
-            instance = new ModTotalInfoOverlay();
-            scene.addToFront(instance);
+        if (instance != null
+                && instance.exists
+                && instance.parent == ShatteredPixelDungeon.scene()) {
+            return;
         }
+
+        if (installPending) {
+            return;
+        }
+        installPending = true;
+
+        ShatteredPixelDungeon.runOnRenderThread(new Callback() {
+            @Override
+            public void call() {
+                installPending = false;
+                if (!(ShatteredPixelDungeon.scene() instanceof GameScene)) {
+                    return;
+                }
+
+                Group scene = (Group) ShatteredPixelDungeon.scene();
+                if (instance == null || !instance.exists || instance.parent != scene) {
+                    instance = new ModTotalInfoOverlay();
+                    scene.addToFront(instance);
+                }
+            }
+        });
+    }
+
+    /** Refreshes every currently visible BuffIndicator after the Total state changes. */
+    public static void refreshIndicators() {
+        ShatteredPixelDungeon.runOnRenderThread(new Callback() {
+            @Override
+            public void call() {
+                if (!(ShatteredPixelDungeon.scene() instanceof GameScene)) {
+                    return;
+                }
+
+                try {
+                    if (needsRefreshField == null) {
+                        needsRefreshField = BuffIndicator.class.getDeclaredField("needsRefresh");
+                        needsRefreshField.setAccessible(true);
+                    }
+
+                    ArrayList<BuffIndicator> indicators = new ArrayList<>();
+                    collectBuffIndicators((Group) ShatteredPixelDungeon.scene(), indicators);
+                    for (BuffIndicator indicator : indicators) {
+                        needsRefreshField.setBoolean(indicator, true);
+                    }
+                } catch (Exception ignored) {
+                    // The hero indicator still has its normal refresh path.
+                }
+            }
+        });
     }
 
     @Override
@@ -51,7 +104,8 @@ public class ModTotalInfoOverlay extends Gizmo {
         super.update();
 
         if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
-                || parent != ShatteredPixelDungeon.scene()) {
+                || parent != ShatteredPixelDungeon.scene()
+                || !hasTotalUser()) {
             killAndErase();
             if (instance == this) {
                 instance = null;
@@ -66,6 +120,15 @@ public class ModTotalInfoOverlay extends Gizmo {
         for (BuffIndicator indicator : indicators) {
             installForIndicator(indicator);
         }
+    }
+
+    private static boolean hasTotalUser() {
+        for (Char ch : Actor.chars()) {
+            if (ch.buff(ModParryRiposte.class) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void cleanupDeadOverlays() {
