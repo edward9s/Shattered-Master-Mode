@@ -265,9 +265,42 @@ public class ModParryRiposte extends Buff {
      */
     public static class AttackWatcher extends ChampionEnemy {
 
+        private boolean restoredFromBundle;
+
+        {
+            revivePersists = false;
+        }
+
+        @Override
+        public boolean attachTo(Char target) {
+            // Watchers are runtime plumbing. Do not restore saved watcher instances;
+            // the visible ModParryRiposte buff recreates fresh ones on its next act.
+            if (restoredFromBundle) {
+                restoredFromBundle = false;
+                return false;
+            }
+            return super.attachTo(target);
+        }
+
+        @Override
+        public void restoreFromBundle(Bundle bundle) {
+            super.restoreFromBundle(bundle);
+            restoredFromBundle = true;
+        }
+
         @Override
         public int icon() {
             return BuffIndicator.NONE;
+        }
+
+        @Override
+        public String name() {
+            return "\u200B";
+        }
+
+        @Override
+        public String desc() {
+            return "";
         }
 
         @Override
