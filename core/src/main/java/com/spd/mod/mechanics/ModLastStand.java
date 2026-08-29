@@ -13,13 +13,13 @@ import com.watabou.utils.Bundle;
 /**
  * Permanent Master Mode emergency-survival buff.
  *
- * The persistent Last Stand object remains a plain Buff so save restoration does
- * not depend on ShieldBuff state. A runtime-only LethalShieldHook performs the
- * actual pre-damage interception. If normal shield-handled damage would be
- * lethal, the hook limits it to leave 1 HP, grants blessed-Ankh-style
- * invulnerability plus Bless, and schedules Last Stand to restore the bearer to
- * 50% HP. Last Stand also recovers any living bearer that reaches exactly 1 HP
- * through a mechanic which bypasses normal shielding.
+ * The persistent Last Stand object remains a plain Buff. A runtime-only
+ * LethalShieldHook performs the actual pre-damage interception after save
+ * restoration has completed. If normal shield-handled damage would be lethal,
+ * the hook limits it to leave 1 HP, grants blessed-Ankh-style invulnerability
+ * plus Bless, and schedules Last Stand to restore the bearer to 50% HP. Last
+ * Stand also recovers any living bearer that reaches exactly 1 HP through a
+ * mechanic which bypasses normal shielding.
  *
  * This does not guarantee survival. Damage which bypasses normal shielding can
  * still kill if it skips directly past 1 HP, and direct die() calls or other
@@ -39,16 +39,9 @@ public class ModLastStand extends Buff {
     }
 
     @Override
-    public boolean attachTo(Char target) {
-        if (!super.attachTo(target)) {
-            return false;
-        }
-        ensureLethalHook();
-        return true;
-    }
-
-    @Override
     public void fx(boolean on) {
+        // fx(true) is called again when the restored character sprite is linked,
+        // after Char.restoreFromBundle has finished rebuilding its buff list.
         if (on) {
             ensureLethalHook();
         }
@@ -98,6 +91,8 @@ public class ModLastStand extends Buff {
 
     @Override
     public boolean act() {
+        // Freshly-applied buffs may act before a sprite is linked, so this is
+        // the second safe point for installing the runtime shield hook.
         ensureLethalHook();
 
         if (target != null && target.isAlive() && target.HP == 1) {
