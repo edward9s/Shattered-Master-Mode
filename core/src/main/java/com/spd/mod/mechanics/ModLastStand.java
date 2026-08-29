@@ -1,5 +1,6 @@
 package com.spd.mod.mechanics;
 
+import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Bless;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Invulnerability;
@@ -12,17 +13,19 @@ import com.watabou.utils.Bundle;
 /**
  * Permanent Master Mode emergency-survival buff.
  *
- * Last Stand sits behind normal shields. When damage handled by ShieldBuff would
- * otherwise reduce the bearer to 0 HP or below, it limits that damage so the
- * bearer remains at 1 HP and immediately grants blessed-Ankh-style
- * invulnerability plus Bless. Any time the bearer is alive at exactly 1 HP when
- * Last Stand acts, it restores the bearer to 50% HP.
+ * The persistent Last Stand object remains a plain Buff so save restoration does
+ * not depend on ShieldBuff state. A runtime-only LethalShieldHook performs the
+ * actual pre-damage interception. If normal shield-handled damage would be
+ * lethal, the hook limits it to leave 1 HP, grants blessed-Ankh-style
+ * invulnerability plus Bless, and schedules Last Stand to restore the bearer to
+ * 50% HP. Last Stand also recovers any living bearer that reaches exactly 1 HP
+ * through a mechanic which bypasses normal shielding.
  *
- * This does not guarantee survival. Damage which bypasses ShieldBuff can still
- * kill the bearer if it skips past 1 HP before Last Stand acts, and direct die()
- * calls or other special death mechanics can also bypass the protection.
+ * This does not guarantee survival. Damage which bypasses normal shielding can
+ * still kill if it skips directly past 1 HP, and direct die() calls or other
+ * special death mechanics can bypass the protection.
  */
-public class ModLastStand extends ShieldBuff {
+public class ModLastStand extends Buff {
 
     private static final String RECOVERY_PENDING = "recovery_pending";
 
@@ -33,73 +36,87 @@ public class ModLastStand extends ShieldBuff {
         announced = true;
         revivePersists = true;
         actPriority = VFX_PRIO;
-
-        // Last Stand only sees damage left after every ordinary shield.
-        shieldUsePriority = -1000;
-        detachesAtZero = false;
     }
 
     @Override
-    public int shielding() {
-        // ShieldBuff.processDamage only invokes absorbDamage on buffs reporting
-        // positive shielding. This point is a trigger token; absorbDamage below
-        // never consumes it as ordinary shielding.
-        return target != null && target.isAlive() ? 1 : 0;
+    public boolean attachTo(Char target) {
+        if (!super.attachTo(target)) {
+            return false;
+        }
+        ensureLethalHook();
+        return true;
     }
 
     @Override
-    public int absorbDamage(int dmg) {
-        if (target == null
-                || !target.isAlive()
-                || target.HP <= 0
-                || recoveryPending
-                || dmg < target.HP) {
-            return dmg;
+    public void fx(boolean on) {
+        if (on) {
+            ensureLethalHook();
+        }
+    }
+
+    private void ensureLethalHook() {
+        if (target != null && target.buff(LethalShieldHook.class) == null) {
+            LethalShieldHook.attachRuntime(target);
+        }
+    }
+
+    private void armRecovery() {
+        if (target == null || !target.isAlive()) {
+            return;
         }
 
         recoveryPending = true;
-
-        // Protect the 1-HP interval before this high-priority buff gets to act.
         Buff.prolong(target, Invulnerability.class, Invulnerability.DURATION);
         Buff.prolong(target, Bless.class, Bless.DURATION);
-
-        // Run as soon as the current damage-dealing actor yields.
         timeToNow();
+    }
 
-        // The current damage call will subtract this value after processDamage
-        // returns, leaving the bearer at exactly 1 HP.
-        return Math.max(0, target.HP - 1);
+    private void recoverFromOneHP() {
+        if (target == null || !target.isAlive() || target.HP != 1) {
+            recoveryPending = false;
+            return;
+        }
+
+        if (!recoveryPending) {
+            Buff.prolong(target, Invulnerability.class, Invulnerability.DURATION);
+            Buff.prolong(target, Bless.class, Bless.DURATION);
+        }
+
+        recoveryPending = false;
+
+        int targetHP = Math.max(1, (target.HT + 1) / 2);
+        int healed = Math.max(0, targetHP - target.HP);
+        target.HP = Math.max(target.HP, targetHP);
+
+        if (healed > 0 && target.sprite != null) {
+            target.sprite.showStatusWithIcon(
+                    CharSprite.POSITIVE,
+                    Integer.toString(healed),
+                    FloatingText.HEALING);
+        }
     }
 
     @Override
     public boolean act() {
+        ensureLethalHook();
+
         if (target != null && target.isAlive() && target.HP == 1) {
-            // A lethal hit already granted these effects inside absorbDamage.
-            // If some other mechanic merely left the bearer at 1 HP, grant them here.
-            if (!recoveryPending) {
-                Buff.prolong(target, Invulnerability.class, Invulnerability.DURATION);
-                Buff.prolong(target, Bless.class, Bless.DURATION);
-            }
-
-            recoveryPending = false;
-
-            int targetHP = Math.max(1, (target.HT + 1) / 2);
-            int healed = Math.max(0, targetHP - target.HP);
-            target.HP = Math.max(target.HP, targetHP);
-
-            if (healed > 0 && target.sprite != null) {
-                target.sprite.showStatusWithIcon(
-                        CharSprite.POSITIVE,
-                        Integer.toString(healed),
-                        FloatingText.HEALING);
-            }
+            recoverFromOneHP();
         } else if (recoveryPending) {
-            // The bearer may have been healed by another effect before Last Stand acted.
             recoveryPending = false;
         }
 
         spend(TICK);
         return true;
+    }
+
+    @Override
+    public void detach() {
+        if (target != null) {
+            Buff.detach(target, LethalShieldHook.class);
+        }
+        super.detach();
+        BuffIndicator.refreshHero();
     }
 
     @Override
@@ -130,5 +147,85 @@ public class ModLastStand extends ShieldBuff {
                 + "Last Stand limits that damage to leave 1 HP and immediately grants 3 turns of invulnerability and 30 turns of Bless. "
                 + "Whenever the bearer is alive at exactly 1 HP when Last Stand acts, it restores HP to 50% and grants those effects if they were not already applied. "
                 + "This does not guarantee survival: damage that bypasses normal shielding can still kill if it skips past 1 HP, and direct death effects can also bypass Last Stand.";
+    }
+
+    /** Runtime-only ShieldBuff bridge; restored copies refuse to attach. */
+    public static class LethalShieldHook extends ShieldBuff {
+
+        private boolean restoredFromBundle;
+
+        {
+            revivePersists = false;
+            shieldUsePriority = -1000;
+            detachesAtZero = false;
+        }
+
+        static void attachRuntime(Char target) {
+            LethalShieldHook hook = new LethalShieldHook();
+            hook.attachTo(target);
+        }
+
+        @Override
+        public boolean attachTo(Char target) {
+            if (restoredFromBundle) {
+                restoredFromBundle = false;
+                return false;
+            }
+            return super.attachTo(target);
+        }
+
+        @Override
+        public void restoreFromBundle(Bundle bundle) {
+            super.restoreFromBundle(bundle);
+            restoredFromBundle = true;
+        }
+
+        @Override
+        public int shielding() {
+            return target != null
+                    && target.isAlive()
+                    && target.buff(ModLastStand.class) != null
+                    ? 1
+                    : 0;
+        }
+
+        @Override
+        public int absorbDamage(int dmg) {
+            ModLastStand lastStand = target == null
+                    ? null
+                    : target.buff(ModLastStand.class);
+
+            if (lastStand == null
+                    || !target.isAlive()
+                    || target.HP <= 0
+                    || dmg < target.HP) {
+                return dmg;
+            }
+
+            int maxDamage = Math.max(0, target.HP - 1);
+            lastStand.armRecovery();
+            return maxDamage;
+        }
+
+        @Override
+        public int icon() {
+            return BuffIndicator.NONE;
+        }
+
+        @Override
+        public String name() {
+            return "\u200B";
+        }
+
+        @Override
+        public String desc() {
+            return "";
+        }
+
+        @Override
+        public boolean act() {
+            diactivate();
+            return true;
+        }
     }
 }
