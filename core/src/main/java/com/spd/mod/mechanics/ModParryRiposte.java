@@ -174,7 +174,7 @@ public class ModParryRiposte extends Buff {
     }
 
     private static void ensureHookKeeper() {
-        if (hookKeeper == null || !hookKeeper.exists) {
+        if (hookKeeper == null || !hookKeeper.exists || !Actor.all().contains(hookKeeper)) {
             hookKeeper = new HookKeeper();
             Actor.add(hookKeeper);
         }
@@ -369,5 +369,14 @@ public class ModParryRiposte extends Buff {
             diactivate();
             return true;
         }
+    }
+
+    /**
+     * Compatibility shell for saves produced by the two earlier broken
+     * implementations. CombatHook's restore guard makes restored instances
+     * refuse attachment, so this class has no runtime behavior.
+     */
+    @Deprecated
+    public static class AttackWatcher extends CombatHook {
     }
 }
