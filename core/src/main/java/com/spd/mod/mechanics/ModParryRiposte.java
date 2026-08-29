@@ -300,11 +300,8 @@ public class ModParryRiposte extends Buff {
 
         @Override
         public boolean act() {
-            if (!hasRiposteUser()) {
-                detach();
-                return true;
-            }
-            spend(TICK);
+            // attackProc() callbacks do not require this observer to consume turns.
+            diactivate();
             return true;
         }
     }
