@@ -55,7 +55,7 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
     }
 
     private static String multiplierText(ModEnemySurge buff) {
-        return "Apply " + ModLevelSlider.level + "x Rate & Limit (Current " + buff.spawnMultiplier() + "x)";
+        return "Set " + ModLevelSlider.level + "x (Now " + buff.spawnMultiplier() + "x)";
     }
 
     private static String attractText(ModEnemySurge buff) {
