@@ -37,10 +37,11 @@ public class ModLastStand extends Buff {
 
     @Override
     public void fx(boolean on) {
-        // fx(true) runs again when a restored character sprite is linked, after
-        // Char.restoreFromBundle has finished rebuilding the buff list.
         if (on) {
-            ensureLethalHook();
+            // Char.updateSpriteState() iterates the buff set while calling fx().
+            // Do not attach another buff here; just schedule Last Stand to run
+            // immediately once actor processing resumes.
+            timeToNow();
         }
     }
 
@@ -85,8 +86,8 @@ public class ModLastStand extends Buff {
 
     @Override
     public boolean act() {
-        // Freshly-applied buffs may act before a sprite is linked, so this is
-        // the second safe point for installing the hidden shield hook.
+        // Installing the hidden shield hook here avoids mutating the target's
+        // buff collection while save restoration or sprite-state iteration runs.
         ensureLethalHook();
 
         if (target != null && target.isAlive() && target.HP == 1) {
