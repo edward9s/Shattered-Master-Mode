@@ -12,7 +12,7 @@ public class ModGridParryRiposte extends ModGridEntry {
             "Permanent Master Mode combat buff. Parry makes every attack roll against the target miss. "
                     + "Riposte leaves incoming attacks unchanged and immediately makes a guaranteed normal "
                     + "counterattack after each successful standard attack when the target can attack the attacker. "
-                    + "Choose the same active mode again to remove the buff.";
+                    + "Mode changes and removal are explicit actions; viewing this entry never changes the buff.";
 
     public ModGridParryRiposte() {
         super(new BuffIcon(new ModParryRiposte(), true), TITLE, DESCRIPTION);
@@ -27,13 +27,19 @@ public class ModGridParryRiposte extends ModGridEntry {
         ShatteredPixelDungeon.scene().addToFront(new WndOptions(
                 new BuffIcon(new ModParryRiposte(), true),
                 TITLE,
-                "Choose a permanent mode, then select a character. Selecting the same active mode again removes the buff.",
-                "Parry (all)",
-                "Riposte (all)") {
+                DESCRIPTION,
+                "Parry",
+                "Riposte",
+                "Remove Buff") {
             @Override
             protected void onSelect(int index) {
-                ModParryRiposteSelector.start(
-                        index == 0 ? ModParryRiposte.Mode.PARRY : ModParryRiposte.Mode.RIPOSTE);
+                if (index == 0) {
+                    ModParryRiposteSelector.start(ModParryRiposte.Mode.PARRY);
+                } else if (index == 1) {
+                    ModParryRiposteSelector.start(ModParryRiposte.Mode.RIPOSTE);
+                } else {
+                    ModParryRiposteSelector.startRemove();
+                }
             }
         });
         return true;

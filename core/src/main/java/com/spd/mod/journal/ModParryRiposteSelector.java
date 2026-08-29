@@ -13,14 +13,24 @@ import com.watabou.utils.Callback;
 public class ModParryRiposteSelector extends CellSelector.Listener implements Callback {
 
     private final ModParryRiposte.Mode mode;
+    private final boolean remove;
     private boolean reselecting;
     private boolean isClosing;
 
-    public ModParryRiposteSelector(ModParryRiposte.Mode mode) {
+    private ModParryRiposteSelector(ModParryRiposte.Mode mode, boolean remove) {
         this.mode = mode;
+        this.remove = remove;
     }
 
     public static void start(ModParryRiposte.Mode mode) {
+        begin(new ModParryRiposteSelector(mode, false));
+    }
+
+    public static void startRemove() {
+        begin(new ModParryRiposteSelector(null, true));
+    }
+
+    private static void begin(ModParryRiposteSelector selector) {
         if (ModJournalWindow.instance != null) {
             ModJournalWindow.instance.hide();
         }
@@ -28,14 +38,17 @@ public class ModParryRiposteSelector extends CellSelector.Listener implements Ca
             ModToolsWindow.instance.hide();
         }
 
-        GameScene.selectCell(new ModParryRiposteSelector(mode));
+        GameScene.selectCell(selector);
     }
 
     @Override
     public String prompt() {
+        if (remove) {
+            return "Remove Mod Parry / Riposte";
+        }
         return mode == ModParryRiposte.Mode.PARRY
-                ? "Toggle Mod Parry"
-                : "Toggle Mod Riposte";
+                ? "Apply Mod Parry"
+                : "Apply Mod Riposte";
     }
 
     @Override
@@ -63,13 +76,22 @@ public class ModParryRiposteSelector extends CellSelector.Listener implements Ca
         }
 
         ModParryRiposte existing = target.buff(ModParryRiposte.class);
-        if (existing != null && existing.mode() == mode) {
-            String name = existing.name();
-            existing.detach();
-            GLog.p("Detach %s", name);
+
+        if (remove) {
+            if (existing != null) {
+                String name = existing.name();
+                existing.detach();
+                GLog.p("Detach %s", name);
+            } else {
+                GLog.w("No Mod Parry / Riposte buff on target");
+            }
         } else if (existing != null) {
-            existing.setMode(mode);
-            GLog.p("Switch to %s", existing.name());
+            if (existing.mode() != mode) {
+                existing.setMode(mode);
+                GLog.p("Switch to %s", existing.name());
+            } else {
+                GLog.p("%s already active", existing.name());
+            }
         } else {
             ModParryRiposte created = ModParryRiposte.apply(target, mode);
             if (created != null) {
