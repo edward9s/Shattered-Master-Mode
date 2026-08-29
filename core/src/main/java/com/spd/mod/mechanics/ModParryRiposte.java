@@ -41,6 +41,12 @@ public class ModParryRiposte extends Buff {
         type = buffType.POSITIVE;
         announced = true;
         revivePersists = true;
+
+        // Total must rebuild its runtime-only combat plumbing before the hero
+        // or mobs can act after loading a save. Keeping the visible buff at VFX
+        // priority lets act() do that safely without mutating buff collections
+        // from fx(), which is called while Char.updateSpriteState() is iterating.
+        actPriority = VFX_PRIO;
     }
 
     public boolean riposteEnabled() {
@@ -61,17 +67,25 @@ public class ModParryRiposte extends Buff {
         if (!super.attachTo(target)) {
             return false;
         }
-        ensureInfrastructure();
+
+        // Actor.clear() does not know about these mod-side static pairing fields.
+        // A fresh application or restored Total therefore starts from a clean
+        // pairing state. Runtime hooks themselves are installed from act().
+        CombatHook.resetPairing();
+        timeToNow();
+        ModTotalInfoOverlay.ensureInstalled();
         return true;
     }
 
     @Override
     public void fx(boolean on) {
-        // CharSprite.link() reapplies buff FX while a GameScene is being built.
-        // Reinstall Total's mod-only UI here so a restored save has the custom
-        // info-window button before the player needs to take another turn.
         if (on) {
-            ensureInfrastructure();
+            // Char.updateSpriteState() iterates the live buff set while calling
+            // fx(). Never attach CombatHook from here; doing so can invalidate
+            // that iterator during save restoration. Only restore the UI and
+            // schedule Total to rebuild runtime hooks from act().
+            ModTotalInfoOverlay.ensureInstalled();
+            timeToNow();
         }
     }
 
@@ -88,6 +102,9 @@ public class ModParryRiposte extends Buff {
             removeLegacyFocus = false;
         }
 
+        // Runtime-only helpers are installed here, outside any save-restore or
+        // sprite-state buff iteration. VFX priority makes this run before normal
+        // Hero/Mob actions at the same timestamp.
         ensureInfrastructure();
         spend(TICK);
         return true;
@@ -95,6 +112,7 @@ public class ModParryRiposte extends Buff {
 
     @Override
     public void detach() {
+        CombatHook.resetPairing();
         super.detach();
         cleanupInfrastructureIfUnused();
         BuffIndicator.refreshHero();
@@ -156,6 +174,10 @@ public class ModParryRiposte extends Buff {
 
         removeLegacyFocus = bundle.contains(LEGACY_OWNS_FOCUS)
                 && bundle.getBoolean(LEGACY_OWNS_FOCUS);
+
+        // These are runtime-only static fields and are not cleared by SPD's
+        // bundle restoration. Never carry a half-paired attack across scenes.
+        CombatHook.resetPairing();
     }
 
     private static boolean hasTotalUser() {
