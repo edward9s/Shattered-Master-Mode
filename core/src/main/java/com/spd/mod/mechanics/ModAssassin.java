@@ -9,6 +9,8 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
+import com.shatteredpixel.shatteredpixeldungeon.items.KindOfWeapon;
+import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
 import com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.Sai;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
@@ -52,11 +54,31 @@ public class ModAssassin {
             return;
         }
 
-        int originalInvisible = hero.invisible;
-        hero.invisible = 1;
-
         Wound.hit(target);
-        boolean hit = hero.attack(target);
+
+        int originalInvisible = hero.invisible;
+        int originalStrength = hero.STR;
+        KindOfWeapon attackingWeapon = hero.belongings.attackingWeapon();
+        boolean hit;
+
+        try {
+            hero.invisible = 1;
+
+            // Assassin ignores only the strength requirement that would otherwise
+            // disable Hero.canSurpriseAttack(). Weapon-specific restrictions such
+            // as Flail's "cannot surprise attack" rule are still checked normally.
+            if (attackingWeapon instanceof Weapon) {
+                int strengthShortfall = ((Weapon) attackingWeapon).STRReq() - hero.STR();
+                if (strengthShortfall > 0) {
+                    hero.STR += strengthShortfall;
+                }
+            }
+
+            hit = hero.attack(target);
+        } finally {
+            hero.invisible = originalInvisible;
+            hero.STR = originalStrength;
+        }
 
         // 比照 Hero.onAttackComplete() 的官方原版邏輯：近戰命中時觸發角鬥士連擊與決鬥者連擊計數
         if (hit) {
@@ -74,7 +96,6 @@ public class ModAssassin {
             sprite.attack(targetPos);
         }
 
-        hero.invisible = originalInvisible;
         hero.spendToWhole();
     }
 
