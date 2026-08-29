@@ -74,7 +74,7 @@ public class ModAssassin {
                 }
             }
 
-            hit = hero.attack(target);
+            hit = hero.attack(target, 1f, 0f, Char.INFINITE_ACCURACY);
         } finally {
             hero.invisible = originalInvisible;
             hero.STR = originalStrength;
