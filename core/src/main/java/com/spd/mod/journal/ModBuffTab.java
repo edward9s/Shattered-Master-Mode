@@ -22,6 +22,10 @@ public class ModBuffTab extends Component {
         grid = new ModScrollingGridPane();
         add(grid);
 
+        // Master Mode-specific buffs are explicitly pinned above scanned vanilla buffs.
+        grid.addHeader("Master Mode Buff");
+        grid.addItem(new ModGridParryRiposte());
+
         ArrayList<ModGridBuff> positiveBuffs = new ArrayList<>();
         ArrayList<ModGridBuff> negativeBuffs = new ArrayList<>();
         ArrayList<ModGridBuff> neutralBuffs = new ArrayList<>();
