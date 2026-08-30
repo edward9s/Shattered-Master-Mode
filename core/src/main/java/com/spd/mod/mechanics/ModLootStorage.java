@@ -4,7 +4,6 @@ import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.EquipableItem;
-import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
@@ -118,44 +117,30 @@ public class ModLootStorage implements Bundlable {
             return;
         }
 
-        int pickedIntoBags = ModLoot.grabItems();
+        ModLoot.Result result = ModLoot.grabItems(this);
         ModLoot.trampleGrass();
-        pickedIntoBags += ModLoot.collectHeaps();
+        result.add(ModLoot.collectHeaps(this));
 
-        int absorbed = absorbUnderfoot(hero);
-        if (absorbed > 0) {
+        if (result.absorbed() > 0) {
             sortStored();
-            GLog.i("Absorbed " + absorbed + " item(s) into Loot storage.");
-            if (pickedIntoBags == 0) {
+            GLog.i("Absorbed " + result.absorbed() + " item(s) into Loot storage.");
+            if (result.pickedIntoBags() == 0) {
                 Sample.INSTANCE.play(Assets.Sounds.ITEM);
             }
         }
         changed();
     }
 
-    private int absorbUnderfoot(Hero hero) {
-        if (Dungeon.level == null || Dungeon.level.heaps == null || hero == null) {
-            return 0;
+    /**
+     * Internal overflow target used by ModLoot. This deliberately does not sort or notify for every item;
+     * loot() batches those updates after the full-map operation has finished.
+     */
+    boolean absorbOverflow(Item item) {
+        if (!canStore(item)) {
+            return false;
         }
-
-        Heap heap = Dungeon.level.heaps.get(hero.pos);
-        if (heap == null || heap.isEmpty() || !ModLoot.Collect.isCollectable(heap.type)) {
-            return 0;
-        }
-
-        int count = 0;
-        for (Item item : heap.items.toArray(new Item[0])) {
-            if (item == null || !canStore(item)) {
-                continue;
-            }
-            absorb(item);
-            heap.items.remove(item);
-            count++;
-        }
-        if (heap.items.isEmpty()) {
-            heap.destroy();
-        }
-        return count;
+        absorb(item);
+        return true;
     }
 
     private void absorb(Item item) {
