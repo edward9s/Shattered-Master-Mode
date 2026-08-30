@@ -2,7 +2,13 @@ package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Combo;
+import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
+import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
+import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
+import com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.Sai;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.noosa.Image;
@@ -174,7 +180,19 @@ public class ModParryRiposte extends ChampionEnemy {
                 && attacker.isAlive()) {
             // Intentionally no canAttack/range check. Total Riposte must always
             // be able to answer an attack that Total Parry intercepted.
-            riposter.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
+            boolean hit = riposter.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
+
+            // Direct Char.attack() calls bypass Hero.onAttackComplete(), so mirror
+            // the hit counters that normal hero attacks update there.
+            if (hit && riposter instanceof Hero) {
+                Hero hero = (Hero) riposter;
+                if (hero.subClass == HeroSubClass.GLADIATOR) {
+                    Buff.affect(hero, Combo.class).hit(attacker);
+                }
+                if (hero.heroClass == HeroClass.DUELIST) {
+                    Buff.affect(hero, Sai.ComboStrikeTracker.class).addHit();
+                }
+            }
         }
     }
 
