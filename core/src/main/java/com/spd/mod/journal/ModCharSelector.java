@@ -25,15 +25,29 @@ import com.spd.mod.tools.ModToolsWindow;
 public class ModCharSelector extends CellSelector.Listener implements Callback {
 
     private Class<? extends Buff> buffClass;
+    private boolean heroOnly;
     private boolean reselecting;
     private boolean isClosing;
 
     public ModCharSelector(Class<? extends Buff> buffClass) {
+        this(buffClass, false);
+    }
+
+    private ModCharSelector(Class<? extends Buff> buffClass, boolean heroOnly) {
         super();
         this.buffClass = buffClass;
+        this.heroOnly = heroOnly;
     }
 
     public static void start(Class<? extends Buff> buffClass) {
+        start(buffClass, false);
+    }
+
+    public static void startHeroOnly(Class<? extends Buff> buffClass) {
+        start(buffClass, true);
+    }
+
+    private static void start(Class<? extends Buff> buffClass, boolean heroOnly) {
         if (ModJournalWindow.instance != null) {
             ModJournalWindow.instance.hide();
         }
@@ -41,7 +55,7 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
             ModToolsWindow.instance.hide();
         }
 
-        GameScene.selectCell(new ModCharSelector(buffClass));
+        GameScene.selectCell(new ModCharSelector(buffClass, heroOnly));
     }
 
     @Override
@@ -78,6 +92,12 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
         Char target = Actor.findChar(pos);
 
         if (target == null) {
+            ShatteredPixelDungeon.runOnRenderThread(this);
+            return;
+        }
+
+        if (heroOnly && target != Dungeon.hero) {
+            GLog.w("This buff can only affect the Hero.", new Object[0]);
             ShatteredPixelDungeon.runOnRenderThread(this);
             return;
         }
