@@ -8,7 +8,6 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.items.Dewdrop;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
-import com.shatteredpixel.shatteredpixeldungeon.items.Waterskin;
 import com.shatteredpixel.shatteredpixeldungeon.items.wands.WandOfRegrowth;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
@@ -21,6 +20,26 @@ import java.util.Iterator;
 
 public class ModLoot {
 
+    public static class Result {
+        private int pickedIntoBags;
+        private int absorbed;
+
+        public int pickedIntoBags() {
+            return pickedIntoBags;
+        }
+
+        public int absorbed() {
+            return absorbed;
+        }
+
+        public void add(Result other) {
+            if (other != null) {
+                pickedIntoBags += other.pickedIntoBags;
+                absorbed += other.absorbed;
+            }
+        }
+    }
+
     // --- 對外呼叫介面 ---
     public static void trampleGrass() {
         Trample.execute();
@@ -31,20 +50,40 @@ public class ModLoot {
         return Collect.execute();
     }
 
+    /**
+     * 使用指定 Loot storage 收納背包放不下的物品。
+     * @return 本輪真正進背包與被 storage 吸收的件數。
+     */
+    public static Result collectHeaps(ModLootStorage storage) {
+        return Collect.execute(storage);
+    }
+
     /** @return 真正撿進背包(會播放 ITEM 撿取音效)的件數。 */
     public static int grabItems() {
         return Grab.execute();
+    }
+
+    /**
+     * 使用指定 Loot storage 收納背包放不下的投射物。
+     * @return 本輪真正進背包與被 storage 吸收的件數。
+     */
+    public static Result grabItems(ModLootStorage storage) {
+        return Grab.execute(storage);
     }
 
     // --- 內部實作：拔箭 ---
     public static class Grab {
         /** @return 成功拔進背包的件數(每次成功都會播放 ITEM 音效)。 */
         public static int execute() {
+            return execute(null).pickedIntoBags();
+        }
+
+        public static Result execute(ModLootStorage storage) {
             Level level = Dungeon.level;
             Hero hero = Dungeon.hero;
-            if (level == null || hero == null) return 0;
+            Result result = new Result();
+            if (level == null || hero == null) return result;
 
-            int pickedUp = 0;
             float start = hero.cooldown();
 
             Iterator<Mob> it = level.mobs.iterator();
@@ -60,7 +99,9 @@ public class ModLoot {
                     boolean picked = item.doPickUp(hero, mob.pos);
                     if (picked) {
                         GLog.i("Grabbed: " + item.name());
-                        pickedUp++;
+                        result.pickedIntoBags++;
+                    } else if (storage != null && storage.absorbOverflow(item)) {
+                        result.absorbed++;
                     } else {
                         level.drop(item, mob.pos);
                         break;
@@ -70,28 +111,37 @@ public class ModLoot {
 
             float end = hero.cooldown();
             hero.spendConstant(start - end);
-            return pickedUp;
+            return result;
         }
     }
 
     // --- 內部實作：撿取 ---
     public static class Collect {
         /**
-         * @return 真正撿進背包(會播放 ITEM 音效)的件數。
-         *         露珠走的是 Dewdrop.doPickUp:播 DEWDROP 而非 ITEM、且不進背包,故不計入,
-         *         讓「只撿到露珠 + 真道具溢出到卷軸」時,卷軸仍能補一次吸入音效而不會重疊。
+         * @return 真正撿進背包(會播放 ITEM 撿取音效)的件數。
          */
         public static int execute() {
+            return execute(null).pickedIntoBags();
+        }
+
+        /**
+         * 露珠完整交給 Dewdrop.doPickUp(hero, heap.pos) 處理，保留 SPD 原版的水袋、治療、
+         * 入口/出口 force 規則與 DEWDROP 音效。一般物品若背包放不下，storage 存在且允許
+         * 收納時就直接吸收，不再先搬到英雄腳下再二次掃描。
+         */
+        public static Result execute(ModLootStorage storage) {
             Level level = Dungeon.level;
             Hero hero = Dungeon.hero;
-            if (level == null || hero == null) return 0;
+            Result result = new Result();
+            if (level == null || hero == null) return result;
 
-            int pickedUp = 0;
             float start = hero.cooldown();
 
             if (level.heaps != null) {
                 for (Heap heap : level.heaps.valueList()) {
-                    if (heap == null || heap.pos == hero.pos) continue;
+                    if (heap == null) continue;
+                    // 舊的無 storage 介面保留原本跳過英雄腳下的行為；共享 storage 路徑則直接處理該格。
+                    if (storage == null && heap.pos == hero.pos) continue;
                     if (!isCollectable(heap.type)) continue;
 
                     while (!heap.isEmpty()) {
@@ -99,37 +149,62 @@ public class ModLoot {
                         if (item == null) break;
 
                         if (item instanceof Dewdrop) {
-                            if (hero.HP >= hero.HT) {
-                                Waterskin skin = (Waterskin) hero.belongings.getItem(Waterskin.class);
-                                if (skin == null || skin.isFull()) {
-                                    break; // 水袋已滿且血滿，跳過這個 Heap
-                                }
+                            boolean picked = ((Dewdrop) item).doPickUp(hero, heap.pos);
+                            if (!picked) {
+                                // 原版露珠在目前狀態不能被消耗時留在原 Heap；不要讓 Loot storage 吸收。
+                                break;
                             }
-                            boolean picked = ((Dewdrop) item).doPickUp(hero);
+
                             Item popped = heap.pickUp();
-                            if (picked) {
+                            if (popped != null) {
                                 GLog.i("Collected: " + popped.name());
-                                // 露珠播 DEWDROP 而非 ITEM、也不算「進背包」→ 不計入。
-                            } else {
-                                level.drop(popped, hero.pos);
                             }
-                        } else {
-                            boolean picked = item.doPickUp(hero);
-                            Item popped = heap.pickUp();
-                            if (picked) {
-                                GLog.i("Collected: " + popped.name());
-                                pickedUp++;
-                            } else {
-                                level.drop(popped, hero.pos);
-                            }
+                            // 露珠播 DEWDROP 而非 ITEM、也不算「進背包」。
+                            continue;
                         }
+
+                        boolean picked = item.doPickUp(hero, heap.pos);
+                        if (picked) {
+                            Item popped = heap.pickUp();
+                            if (popped != null) {
+                                GLog.i("Collected: " + popped.name());
+                            }
+                            result.pickedIntoBags++;
+                            continue;
+                        }
+
+                        if (storage != null && ModLootStorage.canStore(item)) {
+                            Item popped = heap.pickUp();
+                            if (storage.absorbOverflow(popped)) {
+                                result.absorbed++;
+                                continue;
+                            }
+                            // Defensive fallback: absorbOverflow should only fail for a non-storable/null item.
+                            if (popped != null) {
+                                level.drop(popped, heap.pos);
+                            }
+                            break;
+                        }
+
+                        if (storage == null) {
+                            // Preserve the legacy helper behavior for any caller that still uses the no-storage API.
+                            Item popped = heap.pickUp();
+                            if (popped != null) {
+                                level.drop(popped, hero.pos);
+                            }
+                            continue;
+                        }
+
+                        // A storage-backed Loot cannot absorb this item (e.g. ModAnkh/Scroll of Loot).
+                        // Leave it where it was instead of moving it to the hero's feet.
+                        break;
                     }
                 }
             }
 
             float end = hero.cooldown();
             hero.spendConstant(start - end);
-            return pickedUp;
+            return result;
         }
 
         public static boolean isCollectable(Heap.Type type) {
