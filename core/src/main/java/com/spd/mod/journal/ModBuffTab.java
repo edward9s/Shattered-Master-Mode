@@ -27,6 +27,7 @@ public class ModBuffTab extends Component {
         grid.addItem(new ModGridParryRiposte());
         grid.addItem(new ModGridLastStand());
         grid.addItem(new ModGridEnemySurge());
+        grid.addItem(new ModGridAssassinInstinct());
 
         ArrayList<ModGridBuff> positiveBuffs = new ArrayList<>();
         ArrayList<ModGridBuff> negativeBuffs = new ArrayList<>();
