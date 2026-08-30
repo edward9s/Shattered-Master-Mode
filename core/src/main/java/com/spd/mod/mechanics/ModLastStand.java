@@ -11,6 +11,8 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
+import java.lang.reflect.Field;
+
 /**
  * Permanent Master Mode emergency-survival buff.
  *
@@ -136,7 +138,13 @@ public class ModLastStand extends Buff {
         private boolean restoredFromBundle;
 
         {
-            shieldUsePriority = -1000;
+            try {
+                Field field = ShieldBuff.class.getDeclaredField("shieldUsePriority");
+                field.setAccessible(true);
+                field.setInt(this, -1000);
+            } catch (ReflectiveOperationException | SecurityException ignored) {
+                // Older forks such as RKA do not expose shield-use priority.
+            }
         }
 
         static void attachRuntime(Char target) {
