@@ -128,6 +128,10 @@ public class ModLoot {
          * 露珠完整交給 Dewdrop.doPickUp(hero, heap.pos) 處理，保留 SPD 原版的水袋、治療、
          * 入口/出口 force 規則與 DEWDROP 音效。一般物品若背包放不下，storage 存在且允許
          * 收納時就直接吸收，不再先搬到英雄腳下再二次掃描。
+         *
+         * Heap 必須逐件處理，不能因其中一件無法撿取就阻塞整堆。FOR_SALE 是特殊情況：
+         * SPD 會把真正待售商品留在 Heap 最後一格，之後掉到同格的普通物品插在前面；
+         * Loot 可以處理那些額外物品，但必須永遠保留最後的待售商品。
          */
         public static Result execute(ModLootStorage storage) {
             Level level = Dungeon.level;
@@ -142,62 +146,55 @@ public class ModLoot {
                     if (heap == null) continue;
                     // 舊的無 storage 介面保留原本跳過英雄腳下的行為；共享 storage 路徑則直接處理該格。
                     if (storage == null && heap.pos == hero.pos) continue;
-                    if (!isCollectable(heap.type)) continue;
 
-                    while (!heap.isEmpty()) {
-                        Item item = heap.peek();
-                        if (item == null) break;
+                    boolean normalCollectable = isCollectable(heap.type);
+                    boolean saleHeap = heap.type == Heap.Type.FOR_SALE;
+                    if (!normalCollectable && !saleHeap) continue;
+
+                    // FOR_SALE 的最後一件是商店真正販售的商品。Heap.drop() 對 FOR_SALE
+                    // 一律把後來掉入的物品加到前面，因此只要排除這個 reference，就能安全
+                    // Loot 疊在商品上的普通物品而不會偷走未購買商品。
+                    Item protectedSaleItem = saleHeap ? heap.items.peekLast() : null;
+
+                    // 使用 snapshot，因為成功撿取/吸收會從原 Heap 刪除目前物品。
+                    for (Item item : heap.items.toArray(new Item[0])) {
+                        if (item == null || item == protectedSaleItem) {
+                            continue;
+                        }
 
                         if (item instanceof Dewdrop) {
                             boolean picked = ((Dewdrop) item).doPickUp(hero, heap.pos);
                             if (!picked) {
-                                // 原版露珠在目前狀態不能被消耗時留在原 Heap；不要讓 Loot storage 吸收。
-                                break;
+                                // 這顆露珠目前不能被原版規則消耗；留在原位，但不要阻塞同 Heap 其他物品。
+                                continue;
                             }
 
-                            Item popped = heap.pickUp();
-                            if (popped != null) {
-                                GLog.i("Collected: " + popped.name());
-                            }
+                            heap.remove(item);
+                            GLog.i("Collected: " + item.name());
                             // 露珠播 DEWDROP 而非 ITEM、也不算「進背包」。
                             continue;
                         }
 
                         boolean picked = item.doPickUp(hero, heap.pos);
                         if (picked) {
-                            Item popped = heap.pickUp();
-                            if (popped != null) {
-                                GLog.i("Collected: " + popped.name());
-                            }
+                            heap.remove(item);
+                            GLog.i("Collected: " + item.name());
                             result.pickedIntoBags++;
                             continue;
                         }
 
-                        if (storage != null && ModLootStorage.canStore(item)) {
-                            Item popped = heap.pickUp();
-                            if (storage.absorbOverflow(popped)) {
-                                result.absorbed++;
-                                continue;
-                            }
-                            // Defensive fallback: absorbOverflow should only fail for a non-storable/null item.
-                            if (popped != null) {
-                                level.drop(popped, heap.pos);
-                            }
-                            break;
+                        if (storage != null && storage.absorbOverflow(item)) {
+                            heap.remove(item);
+                            result.absorbed++;
+                            continue;
                         }
 
                         if (storage == null) {
                             // Preserve the legacy helper behavior for any caller that still uses the no-storage API.
-                            Item popped = heap.pickUp();
-                            if (popped != null) {
-                                level.drop(popped, hero.pos);
-                            }
-                            continue;
+                            heap.remove(item);
+                            level.drop(item, hero.pos);
                         }
-
-                        // A storage-backed Loot cannot absorb this item (e.g. ModAnkh/Scroll of Loot).
-                        // Leave it where it was instead of moving it to the hero's feet.
-                        break;
+                        // storage-backed Loot 遇到不能收納的物品時只留下它，繼續掃描同 Heap 其他物品。
                     }
                 }
             }
