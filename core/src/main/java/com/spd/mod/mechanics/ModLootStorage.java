@@ -26,9 +26,29 @@ public class ModLootStorage implements Bundlable {
 
     private ArrayList<Item> stored = new ArrayList<>();
 
-    // Items temporarily lent to the hero so their normal execute() path can consume them.
-    // Deliberately not serialized: if the game is saved, the lent item is already in belongings.
-    private final ArrayList<Item> lent = new ArrayList<>();
+    /**
+     * Temporary lending records created when an item is used directly from Loot storage.
+     * reclaimLimit is only the maximum amount that may be reclaimed later; missing quantities
+     * are assumed to have been consumed, dropped, transformed, or otherwise legitimately moved.
+     *
+     * Deliberately not serialized: after a save/load, any lent items already in belongings simply
+     * become normal inventory items. No quantity is created or destroyed by losing the record.
+     */
+    private final ArrayList<LentRecord> lent = new ArrayList<>();
+
+    private static class LentRecord {
+        final Item template;
+        final Item lentItem;
+        final int reclaimLimit;
+        final boolean stackable;
+
+        LentRecord(Item template, Item lentItem, int reclaimLimit) {
+            this.template = template;
+            this.lentItem = lentItem;
+            this.reclaimLimit = reclaimLimit;
+            this.stackable = lentItem.stackable;
+        }
+    }
 
     private transient Runnable changeListener;
 
@@ -94,18 +114,69 @@ public class ModLootStorage implements Bundlable {
             return;
         }
 
-        boolean reclaimed = false;
-        for (Item item : lent.toArray(new Item[0])) {
-            if (item.quantity() > 0 && hero.belongings.contains(item)) {
-                item.detachAll(hero.belongings.backpack);
-                absorb(item);
-                GLog.i("Returned " + item.name() + " to Loot storage.");
-                reclaimed = true;
+        boolean reclaimedAny = false;
+
+        for (LentRecord record : lent.toArray(new LentRecord[0])) {
+            int reclaimed = 0;
+
+            if (!record.stackable) {
+                // Non-stackable items never merge, so preserve the old identity-based behavior.
+                if (record.lentItem.quantity() > 0
+                        && hero.belongings.backpack.contains(record.lentItem)) {
+                    Item returned = record.lentItem.detachAll(hero.belongings.backpack);
+                    if (returned != null && returned.quantity() > 0) {
+                        reclaimed = Math.min(record.reclaimLimit, returned.quantity());
+                        absorb(returned);
+                    }
+                }
+            } else {
+                int remaining = record.reclaimLimit;
+
+                // collect() may have merged the lent stack into an existing stack, so reclaim by
+                // similarity and quantity rather than by object identity. Snapshot first because
+                // detachAll() may mutate bags while we reclaim.
+                ArrayList<Item> matches = new ArrayList<>();
+                for (Item candidate : hero.belongings.backpack) {
+                    if (candidate.quantity() > 0 && record.template.isSimilar(candidate)) {
+                        matches.add(candidate);
+                    }
+                }
+
+                for (Item candidate : matches) {
+                    if (remaining <= 0 || candidate.quantity() <= 0) {
+                        continue;
+                    }
+
+                    int amount = Math.min(remaining, candidate.quantity());
+                    Item returned;
+                    if (amount == candidate.quantity()) {
+                        returned = candidate.detachAll(hero.belongings.backpack);
+                    } else {
+                        returned = candidate.split(amount);
+                    }
+
+                    if (returned == null || returned.quantity() <= 0) {
+                        continue;
+                    }
+
+                    int returnedQuantity = returned.quantity();
+                    absorb(returned);
+                    reclaimed += returnedQuantity;
+                    remaining -= returnedQuantity;
+                }
+            }
+
+            if (reclaimed > 0) {
+                GLog.i("Returned " + reclaimed + " " + record.template.name() + " to Loot storage.");
+                reclaimedAny = true;
             }
         }
+
+        // Any unreclaimed remainder is intentionally forgotten. The recorded quantity is a cap,
+        // never a debt that must be recreated or recovered from the floor/world.
         lent.clear();
 
-        if (reclaimed) {
+        if (reclaimedAny) {
             sortStored();
             changed();
             Item.updateQuickslot();
@@ -180,6 +251,11 @@ public class ModLootStorage implements Bundlable {
         return true;
     }
 
+    /**
+     * Temporarily lends the entire selected item/stack to normal belongings and executes its
+     * default action. Stackable items intentionally use normal collect()/merge behavior so a lent
+     * stack can merge with an existing stack. The recorded quantity is only a later reclaim cap.
+     */
     public boolean useItem(Hero hero, Item item) {
         if (hero == null || item == null || !stored.contains(item)) {
             return false;
@@ -190,16 +266,34 @@ public class ModLootStorage implements Bundlable {
             return true;
         }
 
-        // Lend the entire stored item/stack so stackable consumables can be used repeatedly
-        // through their normal execute() flow. Keep it as a distinct backpack entry instead of
-        // collecting/merging it, so reclaimLent() can still track the same object afterwards.
+        int reclaimLimit = item.quantity();
+        Item template = item.duplicate();
+        if (template == null || reclaimLimit <= 0) {
+            return false;
+        }
+
         stored.remove(item);
-        hero.belongings.backpack.items.add(item);
-        lent.add(item);
+        lent.add(new LentRecord(template, item, reclaimLimit));
+
+        // Use the normal collection path first so stackable items merge exactly as ordinary SPD
+        // inventory items do. A completely full inventory with no valid merge target must still
+        // not lose the lent stack, so preserve the existing force-add fallback.
+        if (!item.collect(hero.belongings.backpack)) {
+            hero.belongings.backpack.items.add(item);
+        }
+
         changed();
         Item.updateQuickslot();
 
-        item.execute(hero);
+        Item target = item;
+        if (target.quantity() <= 0 || !hero.belongings.contains(target)) {
+            target = hero.belongings.getSimilar(template);
+        }
+        if (target == null) {
+            return false;
+        }
+
+        target.execute(hero);
         return true;
     }
 
