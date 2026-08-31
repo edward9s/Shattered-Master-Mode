@@ -53,7 +53,7 @@ public class ModLootBuff extends Buff {
     public void open() {
         if (target instanceof Hero && target == Dungeon.hero) {
             Hero hero = (Hero) target;
-            storage.reclaimLent(hero);
+            storage.reclaimPending(hero);
             GameScene.show(new WndModLoot(storage, name(), WndModLoot.Mode.USE));
         }
     }
@@ -62,7 +62,7 @@ public class ModLootBuff extends Buff {
     public void detach() {
         if (target instanceof Hero && Dungeon.level != null) {
             Hero hero = (Hero) target;
-            storage.reclaimLent(hero);
+            storage.reclaimPending(hero);
             storage.dump(hero);
         }
         super.detach();
