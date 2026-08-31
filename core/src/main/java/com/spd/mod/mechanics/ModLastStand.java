@@ -1,9 +1,11 @@
 package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.AllyBuff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Bless;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Invulnerability;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Hunger;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.LostInventory;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ShieldBuff;
 import com.shatteredpixel.shatteredpixeldungeon.effects.FloatingText;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
@@ -19,8 +21,8 @@ import java.lang.reflect.Field;
  * The persistent Last Stand object remains a plain Buff. A hidden ShieldBuff
  * hook performs pre-damage interception after save restoration has completed.
  * If normal shield-handled damage would be lethal, the hook limits it to leave
- * 1 HP, grants blessed-Ankh-style invulnerability plus Bless, and schedules
- * Last Stand to restore the bearer to 50% HP. Last Stand also recovers any
+ * 1 HP, grants Bless, and schedules Last Stand to fully heal the bearer, clear
+ * negative status effects, and reset hunger. Last Stand also recovers any
  * living bearer that reaches exactly 1 HP through a mechanic which bypasses
  * normal shielding.
  *
@@ -58,8 +60,8 @@ public class ModLastStand extends Buff {
             return;
         }
 
-        // Apply protection before the current damage-dealing actor finishes.
-        Buff.prolong(target, Invulnerability.class, Invulnerability.DURATION);
+        // Apply Bless before the current damage-dealing actor finishes, then
+        // schedule the full recovery to happen as soon as actors can run again.
         Buff.prolong(target, Bless.class, Bless.DURATION);
         timeToNow();
     }
@@ -69,14 +71,24 @@ public class ModLastStand extends Buff {
             return;
         }
 
-        // Re-prolonging at the same timestamp is idempotent, and also covers
-        // 1-HP states produced by mechanics such as hunger that bypass shields.
-        Buff.prolong(target, Invulnerability.class, Invulnerability.DURATION);
         Buff.prolong(target, Bless.class, Bless.DURATION);
 
-        int targetHP = Math.max(1, (target.HT + 1) / 2);
-        int healed = Math.max(0, targetHP - target.HP);
-        target.HP = Math.max(target.HP, targetHP);
+        // Match SPD's cleansing logic: remove ordinary negative-status buffs,
+        // while preserving structural AllyBuff/LostInventory state. Hunger is
+        // neutral, so it must be reset separately.
+        for (Buff buff : target.buffs()) {
+            if (buff.type == Buff.buffType.NEGATIVE
+                    && !(buff instanceof AllyBuff)
+                    && !(buff instanceof LostInventory)) {
+                buff.detach();
+            }
+            if (buff instanceof Hunger) {
+                ((Hunger) buff).satisfy(Hunger.STARVING);
+            }
+        }
+
+        int healed = Math.max(0, target.HT - target.HP);
+        target.HP = target.HT;
 
         if (healed > 0 && target.sprite != null) {
             target.sprite.showStatusWithIcon(
@@ -127,8 +139,8 @@ public class ModLastStand extends Buff {
     @Override
     public String desc() {
         return "Permanent Master Mode buff. If damage handled by the normal shielding system would be lethal, "
-                + "Last Stand limits that damage to leave 1 HP and immediately grants 3 turns of invulnerability and 30 turns of Bless. "
-                + "Whenever the bearer is alive at exactly 1 HP when Last Stand acts, it restores HP to 50% and grants those effects. "
+                + "Last Stand limits that damage to leave 1 HP and grants 30 turns of Bless. "
+                + "Whenever the bearer is alive at exactly 1 HP when Last Stand acts, it fully restores HP, removes negative status effects, and resets hunger. "
                 + "This does not guarantee survival: damage that bypasses normal shielding can still kill if it skips past 1 HP, and direct death effects can also bypass Last Stand.";
     }
 
