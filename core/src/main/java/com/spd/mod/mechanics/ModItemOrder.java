@@ -15,7 +15,8 @@ import java.util.Map;
  * Mod 視窗共用的物品排序規則,讓卷軸內的清單在每個視窗看起來都一致。
  *
  * 先分組:Mod 自訂物品 → 魔法袋 → 藥劑筒 → 卷軸筒 → 絨布袋 → 其他,
- * 同組內再用遊戲原生的 {@link Generator.Category#order(Item)}(與背包/煉金介面同一套次序)。
+ * 同組內再用遊戲原生的 {@link Generator.Category#order(Item)}(與背包/煉金介面同一套次序),
+ * 最後用 Generator 類別表與完整類別名稱提供穩定的同類排序。
  * 只影響順序,不做任何畫面分組。
  *
  * 【跨版本考量】這個 mod 要能套在各種 SPD 衍生版上,所以這裡不 import 任何特定的袋子類別,
@@ -45,7 +46,19 @@ public class ModItemOrder {
             if (group != 0) {
                 return group;
             }
-            return Generator.Category.order(lhs) - Generator.Category.order(rhs);
+
+            int nativeOrder = Generator.Category.order(lhs) - Generator.Category.order(rhs);
+            if (nativeOrder != 0) {
+                return nativeOrder;
+            }
+
+            int generatorOrder = generatorClassOrder(lhs) - generatorClassOrder(rhs);
+            if (generatorOrder != 0) {
+                return generatorOrder;
+            }
+
+            // Final deterministic fallback for modded/derived items that are absent from Generator tables.
+            return lhs.getClass().getName().compareTo(rhs.getClass().getName());
         }
     };
 
@@ -75,6 +88,32 @@ public class ModItemOrder {
     /** 本 mod 自訂的物品(com.spd.mod.* 底下的類別)。 */
     public static boolean isModItem(Item item) {
         return item != null && item.getClass().getName().startsWith("com.spd.mod.");
+    }
+
+    /**
+     * Returns a stable order within the game's own Generator tables. The category enum is stable
+     * across the supported SPD versions and its public classes arrays already encode canonical
+     * per-item ordering for scrolls, potions, rings, etc. Unknown derived items fall through.
+     */
+    private static int generatorClassOrder(Item item) {
+        if (item == null) {
+            return Integer.MAX_VALUE;
+        }
+        int categoryBase = 0;
+        for (Generator.Category category : Generator.Category.values()) {
+            Class<?>[] classes = category.classes;
+            if (classes != null) {
+                for (int i = 0; i < classes.length; i++) {
+                    if (classes[i] == item.getClass()) {
+                        return categoryBase + i;
+                    }
+                }
+                categoryBase += classes.length + 1;
+            } else {
+                categoryBase++;
+            }
+        }
+        return Integer.MAX_VALUE;
     }
 
     /**
