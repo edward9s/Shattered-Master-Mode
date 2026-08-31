@@ -87,7 +87,7 @@ public class ModScrollOfLoot extends Scroll {
     @Override
     public void execute(Hero hero, String action) {
         if ("READ".equals(action)) {
-            storage.reclaimLent(hero);
+            storage.reclaimPending(hero);
             GameScene.show(new WndModLoot(storage, name(), WndModLoot.Mode.USE));
         } else {
             super.execute(hero, action);
