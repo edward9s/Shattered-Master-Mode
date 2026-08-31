@@ -180,7 +180,7 @@ public class ModLootStorage implements Bundlable {
         return true;
     }
 
-    public boolean useSingle(Hero hero, Item item) {
+    public boolean useItem(Hero hero, Item item) {
         if (hero == null || item == null || !stored.contains(item)) {
             return false;
         }
