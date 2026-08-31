@@ -23,32 +23,23 @@ import java.util.ArrayList;
 public class ModLootStorage implements Bundlable {
 
     private static final String STORED = "stored";
+    private static final String RECLAIM_TEMPLATE = "reclaim_template";
+    private static final String RECLAIM_LIMIT = "reclaim_limit";
 
     private ArrayList<Item> stored = new ArrayList<>();
 
     /**
-     * Temporary lending records created when an item is used directly from Loot storage.
-     * reclaimLimit is only the maximum amount that may be reclaimed later; missing quantities
-     * are assumed to have been consumed, dropped, transformed, or otherwise legitimately moved.
+     * At most one item-use session can be pending because opening Loot always reclaims before the
+     * next selection. The template identifies what may be reclaimed; the limit is only an upper
+     * bound, never a debt. Missing quantities are assumed to have been consumed, dropped,
+     * transformed, or otherwise legitimately moved.
      *
-     * Deliberately not serialized: after a save/load, any lent items already in belongings simply
-     * become normal inventory items. No quantity is created or destroyed by losing the record.
+     * This descriptor is serialized, but the actual lent inventory item is not stored here a
+     * second time. The real item remains owned by belongings/world state, so saving this descriptor
+     * cannot duplicate item quantity.
      */
-    private final ArrayList<LentRecord> lent = new ArrayList<>();
-
-    private static class LentRecord {
-        final Item template;
-        final Item lentItem;
-        final int reclaimLimit;
-        final boolean stackable;
-
-        LentRecord(Item template, Item lentItem, int reclaimLimit) {
-            this.template = template;
-            this.lentItem = lentItem;
-            this.reclaimLimit = reclaimLimit;
-            this.stackable = lentItem.stackable;
-        }
-    }
+    private Item reclaimTemplate;
+    private int reclaimLimit;
 
     private transient Runnable changeListener;
 
@@ -105,78 +96,71 @@ public class ModLootStorage implements Bundlable {
                 && !(item instanceof ModAnkh);
     }
 
-    public void reclaimLent(Hero hero) {
-        if (lent.isEmpty()) {
+    private boolean hasPendingReclaim() {
+        return reclaimTemplate != null && reclaimLimit > 0;
+    }
+
+    private void clearPendingReclaim() {
+        reclaimTemplate = null;
+        reclaimLimit = 0;
+    }
+
+    /**
+     * Reclaims up to the recorded limit from currently held similar items. The limit is a cap only:
+     * any missing remainder is forgotten and is never recreated or searched for on the floor/world.
+     */
+    public void reclaimPending(Hero hero) {
+        if (!hasPendingReclaim()) {
+            clearPendingReclaim();
             return;
         }
         if (hero == null || hero.belongings == null) {
-            lent.clear();
             return;
         }
 
-        boolean reclaimedAny = false;
+        Item template = reclaimTemplate;
+        int remaining = reclaimLimit;
+        int reclaimed = 0;
 
-        for (LentRecord record : lent.toArray(new LentRecord[0])) {
-            int reclaimed = 0;
-
-            if (!record.stackable) {
-                // Non-stackable items never merge, so preserve the old identity-based behavior.
-                if (record.lentItem.quantity() > 0
-                        && hero.belongings.backpack.contains(record.lentItem)) {
-                    Item returned = record.lentItem.detachAll(hero.belongings.backpack);
-                    if (returned != null && returned.quantity() > 0) {
-                        reclaimed = Math.min(record.reclaimLimit, returned.quantity());
-                        absorb(returned);
-                    }
-                }
-            } else {
-                int remaining = record.reclaimLimit;
-
-                // collect() may have merged the lent stack into an existing stack, so reclaim by
-                // similarity and quantity rather than by object identity. Snapshot first because
-                // detachAll() may mutate bags while we reclaim.
-                ArrayList<Item> matches = new ArrayList<>();
-                for (Item candidate : hero.belongings.backpack) {
-                    if (candidate.quantity() > 0 && record.template.isSimilar(candidate)) {
-                        matches.add(candidate);
-                    }
-                }
-
-                for (Item candidate : matches) {
-                    if (remaining <= 0 || candidate.quantity() <= 0) {
-                        continue;
-                    }
-
-                    int amount = Math.min(remaining, candidate.quantity());
-                    Item returned;
-                    if (amount == candidate.quantity()) {
-                        returned = candidate.detachAll(hero.belongings.backpack);
-                    } else {
-                        returned = candidate.split(amount);
-                    }
-
-                    if (returned == null || returned.quantity() <= 0) {
-                        continue;
-                    }
-
-                    int returnedQuantity = returned.quantity();
-                    absorb(returned);
-                    reclaimed += returnedQuantity;
-                    remaining -= returnedQuantity;
-                }
-            }
-
-            if (reclaimed > 0) {
-                GLog.i("Returned " + reclaimed + " " + record.template.name() + " to Loot storage.");
-                reclaimedAny = true;
+        // collect() may have merged the used stack with an existing stack or moved it into a
+        // specialised bag. Iterate the whole backpack tree and reclaim by similarity + quantity.
+        // Snapshot first because detachAll() can mutate bags while reclaiming.
+        ArrayList<Item> matches = new ArrayList<>();
+        for (Item candidate : hero.belongings.backpack) {
+            if (candidate.quantity() > 0 && template.isSimilar(candidate)) {
+                matches.add(candidate);
             }
         }
 
-        // Any unreclaimed remainder is intentionally forgotten. The recorded quantity is a cap,
-        // never a debt that must be recreated or recovered from the floor/world.
-        lent.clear();
+        for (Item candidate : matches) {
+            if (remaining <= 0 || candidate.quantity() <= 0) {
+                continue;
+            }
 
-        if (reclaimedAny) {
+            int amount = Math.min(remaining, candidate.quantity());
+            Item returned;
+            if (amount == candidate.quantity()) {
+                returned = candidate.detachAll(hero.belongings.backpack);
+            } else {
+                returned = candidate.split(amount);
+            }
+
+            if (returned == null || returned.quantity() <= 0) {
+                continue;
+            }
+
+            int returnedQuantity = returned.quantity();
+            absorb(returned);
+            reclaimed += returnedQuantity;
+            remaining -= returnedQuantity;
+        }
+
+        // Always finish the pending session. Any unreclaimed quantity was consumed, dropped,
+        // transformed, or otherwise moved and must never be recreated to satisfy the old limit.
+        clearPendingReclaim();
+
+        if (reclaimed > 0) {
+            GLog.i("Returned " + reclaimed + " " + template.name() + " to Loot storage.");
             sortStored();
             changed();
             Item.updateQuickslot();
@@ -252,9 +236,10 @@ public class ModLootStorage implements Bundlable {
     }
 
     /**
-     * Temporarily lends the entire selected item/stack to normal belongings and executes its
-     * default action. Stackable items intentionally use normal collect()/merge behavior so a lent
-     * stack can merge with an existing stack. The recorded quantity is only a later reclaim cap.
+     * Temporarily moves the entire selected item/stack into normal belongings and executes its
+     * default action. Stackable items intentionally use normal collect()/merge behavior. If every
+     * bag is full and no merge target exists, force-add keeps the item alive instead of allowing a
+     * failed collect to strand or lose it. The recorded quantity is only a later reclaim cap.
      */
     public boolean useItem(Hero hero, Item item) {
         if (hero == null || item == null || !stored.contains(item)) {
@@ -266,18 +251,24 @@ public class ModLootStorage implements Bundlable {
             return true;
         }
 
-        int reclaimLimit = item.quantity();
+        // UI normally guarantees this is empty, but preserve the single-session invariant if this
+        // method is ever called directly by another path.
+        if (hasPendingReclaim()) {
+            reclaimPending(hero);
+        }
+
+        int limit = item.quantity();
         Item template = item.duplicate();
-        if (template == null || reclaimLimit <= 0) {
+        if (template == null || limit <= 0) {
             return false;
         }
 
+        // Record the descriptor before collect(), because a successful merge zeroes the source
+        // item's quantity and may make its object identity disappear from belongings.
+        reclaimTemplate = template;
+        reclaimLimit = limit;
         stored.remove(item);
-        lent.add(new LentRecord(template, item, reclaimLimit));
 
-        // Use the normal collection path first so stackable items merge exactly as ordinary SPD
-        // inventory items do. A completely full inventory with no valid merge target must still
-        // not lose the lent stack, so preserve the existing force-add fallback.
         if (!item.collect(hero.belongings.backpack)) {
             hero.belongings.backpack.items.add(item);
         }
@@ -290,6 +281,9 @@ public class ModLootStorage implements Bundlable {
             target = hero.belongings.getSimilar(template);
         }
         if (target == null) {
+            // Quantity still exists in belongings/world state; abandoning the reclaim descriptor is
+            // safer than inventing or deleting anything in an unexpected inventory configuration.
+            clearPendingReclaim();
             return false;
         }
 
@@ -354,6 +348,10 @@ public class ModLootStorage implements Bundlable {
     @Override
     public void storeInBundle(Bundle bundle) {
         bundle.put(STORED, stored);
+        if (hasPendingReclaim()) {
+            bundle.put(RECLAIM_TEMPLATE, reclaimTemplate);
+            bundle.put(RECLAIM_LIMIT, reclaimLimit);
+        }
     }
 
     @Override
@@ -362,7 +360,17 @@ public class ModLootStorage implements Bundlable {
         for (Bundlable b : bundle.getCollection(STORED)) {
             stored.add((Item) b);
         }
-        lent.clear();
+
+        clearPendingReclaim();
+        Object template = bundle.get(RECLAIM_TEMPLATE);
+        if (template instanceof Item) {
+            int limit = bundle.getInt(RECLAIM_LIMIT);
+            if (limit > 0) {
+                reclaimTemplate = (Item) template;
+                reclaimLimit = limit;
+            }
+        }
+
         sortStored();
         changed();
     }
