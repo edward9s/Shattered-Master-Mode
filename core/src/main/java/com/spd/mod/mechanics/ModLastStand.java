@@ -3,6 +3,7 @@ package com.spd.mod.mechanics;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ShieldBuff;
+import com.shatteredpixel.shatteredpixeldungeon.effects.Flare;
 import com.shatteredpixel.shatteredpixeldungeon.effects.FloatingText;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHealing;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
@@ -74,6 +75,10 @@ public class ModLastStand extends Buff {
         // Match blessed Ankh cleansing, but intentionally omit its temporary
         // Invulnerability buff. Hunger is not reset by PotionOfHealing.cure().
         PotionOfHealing.cure(target);
+
+        if (target.sprite != null) {
+            new Flare(8, 32).color(0xFFFF66, true).show(target.sprite, 2f);
+        }
 
         if (healed > 0 && target.sprite != null) {
             target.sprite.showStatusWithIcon(
