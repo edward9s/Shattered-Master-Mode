@@ -223,7 +223,7 @@ public class WndModLoot extends Window {
 
     private void onSelect(Item item) {
         if (mode == Mode.TAKE) {
-            storage.takeSingle(Dungeon.hero, item);
+            storage.takeItem(Dungeon.hero, item);
             rebuild(rememberedScrollY());
             return;
         }
@@ -235,7 +235,7 @@ public class WndModLoot extends Window {
         }
 
         hide();
-        storage.useSingle(hero, item);
+        storage.useItem(hero, item);
     }
 
     @Override
