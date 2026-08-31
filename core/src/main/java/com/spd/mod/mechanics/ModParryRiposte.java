@@ -8,6 +8,8 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Combo;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
+import com.shatteredpixel.shatteredpixeldungeon.items.KindOfWeapon;
+import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
 import com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.Sai;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.ModTotalInfoOverlay;
@@ -106,8 +108,8 @@ public class ModParryRiposte extends ChampionEnemy {
     public String desc() {
         if (riposteEnabled) {
             return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
-                    + "Riposte is ON: every attack parried by Total Parry immediately triggers a guaranteed normal "
-                    + "counterattack, regardless of distance. Use the button below to turn riposte off.";
+                    + "Riposte is ON: every attack parried by Total Parry immediately triggers a guaranteed-hit "
+                    + "counterattack, regardless of distance, attempted as a surprise attack. Use the button below to turn riposte off.";
         } else {
             return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
                     + "Riposte is OFF, so the buff only parries. Use the button below to turn riposte on.";
@@ -180,12 +182,38 @@ public class ModParryRiposte extends ChampionEnemy {
                 && attacker.isAlive()) {
             // Intentionally no canAttack/range check. Total Riposte must always
             // be able to answer an attack that Total Parry intercepted.
-            boolean hit = riposter.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
+            boolean hit;
+            Hero hero = riposter instanceof Hero ? (Hero) riposter : null;
+
+            if (hero != null) {
+                int originalInvisible = hero.invisible;
+                int originalStrength = hero.STR;
+                KindOfWeapon attackingWeapon = hero.belongings.attackingWeapon();
+
+                try {
+                    // Mirror ModAssassin: make the riposte qualify for the normal
+                    // surprise-attack path without bypassing weapon-specific rules
+                    // such as Flail's "cannot surprise attack" restriction.
+                    hero.invisible = 1;
+                    if (attackingWeapon instanceof Weapon) {
+                        int strengthShortfall = ((Weapon) attackingWeapon).STRReq() - hero.STR();
+                        if (strengthShortfall > 0) {
+                            hero.STR += strengthShortfall;
+                        }
+                    }
+
+                    hit = hero.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
+                } finally {
+                    hero.invisible = originalInvisible;
+                    hero.STR = originalStrength;
+                }
+            } else {
+                hit = riposter.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
+            }
 
             // Direct Char.attack() calls bypass Hero.onAttackComplete(), so mirror
             // the hit counters that normal hero attacks update there.
-            if (hit && riposter instanceof Hero) {
-                Hero hero = (Hero) riposter;
+            if (hit && hero != null) {
                 if (hero.subClass == HeroSubClass.GLADIATOR) {
                     Buff.affect(hero, Combo.class).hit(attacker);
                 }
