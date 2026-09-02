@@ -33,6 +33,7 @@ public class ModParryRiposte extends ChampionEnemy {
         announced = true;
         revivePersists = true;
         actPriority = VFX_PRIO;
+        color = 0xFFFFFF;
     }
 
     public boolean riposteEnabled() {
