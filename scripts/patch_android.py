@@ -85,11 +85,12 @@ def patch_proguard(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         data = f.read()
 
-    marker = 'com.spd.mod.debug.**'
+    marker = 'com.spd.mod.mechanics.ModDebug'
     if marker not in data:
         data = data.rstrip() + (
             '\n\n# Keep SMM debug console stable for binary injection\n'
-            '-keep class com.spd.mod.debug.** { *; }\n'
+            '-keep class com.spd.mod.mechanics.ModDebug { *; }\n'
+            '-keep class com.spd.mod.mechanics.ModDebug$* { *; }\n'
         )
 
     with open(file_path, 'w', encoding='utf-8') as f:

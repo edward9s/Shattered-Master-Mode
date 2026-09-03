@@ -1,4 +1,4 @@
-package com.spd.mod.debug;
+package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;

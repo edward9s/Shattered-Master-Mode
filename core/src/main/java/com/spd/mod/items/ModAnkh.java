@@ -1,6 +1,6 @@
 package com.spd.mod.items;
 
-import com.spd.mod.debug.ModDebug;
+import com.spd.mod.mechanics.ModDebug;
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;

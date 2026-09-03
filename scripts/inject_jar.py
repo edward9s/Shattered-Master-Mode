@@ -6,7 +6,7 @@ Usage:
 
 The source JAR is a compiled SMM desktop JAR containing ModAnkh.class.
 The target JAR remains the base. The injector:
-  * copies ModAnkh plus the controlled com/spd/mod/debug/ payload from the donor;
+  * copies ModAnkh plus the controlled ModDebug payload from the donor;
   * adapts Item.setCurrent(Hero) when the target exposes the older
     curUser/curItem fields instead;
   * validates ModAnkh's executable SPD API references against the target JAR;
@@ -33,8 +33,8 @@ from pathlib import Path
 from typing import Sequence
 
 MOD_ANKH_ENTRY = "com/spd/mod/items/ModAnkh.class"
-MOD_DEBUG_PREFIX = "com/spd/mod/debug/"
-MOD_DEBUG_ENTRY = "com/spd/mod/debug/ModDebug.class"
+MOD_DEBUG_PREFIX = "com/spd/mod/mechanics/ModDebug"
+MOD_DEBUG_ENTRY = "com/spd/mod/mechanics/ModDebug.class"
 DUNGEON_ENTRY = "com/shatteredpixel/shatteredpixeldungeon/Dungeon.class"
 CLASS_MAGIC = b"\xca\xfe\xba\xbe"
 
@@ -147,7 +147,7 @@ def rebuild_jar(
     if not modankh_bytes.startswith(CLASS_MAGIC):
         raise InjectError("Patched ModAnkh.class is invalid")
     if MOD_DEBUG_ENTRY not in debug_payload:
-        raise InjectError("Donor JAR is missing com.spd.mod.debug.ModDebug")
+        raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModDebug")
     for name, data in debug_payload.items():
         if not data.startswith(CLASS_MAGIC):
             raise InjectError(f"Invalid debug payload class: {name}")
