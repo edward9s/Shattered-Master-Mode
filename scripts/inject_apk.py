@@ -590,6 +590,94 @@ def modankh_compatibility_errors(
     return sorted(errors)
 
 
+
+def debug_payload_compatibility_errors(
+    payload: dict[str, SmaliClass],
+    target_index: dict[str, SmaliClass],
+) -> list[str]:
+    """Reject donor-only synthetic/helper references in the debug payload."""
+
+    errors: set[str] = set()
+    combined = dict(target_index)
+    combined.update(payload)
+    safe_target_prefixes = (
+        "Lcom/shatteredpixel/",
+        "Lcom/watabou/",
+    ) + JAVA_FRAMEWORK_PREFIXES
+
+    for descriptor, item in payload.items():
+        deps: list[str] = []
+        if item.superclass:
+            deps.append(item.superclass)
+        deps.extend(item.interfaces)
+        deps.extend(TYPE_INSN_RE.findall(item.text))
+
+        for dep in deps:
+            if dep in payload or dep.startswith(JAVA_FRAMEWORK_PREFIXES):
+                continue
+            if not dep.startswith(safe_target_prefixes):
+                errors.add(
+                    f"{descriptor}: unsafe donor-only/R8 type {dep}"
+                )
+            elif dep not in target_index:
+                errors.add(
+                    f"{descriptor}: missing target type {dep}"
+                )
+
+        for _, owner, name, proto in METHOD_INSN_RE.findall(item.text):
+            if owner in payload or owner.startswith(JAVA_FRAMEWORK_PREFIXES):
+                continue
+            if not owner.startswith(safe_target_prefixes):
+                errors.add(
+                    f"{descriptor}: unsafe donor-only/R8 method "
+                    f"{owner}->{name}{proto}"
+                )
+                continue
+            if owner not in target_index:
+                errors.add(
+                    f"{descriptor}: missing method owner "
+                    f"{owner}->{name}{proto}"
+                )
+                continue
+            if not resolve_member(
+                combined,
+                owner,
+                (name, proto),
+                method=True,
+            ):
+                errors.add(
+                    f"{descriptor}: missing target method "
+                    f"{owner}->{name}{proto}"
+                )
+
+        for _, owner, name, typ in FIELD_INSN_RE.findall(item.text):
+            if owner in payload or owner.startswith(JAVA_FRAMEWORK_PREFIXES):
+                continue
+            if not owner.startswith(safe_target_prefixes):
+                errors.add(
+                    f"{descriptor}: unsafe donor-only/R8 field "
+                    f"{owner}->{name}:{typ}"
+                )
+                continue
+            if owner not in target_index:
+                errors.add(
+                    f"{descriptor}: missing field owner "
+                    f"{owner}->{name}:{typ}"
+                )
+                continue
+            if not resolve_member(
+                combined,
+                owner,
+                (name, typ),
+                method=False,
+            ):
+                errors.add(
+                    f"{descriptor}: missing target field "
+                    f"{owner}->{name}:{typ}"
+                )
+
+    return sorted(errors)
+
 def method_block(
     text: str,
     method_name: str,
@@ -965,6 +1053,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         mod_text, notes = adapt_modankh(mod_text, target_index)
         for note in notes:
             log("  " + note)
+
+        debug_errors = debug_payload_compatibility_errors(
+            debug_payload,
+            target_index,
+        )
+        if debug_errors:
+            log("Debug payload compatibility errors:")
+            for e in debug_errors:
+                log("  - " + e)
+            raise InjectError(
+                "Donor debug payload is not self-contained for this target. "
+                "Rebuild the SMM donor from current source before injecting."
+            )
+        log("Debug payload target API check: OK")
 
         compatibility_index = dict(target_index)
         compatibility_index.update(debug_payload)
