@@ -57,7 +57,7 @@ public final class ModDebug {
     public static void open() {
         GameScene.show(new WndTextInput(
                 "Debug command",
-                "help | give | spawn | affect | inspect | use | save | load",
+                "help | give | spawn | affect | inspect | use | search | results | get | set | clear | save | load",
                 "",
                 200,
                 false,
@@ -119,6 +119,21 @@ public final class ModDebug {
             case "use":
                 use(args);
                 break;
+            case "search":
+                ModValueSearch.search(args);
+                break;
+            case "results":
+                ModValueSearch.results(args);
+                break;
+            case "get":
+                ModValueSearch.get(args);
+                break;
+            case "set":
+                ModValueSearch.set(args);
+                break;
+            case "clear":
+                ModValueSearch.clear(args);
+                break;
             case "save":
                 save(args);
                 break;
@@ -139,6 +154,8 @@ public final class ModDebug {
                 + "affect <Buff> [duration]  (applies to hero)\n"
                 + "inspect <Class|hero|level>\n"
                 + "use <Class|hero|level> <method> [args...]\n"
+                + "search <number|changed|unchanged|increased|decreased>\n"
+                + "results [#id] | get #id | set #id <number> | clear\n"
                 + "save  (Android: export app save files to Download/<package>)\n"
                 + "load  (Android: import them, then restart the app)\n"
                 + "Class names may be simple (RingOfEnergy) or fully qualified.\n"

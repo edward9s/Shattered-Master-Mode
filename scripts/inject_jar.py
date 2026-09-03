@@ -35,6 +35,8 @@ from typing import Sequence
 MOD_ANKH_ENTRY = "com/spd/mod/items/ModAnkh.class"
 MOD_DEBUG_PREFIX = "com/spd/mod/mechanics/ModDebug"
 MOD_DEBUG_ENTRY = "com/spd/mod/mechanics/ModDebug.class"
+MOD_VALUE_SEARCH_PREFIX = "com/spd/mod/mechanics/ModValueSearch"
+MOD_VALUE_SEARCH_ENTRY = "com/spd/mod/mechanics/ModValueSearch.class"
 DUNGEON_ENTRY = "com/shatteredpixel/shatteredpixeldungeon/Dungeon.class"
 CLASS_MAGIC = b"\xca\xfe\xba\xbe"
 
@@ -148,6 +150,8 @@ def rebuild_jar(
         raise InjectError("Patched ModAnkh.class is invalid")
     if MOD_DEBUG_ENTRY not in debug_payload:
         raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModDebug")
+    if MOD_VALUE_SEARCH_ENTRY not in debug_payload:
+        raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModValueSearch")
     for name, data in debug_payload.items():
         if not data.startswith(CLASS_MAGIC):
             raise InjectError(f"Invalid debug payload class: {name}")
@@ -205,7 +209,7 @@ public class JarInjectorHelper {
     static final int API = Opcodes.ASM8;
 
     static final String MOD_ANKH = "com/spd/mod/items/ModAnkh";
-    static final String MOD_DEBUG_PREFIX = "com/spd/mod/debug/";
+    static final String MOD_DEBUG_PREFIX = "com/spd/mod/mechanics/ModDebug";
     static final String DUNGEON = "com/shatteredpixel/shatteredpixeldungeon/Dungeon";
     static final String HERO_CLASS = "com/shatteredpixel/shatteredpixeldungeon/actors/hero/HeroClass";
     static final String HERO = "com/shatteredpixel/shatteredpixeldungeon/actors/hero/Hero";
@@ -745,10 +749,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             donor_modankh.write_bytes(zf.read(MOD_ANKH_ENTRY))
             debug_names = sorted(
                 name for name in zf.namelist()
-                if name.startswith(MOD_DEBUG_PREFIX) and name.endswith(".class")
+                if (
+                    name == MOD_DEBUG_ENTRY
+                    or (
+                        name.startswith(MOD_DEBUG_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
+                    or name == MOD_VALUE_SEARCH_ENTRY
+                    or (
+                        name.startswith(MOD_VALUE_SEARCH_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
+                )
             )
             if MOD_DEBUG_ENTRY not in debug_names:
-                raise InjectError("Donor JAR is missing com.spd.mod.debug.ModDebug")
+                raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModDebug")
+            if MOD_VALUE_SEARCH_ENTRY not in debug_names:
+                raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModValueSearch")
             debug_payload = {
                 name: zf.read(name) for name in debug_names
             }
@@ -768,7 +785,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         validate_jar(
             unsigned_tmp,
-            [DUNGEON_ENTRY, MOD_ANKH_ENTRY, MOD_DEBUG_ENTRY],
+            [
+                DUNGEON_ENTRY,
+                MOD_ANKH_ENTRY,
+                MOD_DEBUG_ENTRY,
+                MOD_VALUE_SEARCH_ENTRY,
+            ],
         )
         shutil.copy2(unsigned_tmp, output)
 
