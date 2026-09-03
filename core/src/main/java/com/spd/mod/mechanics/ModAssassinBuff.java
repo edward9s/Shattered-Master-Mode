@@ -26,7 +26,7 @@ import com.watabou.utils.Signal;
 import java.lang.reflect.Field;
 
 /** Permanent Hero buff that exposes Mod Assassin through a map long press. */
-public class ModAssassinInstinct extends Buff {
+public class ModAssassinBuff extends Buff {
 
     private static LongPressLayer inputLayer;
     private static boolean installPending;
@@ -117,7 +117,7 @@ public class ModAssassinInstinct extends Buff {
                 installPending = false;
                 if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
                         || Dungeon.hero == null
-                        || Dungeon.hero.buff(ModAssassinInstinct.class) == null) {
+                        || Dungeon.hero.buff(ModAssassinBuff.class) == null) {
                     return;
                 }
 
@@ -293,7 +293,7 @@ public class ModAssassinInstinct extends Buff {
         private boolean activeForHero() {
             return ShatteredPixelDungeon.scene() instanceof GameScene
                     && Dungeon.hero != null
-                    && Dungeon.hero.buff(ModAssassinInstinct.class) != null;
+                    && Dungeon.hero.buff(ModAssassinBuff.class) != null;
         }
 
         private boolean movedTooFar() {

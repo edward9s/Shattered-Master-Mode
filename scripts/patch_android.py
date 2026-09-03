@@ -88,8 +88,8 @@ def patch_proguard(file_path):
     rules = (
         '-keep class com.spd.mod.mechanics.ModDebug { *; }',
         '-keep class com.spd.mod.mechanics.ModDebug$* { *; }',
-        '-keep class com.spd.mod.mechanics.ModAssassinInstinct { *; }',
-        '-keep class com.spd.mod.mechanics.ModAssassinInstinct$* { *; }',
+        '-keep class com.spd.mod.mechanics.ModAssassinBuff { *; }',
+        '-keep class com.spd.mod.mechanics.ModAssassinBuff$* { *; }',
     )
     missing = [rule for rule in rules if rule not in data]
     if missing:
