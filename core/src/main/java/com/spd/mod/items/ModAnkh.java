@@ -1,10 +1,8 @@
 package com.spd.mod.items;
 
-import com.spd.mod.mechanics.ModAssassinBuff;
 import com.spd.mod.mechanics.ModDebug;
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.effects.CellEmitter;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Speck;
@@ -23,6 +21,7 @@ import java.util.ArrayList;
 public class ModAnkh extends Ankh {
 
     public static final String AC_UNBLESS = "UNBLESS";
+    public static final String AC_BUFF = "BUFF";
     public static final String AC_CONSOLE = "CONSOLE";
 
     // Times revived via blessed ankh (kept inventory, instant revive).
@@ -41,43 +40,6 @@ public class ModAnkh extends Ankh {
     @Override
     public boolean keptThroughLostInventory() {
         return true;
-    }
-
-    @Override
-    public boolean collect(Bag container) {
-        boolean collected = super.collect(container);
-        if (collected) {
-            ensureAssassinBuff();
-        }
-        return collected;
-    }
-
-    private void ensureAssassinBuff() {
-        Hero hero = Dungeon.hero;
-        if (hero != null
-                && hero.belongings != null
-                && hero.belongings.backpack != null
-                && hero.belongings.backpack.contains(this)
-                && hero.buff(ModAssassinBuff.class) == null) {
-            Buff.affect(hero, ModAssassinBuff.class);
-        }
-    }
-
-    private void syncAssassinBuffAfterDetach() {
-        Hero hero = Dungeon.hero;
-        if (hero == null) {
-            return;
-        }
-
-        boolean stillOwned = hero.belongings != null
-                && hero.belongings.backpack != null
-                && hero.belongings.backpack.contains(this);
-
-        if (stillOwned) {
-            ensureAssassinBuff();
-        } else {
-            Buff.detach(hero, ModAssassinBuff.class);
-        }
     }
 
     @Override
@@ -139,7 +101,6 @@ public class ModAnkh extends Ankh {
             }
         }
 
-        syncAssassinBuffAfterDetach();
     }
 
     @Override
@@ -158,6 +119,9 @@ public class ModAnkh extends Ankh {
             }
         }
 
+        if (!actions.contains(AC_BUFF)) {
+            actions.add(AC_BUFF);
+        }
         if (!actions.contains(AC_CONSOLE)) {
             actions.add(AC_CONSOLE);
         }
@@ -169,6 +133,8 @@ public class ModAnkh extends Ankh {
     public String actionName(String action, Hero hero) {
         if (AC_UNBLESS.equals(action)) {
             return "Unbless";
+        } else if (AC_BUFF.equals(action)) {
+            return "Buff";
         } else if (AC_CONSOLE.equals(action)) {
             return "Console";
         }
@@ -177,7 +143,10 @@ public class ModAnkh extends Ankh {
 
     @Override
     public void execute(Hero hero, String action) {
-        if (AC_CONSOLE.equals(action)) {
+        if (AC_BUFF.equals(action)) {
+            GameScene.cancel();
+            ModDebug.openBuffs();
+        } else if (AC_CONSOLE.equals(action)) {
             GameScene.cancel();
             ModDebug.open();
         } else if (AC_BLESS.equals(action)) {

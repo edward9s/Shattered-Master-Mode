@@ -45,6 +45,12 @@ MOD_ASSASSIN_PREFIX = "com/spd/mod/mechanics/ModAssassin"
 MOD_ASSASSIN_ENTRY = "com/spd/mod/mechanics/ModAssassin.class"
 MOD_FLASH_PREFIX = "com/spd/mod/mechanics/ModFlash"
 MOD_FLASH_ENTRY = "com/spd/mod/mechanics/ModFlash.class"
+MOD_PARRY_RIPOSTE_PREFIX = "com/spd/mod/mechanics/ModParryRiposte"
+MOD_PARRY_RIPOSTE_ENTRY = "com/spd/mod/mechanics/ModParryRiposte.class"
+MOD_TOTAL_INFO_OVERLAY_PREFIX = "com/spd/mod/journal/ModTotalInfoOverlay"
+MOD_TOTAL_INFO_OVERLAY_ENTRY = "com/spd/mod/journal/ModTotalInfoOverlay.class"
+WND_TOTAL_BUFF_INFO_PREFIX = "com/spd/mod/journal/WndTotalBuffInfo"
+WND_TOTAL_BUFF_INFO_ENTRY = "com/spd/mod/journal/WndTotalBuffInfo.class"
 DUNGEON_ENTRY = "com/shatteredpixel/shatteredpixeldungeon/Dungeon.class"
 CLASS_MAGIC = b"\xca\xfe\xba\xbe"
 
@@ -798,6 +804,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                         name.startswith(MOD_FLASH_PREFIX + "$")
                         and name.endswith(".class")
                     )
+                    or name == MOD_PARRY_RIPOSTE_ENTRY
+                    or (
+                        name.startswith(MOD_PARRY_RIPOSTE_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
+                    or name == MOD_TOTAL_INFO_OVERLAY_ENTRY
+                    or (
+                        name.startswith(MOD_TOTAL_INFO_OVERLAY_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
+                    or name == WND_TOTAL_BUFF_INFO_ENTRY
+                    or (
+                        name.startswith(WND_TOTAL_BUFF_INFO_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
                 )
             )
             if MOD_DEBUG_ENTRY not in debug_names:
@@ -812,6 +833,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModAssassin")
             if MOD_FLASH_ENTRY not in debug_names:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModFlash")
+            if MOD_PARRY_RIPOSTE_ENTRY not in debug_names:
+                raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModParryRiposte")
+            if MOD_TOTAL_INFO_OVERLAY_ENTRY not in debug_names:
+                raise InjectError("Donor JAR is missing com.spd.mod.journal.ModTotalInfoOverlay")
+            if WND_TOTAL_BUFF_INFO_ENTRY not in debug_names:
+                raise InjectError("Donor JAR is missing com.spd.mod.journal.WndTotalBuffInfo")
             debug_payload = {
                 name: zf.read(name) for name in debug_names
             }
@@ -840,6 +867,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_ASSASSIN_BUFF_ENTRY,
                 MOD_ASSASSIN_ENTRY,
                 MOD_FLASH_ENTRY,
+                MOD_PARRY_RIPOSTE_ENTRY,
+                MOD_TOTAL_INFO_OVERLAY_ENTRY,
+                WND_TOTAL_BUFF_INFO_ENTRY,
             ],
         )
         shutil.copy2(unsigned_tmp, output)
