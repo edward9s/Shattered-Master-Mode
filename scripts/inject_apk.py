@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
-"""Inject a small, verified set of SMM items into an SPD-derived APK.
+"""Inject only SMM's ModAnkh into an SPD-derived APK.
 
 Usage:
     python scripts/inject_apk.py <source-smm.apk> <target.apk> [--out output.apk]
 
-Injected at new-game start:
-  * ModAnkh
-  * ModScrollOfBlast
-  * ModScrollOfSight
-
 Scope is intentionally narrow:
-  * copies only the three item classes above;
+  * copies only Lcom/spd/mod/items/ModAnkh;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * leaves AndroidManifest.xml and all resources untouched;
-  * builds one tiny first-dex overlay containing patched Dungeon + the items;
+  * builds one tiny first-dex overlay containing patched Dungeon + ModAnkh;
   * preserves every original target DEX byte-for-byte and shifts them back one slot;
-  * removes only verified empty donor marker interfaces (ModReusable after R8);
-  * validates each item's executable target API references before packaging.
+  * validates ModAnkh's executable target API references before packaging.
 
 The output keeps the target package name. Because it is re-signed, an installed
 copy of the original target normally must be uninstalled first unless the same
@@ -52,10 +46,6 @@ APKTOOL_SHA256 = "dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f94
 SMALI_VERSION = "3.0.9"
 
 MOD_ANKH = "Lcom/spd/mod/items/ModAnkh;"
-MOD_SCROLL_BLAST = "Lcom/spd/mod/items/ModScrollOfBlast;"
-MOD_SCROLL_SIGHT = "Lcom/spd/mod/items/ModScrollOfSight;"
-INJECTED_ITEMS = (MOD_ANKH, MOD_SCROLL_BLAST, MOD_SCROLL_SIGHT)
-
 DUNGEON = "Lcom/shatteredpixel/shatteredpixeldungeon/Dungeon;"
 HERO_CLASS = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/HeroClass;"
 HERO = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/Hero;"
@@ -132,7 +122,7 @@ def sha256(path: Path) -> str:
 def download(url: str, destination: Path, expected_sha256: str | None = None) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     part = destination.with_suffix(destination.suffix + ".part")
-    req = urllib.request.Request(url, headers={"User-Agent": "SMM-Items-Injector/1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "SMM-ModAnkh-Injector/1"})
     log(f"Downloading {url}")
     try:
         with urllib.request.urlopen(req, timeout=90) as response, part.open("wb") as out:
@@ -151,7 +141,7 @@ def download(url: str, destination: Path, expected_sha256: str | None = None) ->
 
 
 def read_json(url: str) -> object:
-    req = urllib.request.Request(url, headers={"User-Agent": "SMM-Items-Injector/1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "SMM-ModAnkh-Injector/1"})
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
             return json.load(response)
@@ -343,7 +333,7 @@ class Toolchain:
         step("Downloading Android build-tools")
         req = urllib.request.Request(
             "https://dl.google.com/android/repository/repository2-1.xml",
-            headers={"User-Agent": "SMM-Items-Injector/1"},
+            headers={"User-Agent": "SMM-ModAnkh-Injector/1"},
         )
         try:
             with urllib.request.urlopen(req, timeout=60) as response:
@@ -561,42 +551,7 @@ def adapt_modankh(
     return text2, notes
 
 
-def is_empty_donor_marker_interface(
-    descriptor: str,
-    donor_index: dict[str, SmaliClass],
-) -> bool:
-    item = donor_index.get(descriptor)
-    if item is None or item.methods:
-        return False
-    class_line = next(
-        (line for line in item.text.splitlines() if line.startswith(".class ")),
-        "",
-    )
-    return bool(re.search(r"\binterface\b", class_line))
-
-
-def strip_empty_donor_marker_interfaces(
-    text: str,
-    donor_index: dict[str, SmaliClass],
-) -> tuple[str, list[str]]:
-    removed: list[str] = []
-    for descriptor in IMPLEMENTS_RE.findall(text):
-        if not is_empty_donor_marker_interface(descriptor, donor_index):
-            continue
-        pattern = re.compile(
-            r"(?m)^\.implements\s+" + re.escape(descriptor) + r"\s*\n?"
-        )
-        text, count = pattern.subn("", text)
-        if count != 1:
-            raise InjectError(
-                f"Expected one .implements line for marker {descriptor}, found {count}"
-            )
-        removed.append(descriptor)
-    return text, removed
-
-
-def class_compatibility_errors(
-    descriptor: str,
+def modankh_compatibility_errors(
     text: str,
     target_index: dict[str, SmaliClass],
 ) -> list[str]:
@@ -606,20 +561,14 @@ def class_compatibility_errors(
     if not sm or sm.group(1) not in target_index:
         errors.add(f"missing superclass: {sm.group(1) if sm else '<none>'}")
 
-    for interface in IMPLEMENTS_RE.findall(text):
-        if interface.startswith(JAVA_FRAMEWORK_PREFIXES):
-            continue
-        if interface not in target_index:
-            errors.add(f"missing interface: {interface}")
-
     for dep in TYPE_INSN_RE.findall(text):
-        if dep == descriptor or dep.startswith(JAVA_FRAMEWORK_PREFIXES):
+        if dep == MOD_ANKH or dep.startswith(JAVA_FRAMEWORK_PREFIXES):
             continue
         if dep not in target_index:
             errors.add(f"missing executable type: {dep}")
 
     for _, owner, name, proto in METHOD_INSN_RE.findall(text):
-        if owner == descriptor or owner.startswith(JAVA_FRAMEWORK_PREFIXES):
+        if owner == MOD_ANKH or owner.startswith(JAVA_FRAMEWORK_PREFIXES):
             continue
         if owner not in target_index:
             errors.add(f"missing method owner: {owner}->{name}{proto}")
@@ -628,7 +577,7 @@ def class_compatibility_errors(
             errors.add(f"missing method: {owner}->{name}{proto}")
 
     for _, owner, name, typ in FIELD_INSN_RE.findall(text):
-        if owner == descriptor or owner.startswith(JAVA_FRAMEWORK_PREFIXES):
+        if owner == MOD_ANKH or owner.startswith(JAVA_FRAMEWORK_PREFIXES):
             continue
         if owner not in target_index:
             errors.add(f"missing field owner: {owner}->{name}:{typ}")
@@ -694,13 +643,10 @@ def allocate_local(block: str) -> tuple[str, str]:
     raise InjectError("Dungeon.init() has neither .locals nor .registers")
 
 
-def patch_dungeon(text: str, item_descriptors: Sequence[str]) -> str:
+def patch_dungeon(text: str) -> str:
     start, end, block = method_block(text, "init", "()V", require_static=True)
-    already = [descriptor for descriptor in item_descriptors if descriptor in block]
-    if already:
-        raise InjectError(
-            "Dungeon.init() already contains injected item(s): " + ", ".join(already)
-        )
+    if MOD_ANKH in block:
+        raise InjectError("Dungeon.init() already contains ModAnkh injection")
 
     block, reg = allocate_local(block)
     anchor_re = re.compile(
@@ -719,14 +665,13 @@ def patch_dungeon(text: str, item_descriptors: Sequence[str]) -> str:
 
     m = matches[0]
     indent = re.match(r"\s*", m.group("line")).group(0)
-    lines = ["", f"{indent}# SMM injected starting items"]
-    for descriptor in item_descriptors:
-        lines.extend([
-            f"{indent}new-instance {reg}, {descriptor}",
-            f"{indent}invoke-direct {{{reg}}}, {descriptor}-><init>()V",
-            f"{indent}invoke-virtual {{{reg}}}, {descriptor}->collect()Z",
-        ])
-    injected = "\n".join(lines)
+    injected = (
+        "\n"
+        f"{indent}# SMM ModAnkh injection\n"
+        f"{indent}new-instance {reg}, {MOD_ANKH}\n"
+        f"{indent}invoke-direct {{{reg}}}, {MOD_ANKH}-><init>()V\n"
+        f"{indent}invoke-virtual {{{reg}}}, {MOD_ANKH}->collect()Z"
+    )
     block = block[:m.end()] + injected + block[m.end():]
     return text[:start] + block + text[end:]
 
@@ -851,7 +796,7 @@ def rebuild_apk(
 
 
 def ensure_debug_keystore(java: JavaTools, cache: Path) -> Path:
-    ks = cache / "smm-items-debug.keystore"
+    ks = cache / "modankh-debug.keystore"
     if ks.is_file():
         return ks
     step("Creating debug signing key")
@@ -874,7 +819,7 @@ def ensure_debug_keystore(java: JavaTools, cache: Path) -> Path:
         "-validity",
         "10000",
         "-dname",
-        "CN=SMM Items Injector,O=Android,C=US",
+        "CN=SMM ModAnkh Injector,O=Android,C=US",
     ])
     return ks
 
@@ -913,17 +858,17 @@ def sign_apk(
 
 def output_path(target: Path) -> Path:
     return target.with_name(
-        target.stem + "-SMMItems" + (target.suffix or ".apk")
+        target.stem + "-ModAnkh" + (target.suffix or ".apk")
     )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Inject ModAnkh, Scroll of Blast, and Scroll of Sight into an SPD-derived APK"
+        description="Inject only SMM ModAnkh into an SPD-derived APK"
     )
-    p.add_argument("source_apk", help="SMM donor APK containing the three items")
+    p.add_argument("source_apk", help="SMM donor APK containing ModAnkh")
     p.add_argument("target_apk", help="SPD-derived target APK")
-    p.add_argument("--out", help="output APK (default: <target>-SMMItems.apk)")
+    p.add_argument("--out", help="output APK (default: <target>-ModAnkh.apk)")
     p.add_argument("--cache", default=str(DEFAULT_CACHE))
     p.add_argument("--offline", action="store_true")
     p.add_argument("--keep-work", action="store_true")
@@ -962,10 +907,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     android_tools = tc.ensure_android_tools()
 
     if args.keep_work:
-        work = Path(tempfile.mkdtemp(prefix="smm-items-inject-"))
+        work = Path(tempfile.mkdtemp(prefix="modankh-inject-"))
         cleanup = False
     else:
-        temp = tempfile.TemporaryDirectory(prefix="smm-items-inject-")
+        temp = tempfile.TemporaryDirectory(prefix="modankh-inject-")
         work = Path(temp.name)
         cleanup = True
 
@@ -993,62 +938,36 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         target_index = index_smali(tgt)
-        donor_index = index_smali(donor)
+        _, donor_ankh = find_class(donor, MOD_ANKH)
         dungeon_dir, dungeon_path = find_class(tgt, DUNGEON)
         log(f"Dungeon source dex: {smali_dir_dex_name(dungeon_dir)}")
 
-        step("Adapting and validating injected items against target API")
-        item_texts: dict[str, str] = {}
+        step("Adapting and validating ModAnkh against target API")
+        mod_text = donor_ankh.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+        mod_text, notes = adapt_modankh(mod_text, target_index)
+        for note in notes:
+            log("  " + note)
 
-        for descriptor in INJECTED_ITEMS:
-            _, donor_item = find_class(donor, descriptor)
-            item_text = donor_item.read_text(
-                encoding="utf-8",
-                errors="replace",
+        errors = modankh_compatibility_errors(mod_text, target_index)
+        if errors:
+            log("ModAnkh compatibility errors:")
+            for e in errors:
+                log("  - " + e)
+            raise InjectError(
+                f"Target is incompatible with ModAnkh "
+                f"({len(errors)} unresolved executable reference(s))"
             )
+        log("ModAnkh target API check: OK")
 
-            if descriptor == MOD_ANKH:
-                item_text, notes = adapt_modankh(item_text, target_index)
-                for note in notes:
-                    log(f"  ModAnkh: {note}")
-            else:
-                item_text, removed_markers = strip_empty_donor_marker_interfaces(
-                    item_text,
-                    donor_index,
-                )
-                if len(removed_markers) != 1:
-                    raise InjectError(
-                        f"{descriptor} expected exactly one empty donor marker "
-                        f"interface, removed {len(removed_markers)}"
-                    )
-                log(
-                    f"  {descriptor}: removed donor-only marker "
-                    + ", ".join(removed_markers)
-                )
-
-            errors = class_compatibility_errors(
-                descriptor,
-                item_text,
-                target_index,
-            )
-            if errors:
-                log(f"Compatibility errors for {descriptor}:")
-                for error in errors:
-                    log("  - " + error)
-                raise InjectError(
-                    f"Target is incompatible with {descriptor} "
-                    f"({len(errors)} unresolved executable reference(s))"
-                )
-
-            log(f"  {descriptor}: target API check OK")
-            item_texts[descriptor] = item_text
-
-        step("Building first-dex overlay: patched Dungeon + 3 items")
+        step("Building first-dex overlay: patched Dungeon + ModAnkh")
         original_dungeon = dungeon_path.read_text(
             encoding="utf-8",
             errors="replace",
         )
-        patched_dungeon = patch_dungeon(original_dungeon, INJECTED_ITEMS)
+        patched_dungeon = patch_dungeon(original_dungeon)
 
         overlay_root = work / "overlay-smali"
 
@@ -1059,13 +978,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             encoding="utf-8",
         )
 
-        for descriptor, item_text in item_texts.items():
-            overlay_item = overlay_root / Path(descriptor[1:-1] + ".smali")
-            overlay_item.parent.mkdir(parents=True, exist_ok=True)
-            overlay_item.write_text(
-                item_text,
-                encoding="utf-8",
-            )
+        overlay_ankh = overlay_root / Path(MOD_ANKH[1:-1] + ".smali")
+        overlay_ankh.parent.mkdir(parents=True, exist_ok=True)
+        overlay_ankh.write_text(
+            mod_text,
+            encoding="utf-8",
+        )
 
         overlay_dex = work / "overlay.dex"
         compile_smali(
