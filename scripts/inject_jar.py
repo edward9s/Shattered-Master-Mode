@@ -39,18 +39,6 @@ MOD_VALUE_SEARCH_PREFIX = "com/spd/mod/mechanics/ModValueSearch"
 MOD_VALUE_SEARCH_ENTRY = "com/spd/mod/mechanics/ModValueSearch.class"
 MOD_SAVE_TRANSFER_PREFIX = "com/spd/mod/mechanics/ModSaveTransfer"
 MOD_SAVE_TRANSFER_ENTRY = "com/spd/mod/mechanics/ModSaveTransfer.class"
-MOD_ASSASSIN_BUFF_PREFIX = "com/spd/mod/mechanics/ModAssassinBuff"
-MOD_ASSASSIN_BUFF_ENTRY = "com/spd/mod/mechanics/ModAssassinBuff.class"
-MOD_ASSASSIN_PREFIX = "com/spd/mod/mechanics/ModAssassin"
-MOD_ASSASSIN_ENTRY = "com/spd/mod/mechanics/ModAssassin.class"
-MOD_FLASH_PREFIX = "com/spd/mod/mechanics/ModFlash"
-MOD_FLASH_ENTRY = "com/spd/mod/mechanics/ModFlash.class"
-MOD_PARRY_RIPOSTE_PREFIX = "com/spd/mod/mechanics/ModParryRiposte"
-MOD_PARRY_RIPOSTE_ENTRY = "com/spd/mod/mechanics/ModParryRiposte.class"
-MOD_TOTAL_INFO_OVERLAY_PREFIX = "com/spd/mod/journal/ModTotalInfoOverlay"
-MOD_TOTAL_INFO_OVERLAY_ENTRY = "com/spd/mod/journal/ModTotalInfoOverlay.class"
-WND_TOTAL_BUFF_INFO_PREFIX = "com/spd/mod/journal/WndTotalBuffInfo"
-WND_TOTAL_BUFF_INFO_ENTRY = "com/spd/mod/journal/WndTotalBuffInfo.class"
 DUNGEON_ENTRY = "com/shatteredpixel/shatteredpixeldungeon/Dungeon.class"
 CLASS_MAGIC = b"\xca\xfe\xba\xbe"
 
@@ -224,9 +212,6 @@ public class JarInjectorHelper {
 
     static final String MOD_ANKH = "com/spd/mod/items/ModAnkh";
     static final String MOD_DEBUG_PREFIX = "com/spd/mod/mechanics/ModDebug";
-    static final String MOD_ASSASSIN_BUFF_PREFIX = "com/spd/mod/mechanics/ModAssassinBuff";
-    static final String MOD_ASSASSIN_PREFIX = "com/spd/mod/mechanics/ModAssassin";
-    static final String MOD_FLASH_PREFIX = "com/spd/mod/mechanics/ModFlash";
     static final String DUNGEON = "com/shatteredpixel/shatteredpixeldungeon/Dungeon";
     static final String HERO_CLASS = "com/shatteredpixel/shatteredpixeldungeon/actors/hero/HeroClass";
     static final String HERO = "com/shatteredpixel/shatteredpixeldungeon/actors/hero/Hero";
@@ -265,13 +250,6 @@ public class JarInjectorHelper {
         return name.startsWith("java/") || name.startsWith("javax/")
                 || name.startsWith("jdk/") || name.startsWith("sun/")
                 || name.startsWith("org/w3c/") || name.startsWith("org/xml/");
-    }
-
-    static boolean isInjectedPayload(String name) {
-        return name.startsWith(MOD_DEBUG_PREFIX)
-                || name.startsWith(MOD_ASSASSIN_BUFF_PREFIX)
-                || name.startsWith(MOD_ASSASSIN_PREFIX)
-                || name.startsWith(MOD_FLASH_PREFIX);
     }
 
     static String packageName(String name) {
@@ -467,7 +445,7 @@ public class JarInjectorHelper {
 
     static void checkClass(String name, String context) {
         if (name == null || name.equals(MOD_ANKH)
-                || isInjectedPayload(name) || isJdk(name)) return;
+                || name.startsWith(MOD_DEBUG_PREFIX) || isJdk(name)) return;
         ClassInfo info = classes.get(name);
         if (info == null) {
             errors.add(context + ": missing class " + name);
@@ -528,7 +506,7 @@ public class JarInjectorHelper {
                     public void visitFieldInsn(int opcode, String owner, String name, String desc) {
                         checkClass(owner, methodName + ": field owner");
                         checkDescriptor(desc, methodName + ": field descriptor");
-                        if (isJdk(owner) || isInjectedPayload(owner)) return;
+                        if (isJdk(owner) || owner.startsWith(MOD_DEBUG_PREFIX)) return;
                         MemberInfo member = resolveField(owner, name, desc);
                         if (member == null) {
                             errors.add(methodName + ": missing field " + owner + "." + name + ":" + desc);
@@ -549,7 +527,7 @@ public class JarInjectorHelper {
                                                 String desc, boolean isInterface) {
                         checkClass(owner, methodName + ": method owner");
                         checkDescriptor(desc, methodName + ": method descriptor");
-                        if (isJdk(owner) || isInjectedPayload(owner)) return;
+                        if (isJdk(owner) || owner.startsWith(MOD_DEBUG_PREFIX)) return;
                         MemberInfo member = resolveMethod(owner, name, desc);
                         if (member == null) {
                             errors.add(methodName + ": missing method " + owner + "." + name + desc);
@@ -789,36 +767,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                         name.startswith(MOD_SAVE_TRANSFER_PREFIX + "$")
                         and name.endswith(".class")
                     )
-                    or name == MOD_ASSASSIN_BUFF_ENTRY
-                    or (
-                        name.startswith(MOD_ASSASSIN_BUFF_PREFIX + "$")
-                        and name.endswith(".class")
-                    )
-                    or name == MOD_ASSASSIN_ENTRY
-                    or (
-                        name.startswith(MOD_ASSASSIN_PREFIX + "$")
-                        and name.endswith(".class")
-                    )
-                    or name == MOD_FLASH_ENTRY
-                    or (
-                        name.startswith(MOD_FLASH_PREFIX + "$")
-                        and name.endswith(".class")
-                    )
-                    or name == MOD_PARRY_RIPOSTE_ENTRY
-                    or (
-                        name.startswith(MOD_PARRY_RIPOSTE_PREFIX + "$")
-                        and name.endswith(".class")
-                    )
-                    or name == MOD_TOTAL_INFO_OVERLAY_ENTRY
-                    or (
-                        name.startswith(MOD_TOTAL_INFO_OVERLAY_PREFIX + "$")
-                        and name.endswith(".class")
-                    )
-                    or name == WND_TOTAL_BUFF_INFO_ENTRY
-                    or (
-                        name.startswith(WND_TOTAL_BUFF_INFO_PREFIX + "$")
-                        and name.endswith(".class")
-                    )
                 )
             )
             if MOD_DEBUG_ENTRY not in debug_names:
@@ -827,18 +775,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModValueSearch")
             if MOD_SAVE_TRANSFER_ENTRY not in debug_names:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModSaveTransfer")
-            if MOD_ASSASSIN_BUFF_ENTRY not in debug_names:
-                raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModAssassinBuff")
-            if MOD_ASSASSIN_ENTRY not in debug_names:
-                raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModAssassin")
-            if MOD_FLASH_ENTRY not in debug_names:
-                raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModFlash")
-            if MOD_PARRY_RIPOSTE_ENTRY not in debug_names:
-                raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModParryRiposte")
-            if MOD_TOTAL_INFO_OVERLAY_ENTRY not in debug_names:
-                raise InjectError("Donor JAR is missing com.spd.mod.journal.ModTotalInfoOverlay")
-            if WND_TOTAL_BUFF_INFO_ENTRY not in debug_names:
-                raise InjectError("Donor JAR is missing com.spd.mod.journal.WndTotalBuffInfo")
             debug_payload = {
                 name: zf.read(name) for name in debug_names
             }
@@ -864,12 +800,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_DEBUG_ENTRY,
                 MOD_VALUE_SEARCH_ENTRY,
                 MOD_SAVE_TRANSFER_ENTRY,
-                MOD_ASSASSIN_BUFF_ENTRY,
-                MOD_ASSASSIN_ENTRY,
-                MOD_FLASH_ENTRY,
-                MOD_PARRY_RIPOSTE_ENTRY,
-                MOD_TOTAL_INFO_OVERLAY_ENTRY,
-                WND_TOTAL_BUFF_INFO_ENTRY,
             ],
         )
         shutil.copy2(unsigned_tmp, output)

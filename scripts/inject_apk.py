@@ -56,8 +56,6 @@ STORAGE_PERMISSIONS = (
 MOD_ANKH = "Lcom/spd/mod/items/ModAnkh;"
 MOD_DEBUG = "Lcom/spd/mod/mechanics/ModDebug;"
 MOD_DEBUG_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModDebug$"
-MOD_ASSASSIN_BUFF = "Lcom/spd/mod/mechanics/ModAssassinBuff;"
-MOD_ASSASSIN_BUFF_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModAssassinBuff$"
 DUNGEON = "Lcom/shatteredpixel/shatteredpixeldungeon/Dungeon;"
 HERO_CLASS = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/HeroClass;"
 HERO = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/Hero;"
@@ -614,8 +612,6 @@ def is_debug_root(descriptor: str) -> bool:
     return (
         descriptor == MOD_DEBUG
         or descriptor.startswith(MOD_DEBUG_INNER_PREFIX)
-        or descriptor == MOD_ASSASSIN_BUFF
-        or descriptor.startswith(MOD_ASSASSIN_BUFF_INNER_PREFIX)
     )
 
 
@@ -690,10 +686,6 @@ def build_debug_payload(
     if MOD_DEBUG not in roots:
         raise InjectError(
             "Donor APK is missing com.spd.mod.mechanics.ModDebug"
-        )
-    if MOD_ASSASSIN_BUFF not in roots:
-        raise InjectError(
-            "Donor APK is missing com.spd.mod.mechanics.ModAssassinBuff"
         )
 
     closure = dict(roots)

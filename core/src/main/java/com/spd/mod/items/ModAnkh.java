@@ -21,7 +21,6 @@ import java.util.ArrayList;
 public class ModAnkh extends Ankh {
 
     public static final String AC_UNBLESS = "UNBLESS";
-    public static final String AC_BUFF = "BUFF";
     public static final String AC_CONSOLE = "CONSOLE";
 
     // Times revived via blessed ankh (kept inventory, instant revive).
@@ -100,7 +99,6 @@ public class ModAnkh extends Ankh {
                 break;
             }
         }
-
     }
 
     @Override
@@ -119,9 +117,6 @@ public class ModAnkh extends Ankh {
             }
         }
 
-        if (!actions.contains(AC_BUFF)) {
-            actions.add(AC_BUFF);
-        }
         if (!actions.contains(AC_CONSOLE)) {
             actions.add(AC_CONSOLE);
         }
@@ -133,8 +128,6 @@ public class ModAnkh extends Ankh {
     public String actionName(String action, Hero hero) {
         if (AC_UNBLESS.equals(action)) {
             return "Unbless";
-        } else if (AC_BUFF.equals(action)) {
-            return "Buff";
         } else if (AC_CONSOLE.equals(action)) {
             return "Console";
         }
@@ -143,10 +136,7 @@ public class ModAnkh extends Ankh {
 
     @Override
     public void execute(Hero hero, String action) {
-        if (AC_BUFF.equals(action)) {
-            GameScene.cancel();
-            ModDebug.openBuffs();
-        } else if (AC_CONSOLE.equals(action)) {
+        if (AC_CONSOLE.equals(action)) {
             GameScene.cancel();
             ModDebug.open();
         } else if (AC_BLESS.equals(action)) {
