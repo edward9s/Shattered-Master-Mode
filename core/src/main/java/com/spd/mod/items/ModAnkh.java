@@ -12,6 +12,7 @@ import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndUseItem;
 import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundle;
 
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 
 public class ModAnkh extends Ankh {
 
+    public static final String AC_CHOOSE = "CHOOSE";
     public static final String AC_UNBLESS = "UNBLESS";
     public static final String AC_CONSOLE = "CONSOLE";
     public static final String AC_PUT = "PUT";
@@ -108,6 +110,11 @@ public class ModAnkh extends Ankh {
     }
 
     @Override
+    public String defaultAction() {
+        return AC_CHOOSE;
+    }
+
+    @Override
     public ArrayList<String> actions(Hero hero) {
         ArrayList<String> actions = super.actions(hero);
 
@@ -154,7 +161,9 @@ public class ModAnkh extends Ankh {
 
     @Override
     public void execute(Hero hero, String action) {
-        if (AC_CONSOLE.equals(action)) {
+        if (AC_CHOOSE.equals(action)) {
+            GameScene.show(new WndUseItem(null, this));
+        } else if (AC_CONSOLE.equals(action)) {
             GameScene.cancel();
             ModDebug.open();
         } else if (AC_PUT.equals(action)) {
