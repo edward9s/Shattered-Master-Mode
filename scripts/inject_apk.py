@@ -55,6 +55,10 @@ ITEM = "Lcom/shatteredpixel/shatteredpixeldungeon/items/Item;"
 JAVA_FRAMEWORK_PREFIXES = (
     "Landroid/", "Landroidx/", "Ldalvik/", "Ljava/", "Ljavax/", "Ljdk/", "Lsun/",
 )
+TARGET_API_PREFIXES = (
+    "Lcom/shatteredpixel/", "Lcom/watabou/", "Lcom/badlogic/",
+) + JAVA_FRAMEWORK_PREFIXES
+DESCRIPTOR_RE = re.compile(r"L[^;\s]+;")
 
 CLASS_RE = re.compile(r"(?m)^\.class\b[^\n]*?\s+(L[^;\s]+;)")
 SUPER_RE = re.compile(r"(?m)^\.super\s+(L[^;\s]+;)")
@@ -399,8 +403,7 @@ class SmaliClass:
     fields: dict[tuple[str, str], frozenset[str]] = field(default_factory=dict)
 
     @classmethod
-    def parse(cls, path: Path) -> "SmaliClass":
-        text = path.read_text(encoding="utf-8", errors="replace")
+    def from_text(cls, path: Path, text: str) -> "SmaliClass":
         m = CLASS_RE.search(text)
         if not m:
             raise InjectError(f"Cannot parse smali class: {path}")
@@ -422,6 +425,11 @@ class SmaliClass:
             methods,
             fields,
         )
+
+    @classmethod
+    def parse(cls, path: Path) -> "SmaliClass":
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return cls.from_text(path, text)
 
 
 def smali_dirs(root: Path) -> list[Path]:
@@ -591,19 +599,132 @@ def modankh_compatibility_errors(
 
 
 
+
+def is_debug_root(descriptor: str) -> bool:
+    return (
+        descriptor == MOD_DEBUG
+        or descriptor.startswith(MOD_DEBUG_INNER_PREFIX)
+    )
+
+
+def smali_dependencies(item: SmaliClass) -> set[str]:
+    """Return class descriptors referenced by a donor smali class."""
+
+    deps = set(DESCRIPTOR_RE.findall(item.text))
+    deps.discard(item.descriptor)
+    return deps
+
+
+def relocated_helper_descriptor(descriptor: str) -> str:
+    digest = hashlib.sha1(descriptor.encode("utf-8")).hexdigest()[:12]
+    return MOD_DEBUG_INNER_PREFIX + "Donor_" + digest + ";"
+
+
+def rewrite_smali_class(
+    item: SmaliClass,
+    replacements: dict[str, str],
+) -> SmaliClass:
+    text = item.text
+    for old, new in sorted(
+        replacements.items(),
+        key=lambda pair: len(pair[0]),
+        reverse=True,
+    ):
+        text = text.replace(old, new)
+    return SmaliClass.from_text(item.path, text)
+
+
+def build_debug_payload(
+    donor_index: dict[str, SmaliClass],
+    target_index: dict[str, SmaliClass],
+) -> tuple[dict[str, SmaliClass], dict[str, str]]:
+    """Build and relocate the donor-only dependency closure for ModDebug.
+
+    R8 may outline code into short donor-local classes such as Lj;. Those
+    classes cannot be referenced by name in a different APK because the target
+    may have an unrelated class with the same obfuscated descriptor. Discover
+    them from the donor bytecode, include them recursively, and relocate them
+    under ModDebug's namespace before assembling the overlay.
+    """
+
+    roots = {
+        desc: item
+        for desc, item in donor_index.items()
+        if is_debug_root(desc)
+    }
+    if MOD_DEBUG not in roots:
+        raise InjectError(
+            "Donor APK is missing com.spd.mod.mechanics.ModDebug"
+        )
+
+    closure = dict(roots)
+    queue = list(roots.values())
+    unresolved: set[str] = set()
+
+    while queue:
+        item = queue.pop()
+        for dep in smali_dependencies(item):
+            if dep in closure or dep.startswith(TARGET_API_PREFIXES):
+                continue
+
+            donor_dep = donor_index.get(dep)
+            if donor_dep is None:
+                unresolved.add(
+                    f"{item.descriptor}: donor-only dependency {dep} "
+                    "is not present in donor APK"
+                )
+                continue
+
+            closure[dep] = donor_dep
+            queue.append(donor_dep)
+
+    if unresolved:
+        log("Debug donor dependency errors:")
+        for error in sorted(unresolved):
+            log("  - " + error)
+        raise InjectError(
+            "Donor debug payload has unresolved donor-only dependencies"
+        )
+
+    helpers = sorted(desc for desc in closure if desc not in roots)
+    relocations = {
+        desc: relocated_helper_descriptor(desc)
+        for desc in helpers
+    }
+
+    relocated_values = set(relocations.values())
+    if len(relocated_values) != len(relocations):
+        raise InjectError("Generated duplicate donor-helper relocation names")
+
+    collisions = sorted(relocated_values.intersection(target_index))
+    if collisions:
+        raise InjectError(
+            "Generated donor-helper names collide with target classes: "
+            + ", ".join(collisions)
+        )
+
+    payload: dict[str, SmaliClass] = {}
+    for original, item in closure.items():
+        rewritten = rewrite_smali_class(item, relocations)
+        if rewritten.descriptor in payload:
+            raise InjectError(
+                "Duplicate debug payload class after relocation: "
+                + rewritten.descriptor
+            )
+        payload[rewritten.descriptor] = rewritten
+
+    return payload, relocations
+
+
 def debug_payload_compatibility_errors(
     payload: dict[str, SmaliClass],
     target_index: dict[str, SmaliClass],
 ) -> list[str]:
-    """Reject donor-only synthetic/helper references in the debug payload."""
+    """Validate the relocated debug payload against the target API."""
 
     errors: set[str] = set()
     combined = dict(target_index)
     combined.update(payload)
-    safe_target_prefixes = (
-        "Lcom/shatteredpixel/",
-        "Lcom/watabou/",
-    ) + JAVA_FRAMEWORK_PREFIXES
 
     for descriptor, item in payload.items():
         deps: list[str] = []
@@ -615,9 +736,9 @@ def debug_payload_compatibility_errors(
         for dep in deps:
             if dep in payload or dep.startswith(JAVA_FRAMEWORK_PREFIXES):
                 continue
-            if not dep.startswith(safe_target_prefixes):
+            if not dep.startswith(TARGET_API_PREFIXES):
                 errors.add(
-                    f"{descriptor}: unsafe donor-only/R8 type {dep}"
+                    f"{descriptor}: unexpected external type {dep}"
                 )
             elif dep not in target_index:
                 errors.add(
@@ -627,9 +748,9 @@ def debug_payload_compatibility_errors(
         for _, owner, name, proto in METHOD_INSN_RE.findall(item.text):
             if owner in payload or owner.startswith(JAVA_FRAMEWORK_PREFIXES):
                 continue
-            if not owner.startswith(safe_target_prefixes):
+            if not owner.startswith(TARGET_API_PREFIXES):
                 errors.add(
-                    f"{descriptor}: unsafe donor-only/R8 method "
+                    f"{descriptor}: unexpected external method "
                     f"{owner}->{name}{proto}"
                 )
                 continue
@@ -653,9 +774,9 @@ def debug_payload_compatibility_errors(
         for _, owner, name, typ in FIELD_INSN_RE.findall(item.text):
             if owner in payload or owner.startswith(JAVA_FRAMEWORK_PREFIXES):
                 continue
-            if not owner.startswith(safe_target_prefixes):
+            if not owner.startswith(TARGET_API_PREFIXES):
                 errors.add(
-                    f"{descriptor}: unsafe donor-only/R8 field "
+                    f"{descriptor}: unexpected external field "
                     f"{owner}->{name}:{typ}"
                 )
                 continue
@@ -1030,12 +1151,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         target_index = index_smali(tgt)
         donor_index = index_smali(donor)
         _, donor_ankh = find_class(donor, MOD_ANKH)
-        debug_payload = {
-            desc: cls for desc, cls in donor_index.items()
-            if desc == MOD_DEBUG or desc.startswith(MOD_DEBUG_INNER_PREFIX)
-        }
-        if MOD_DEBUG not in debug_payload:
-            raise InjectError("Donor APK is missing com.spd.mod.mechanics.ModDebug")
+        debug_payload, helper_relocations = build_debug_payload(
+            donor_index,
+            target_index,
+        )
+        if helper_relocations:
+            log("Relocated donor R8 helpers:")
+            for old, new in sorted(helper_relocations.items()):
+                log(f"  {old} -> {new}")
+
         collisions = sorted(desc for desc in debug_payload if desc in target_index)
         if collisions:
             raise InjectError(
