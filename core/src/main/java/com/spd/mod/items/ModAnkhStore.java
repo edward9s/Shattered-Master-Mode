@@ -24,6 +24,7 @@ public final class ModAnkhStore {
     private static final int TAKE_PAGE_SIZE = 8;
 
     private final ArrayList<Item> stored = new ArrayList<>();
+    private int takePageStart = 0;
 
     public void storeInBundle(Bundle bundle) {
         bundle.put(STORED, stored);
@@ -31,6 +32,7 @@ public final class ModAnkhStore {
 
     public void restoreFromBundle(Bundle bundle) {
         stored.clear();
+        takePageStart = 0;
         for (Bundlable value : bundle.getCollection(STORED)) {
             if (value instanceof Item) {
                 stored.add((Item) value);
@@ -73,7 +75,7 @@ public final class ModAnkhStore {
     }
 
     public void showTakeSelector(final Item owner, final Hero hero) {
-        showTakeSelector(owner, hero, 0);
+        showTakeSelector(owner, hero, takePageStart);
     }
 
     private void showTakeSelector(
@@ -81,11 +83,13 @@ public final class ModAnkhStore {
             final Hero hero,
             int requestedStart) {
         if (owner == null || hero == null || stored.isEmpty()) {
+            takePageStart = 0;
             return;
         }
 
         final int lastPageStart = ((stored.size() - 1) / TAKE_PAGE_SIZE) * TAKE_PAGE_SIZE;
         final int start = Math.max(0, Math.min(requestedStart, lastPageStart));
+        takePageStart = start;
         final int end = Math.min(stored.size(), start + TAKE_PAGE_SIZE);
         final ArrayList<Item> page = new ArrayList<>(stored.subList(start, end));
         final boolean hasPrevious = start > 0;
@@ -177,6 +181,9 @@ public final class ModAnkhStore {
         }
 
         stored.remove(item);
+        if (stored.isEmpty()) {
+            takePageStart = 0;
+        }
         GLog.i("Took item from the ankh.");
         Sample.INSTANCE.play(Assets.Sounds.ITEM);
         Item.updateQuickslot();
