@@ -22,6 +22,8 @@ public class ModAnkh extends Ankh {
 
     public static final String AC_UNBLESS = "UNBLESS";
     public static final String AC_CONSOLE = "CONSOLE";
+    public static final String AC_PUT = "PUT";
+    public static final String AC_TAKE = "TAKE";
 
     // Times revived via blessed ankh (kept inventory, instant revive).
     private int timesRevived = 0;
@@ -30,6 +32,8 @@ public class ModAnkh extends Ankh {
 
     private static final String TIMES_REVIVED     = "times_revived";
     private static final String TIMES_RESURRECTED = "times_resurrected";
+
+    private final ModAnkhStore store = new ModAnkhStore();
 
     public ModAnkh() {
         super();
@@ -54,6 +58,7 @@ public class ModAnkh extends Ankh {
         super.storeInBundle(bundle);
         bundle.put(TIMES_REVIVED,     timesRevived);
         bundle.put(TIMES_RESURRECTED, timesResurrected);
+        store.storeInBundle(bundle);
     }
 
     @Override
@@ -61,6 +66,7 @@ public class ModAnkh extends Ankh {
         super.restoreFromBundle(bundle);
         timesRevived     = bundle.getInt(TIMES_REVIVED);
         timesResurrected = bundle.getInt(TIMES_RESURRECTED);
+        store.restoreFromBundle(bundle);
         reset();
     }
 
@@ -117,6 +123,12 @@ public class ModAnkh extends Ankh {
             }
         }
 
+        if (!actions.contains(AC_PUT)) {
+            actions.add(AC_PUT);
+        }
+        if (!store.isEmpty() && !actions.contains(AC_TAKE)) {
+            actions.add(AC_TAKE);
+        }
         if (!actions.contains(AC_CONSOLE)) {
             actions.add(AC_CONSOLE);
         }
@@ -128,6 +140,12 @@ public class ModAnkh extends Ankh {
     public String actionName(String action, Hero hero) {
         if (AC_UNBLESS.equals(action)) {
             return "Unbless";
+        } else if (AC_PUT.equals(action)) {
+            return "Put";
+        } else if (AC_TAKE.equals(action)) {
+            // Avoid '+' concatenation here: R8 may outline it into a donor-local
+            // helper class, which is outside the standalone ModAnkh payload.
+            return "Take (".concat(Integer.toString(store.size())).concat(")");
         } else if (AC_CONSOLE.equals(action)) {
             return "Console";
         }
@@ -139,6 +157,12 @@ public class ModAnkh extends Ankh {
         if (AC_CONSOLE.equals(action)) {
             GameScene.cancel();
             ModDebug.open();
+        } else if (AC_PUT.equals(action)) {
+            GameScene.cancel();
+            store.showPutSelector(this, hero);
+        } else if (AC_TAKE.equals(action)) {
+            GameScene.cancel();
+            store.showTakeSelector(this, hero);
         } else if (AC_BLESS.equals(action)) {
             GameScene.cancel();
             setCurrent(hero);
@@ -168,8 +192,7 @@ public class ModAnkh extends Ankh {
     }
 
     /**
-     * Appends revival/resurrection history to the standard description.
-     * Only lines whose count > 0 are shown; at most two extra lines are added.
+     * Appends revival/resurrection history and stored-item count to the standard description.
      *
      * "Revived"      = blessed ankh path: instant revive, inventory kept.
      * "Resurrected"  = unblessed ankh path: WndResurrect, inventory lost.
@@ -177,8 +200,13 @@ public class ModAnkh extends Ankh {
     @Override
     public String desc() {
         String base = super.desc();
-
         StringBuilder sb = new StringBuilder(base);
+
+        if (!store.isEmpty()) {
+            sb.append("\n\nCurrently storing ")
+              .append(store.size())
+              .append(store.size() == 1 ? " item." : " items.");
+        }
 
         if (false && timesRevived > 0) {
             sb.append("\n\nThis ankh has revived you ")

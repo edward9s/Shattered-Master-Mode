@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Inject SMM's ModAnkh and debug console into an SPD-derived APK.
+"""Inject SMM's ModAnkh, ModAnkhStore, and debug console into an SPD-derived APK.
 
 Usage:
     python scripts/inject_apk.py <source-smm.apk> <target.apk> [--out output.apk]
 
 Scope is intentionally narrow:
-  * copies ModAnkh plus the controlled ModDebug payload;
+  * copies ModAnkh and the dedicated ModAnkhStore payload;
+  * copies the controlled ModDebug payload;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * adds the storage permissions required by ModDebug save/load;
   * otherwise leaves target resources and non-DEX APK entries untouched;
-  * builds one small first-dex overlay containing patched Dungeon + ModAnkh/debug classes;
+  * builds one small first-dex overlay containing patched Dungeon + injected classes;
   * preserves every original target DEX byte-for-byte and shifts them back one slot;
-  * validates ModAnkh's executable target API references before packaging.
+  * validates injected executable target API references before packaging.
 
 The output keeps the target package name. Because it is re-signed, an installed
 copy of the original target normally must be uninstalled first unless the same
@@ -54,6 +55,8 @@ STORAGE_PERMISSIONS = (
 )
 
 MOD_ANKH = "Lcom/spd/mod/items/ModAnkh;"
+MOD_ANKH_STORE = "Lcom/spd/mod/items/ModAnkhStore;"
+MOD_ANKH_STORE_INNER_PREFIX = "Lcom/spd/mod/items/ModAnkhStore$"
 MOD_DEBUG = "Lcom/spd/mod/mechanics/ModDebug;"
 MOD_DEBUG_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModDebug$"
 DUNGEON = "Lcom/shatteredpixel/shatteredpixeldungeon/Dungeon;"
@@ -606,13 +609,36 @@ def modankh_compatibility_errors(
     return sorted(errors)
 
 
-
-
 def is_debug_root(descriptor: str) -> bool:
     return (
         descriptor == MOD_DEBUG
         or descriptor.startswith(MOD_DEBUG_INNER_PREFIX)
     )
+
+
+def is_modankh_store_root(descriptor: str) -> bool:
+    return (
+        descriptor == MOD_ANKH_STORE
+        or descriptor.startswith(MOD_ANKH_STORE_INNER_PREFIX)
+    )
+
+
+def build_modankh_store_payload(
+    donor_index: dict[str, SmaliClass],
+) -> dict[str, SmaliClass]:
+    """Collect the kept ModAnkhStore class family without debug relocation."""
+
+    payload = {
+        desc: item
+        for desc, item in donor_index.items()
+        if is_modankh_store_root(desc)
+    }
+    if MOD_ANKH_STORE not in payload:
+        raise InjectError(
+            "Donor APK is missing com.spd.mod.items.ModAnkhStore. "
+            "Rebuild the SMM donor from current source before injecting."
+        )
+    return payload
 
 
 def descriptor_classes(descriptor: str) -> set[str]:
@@ -747,11 +773,11 @@ def build_debug_payload(
     return payload, relocations
 
 
-def debug_payload_compatibility_errors(
+def payload_compatibility_errors(
     payload: dict[str, SmaliClass],
     target_index: dict[str, SmaliClass],
 ) -> list[str]:
-    """Validate the relocated debug payload against the target API."""
+    """Validate a self-contained injected payload against the target API."""
 
     errors: set[str] = set()
     combined = dict(target_index)
@@ -829,6 +855,7 @@ def debug_payload_compatibility_errors(
                 )
 
     return sorted(errors)
+
 
 def method_block(
     text: str,
@@ -1631,8 +1658,8 @@ def rebuild_apk(
     """Prepend a tiny overlay dex and preserve every target dex byte-for-byte.
 
     Reassembling a large R8 target dex can move a method/field/string index from
-    65535 to 65536 and make a non-jumbo instruction unencodable.  Therefore the
-    injector never rewrites target dex content.  The overlay is classes.dex and
+    65535 to 65536 and make a non-jumbo instruction unencodable. Therefore the
+    injector never rewrites target dex content. The overlay is classes.dex and
     original target dex files are renamed to classes2.dex, classes3.dex, ...
     in their original order.
     """
@@ -1759,7 +1786,7 @@ def output_path(target: Path) -> Path:
 
 def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Inject only SMM ModAnkh into an SPD-derived APK"
+        description="Inject SMM ModAnkh into an SPD-derived APK"
     )
     p.add_argument("source_apk", help="SMM donor APK containing ModAnkh")
     p.add_argument("target_apk", help="SPD-derived target APK")
@@ -1835,6 +1862,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         target_index = index_smali(tgt)
         donor_index = index_smali(donor)
         _, donor_ankh = find_class(donor, MOD_ANKH)
+
+        store_payload = build_modankh_store_payload(donor_index)
         debug_payload, helper_relocations = build_debug_payload(
             donor_index,
             target_index,
@@ -1844,12 +1873,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             for old, new in sorted(helper_relocations.items()):
                 log(f"  {old} -> {new}")
 
-        collisions = sorted(desc for desc in debug_payload if desc in target_index)
+        payload_overlap = sorted(set(store_payload).intersection(debug_payload))
+        if payload_overlap:
+            raise InjectError(
+                "Injected payload class overlap: " + ", ".join(payload_overlap)
+            )
+
+        injected_payload = dict(store_payload)
+        injected_payload.update(debug_payload)
+        collisions = sorted(desc for desc in injected_payload if desc in target_index)
         if collisions:
             raise InjectError(
-                "Target already contains injected debug classes: "
+                "Target already contains injected payload classes: "
                 + ", ".join(collisions)
             )
+
         dungeon_dir, dungeon_path = find_class(tgt, DUNGEON)
         log(f"Dungeon source dex: {smali_dir_dex_name(dungeon_dir)}")
 
@@ -1862,7 +1900,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for note in notes:
             log("  " + note)
 
-        debug_errors = debug_payload_compatibility_errors(
+        debug_errors = payload_compatibility_errors(
             debug_payload,
             target_index,
         )
@@ -1876,8 +1914,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         log("Debug payload target API check: OK")
 
+        store_errors = payload_compatibility_errors(
+            store_payload,
+            target_index,
+        )
+        if store_errors:
+            log("ModAnkhStore payload compatibility errors:")
+            for e in store_errors:
+                log("  - " + e)
+            raise InjectError(
+                "Donor ModAnkhStore payload is not self-contained for this target. "
+                "Rebuild the SMM donor from current source before injecting."
+            )
+        log("ModAnkhStore payload target API check: OK")
+
         compatibility_index = dict(target_index)
-        compatibility_index.update(debug_payload)
+        compatibility_index.update(injected_payload)
         errors = modankh_compatibility_errors(mod_text, compatibility_index)
         if errors:
             log("ModAnkh compatibility errors:")
@@ -1891,7 +1943,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         manifest_bytes = manifest_with_storage_permissions(target)
 
-        step("Building first-dex overlay: patched Dungeon + ModAnkh debug console")
+        step("Building first-dex overlay: patched Dungeon + ModAnkh payloads")
         original_dungeon = dungeon_path.read_text(
             encoding="utf-8",
             errors="replace",
@@ -1914,10 +1966,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             encoding="utf-8",
         )
 
-        for descriptor, donor_class in sorted(debug_payload.items()):
+        for descriptor, donor_class in sorted(injected_payload.items()):
             overlay_class = overlay_root / Path(descriptor[1:-1] + ".smali")
             overlay_class.parent.mkdir(parents=True, exist_ok=True)
             overlay_class.write_text(donor_class.text, encoding="utf-8")
+        log(f"ModAnkhStore payload classes: {len(store_payload)}")
         log(f"Debug payload classes: {len(debug_payload)}")
 
         overlay_dex = work / "overlay.dex"
@@ -1977,7 +2030,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log(f"Output : {out}")
         log(f"SHA-256: {sha256(out)}")
         log("Package: unchanged from target (re-signed APK)")
-        log("Injected: ModAnkh + debug console")
+        log("Injected: ModAnkh + ModAnkhStore + debug console")
         if not args.keystore:
             log(
                 "Install note: uninstall the original target first "
