@@ -1,8 +1,10 @@
 package com.spd.mod.items;
 
+import com.spd.mod.mechanics.ModAssassinInstinct;
 import com.spd.mod.mechanics.ModDebug;
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.effects.CellEmitter;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Speck;
@@ -39,6 +41,43 @@ public class ModAnkh extends Ankh {
     @Override
     public boolean keptThroughLostInventory() {
         return true;
+    }
+
+    @Override
+    public boolean collect(Bag container) {
+        boolean collected = super.collect(container);
+        if (collected) {
+            ensureAssassinInstinct();
+        }
+        return collected;
+    }
+
+    private void ensureAssassinInstinct() {
+        Hero hero = Dungeon.hero;
+        if (hero != null
+                && hero.belongings != null
+                && hero.belongings.backpack != null
+                && hero.belongings.backpack.contains(this)
+                && hero.buff(ModAssassinInstinct.class) == null) {
+            Buff.affect(hero, ModAssassinInstinct.class);
+        }
+    }
+
+    private void syncAssassinInstinctAfterDetach() {
+        Hero hero = Dungeon.hero;
+        if (hero == null) {
+            return;
+        }
+
+        boolean stillOwned = hero.belongings != null
+                && hero.belongings.backpack != null
+                && hero.belongings.backpack.contains(this);
+
+        if (stillOwned) {
+            ensureAssassinInstinct();
+        } else {
+            Buff.detach(hero, ModAssassinInstinct.class);
+        }
     }
 
     @Override
@@ -99,6 +138,8 @@ public class ModAnkh extends Ankh {
                 break;
             }
         }
+
+        syncAssassinInstinctAfterDetach();
     }
 
     @Override
