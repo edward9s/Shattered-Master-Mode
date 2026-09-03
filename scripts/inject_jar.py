@@ -39,8 +39,8 @@ MOD_VALUE_SEARCH_PREFIX = "com/spd/mod/mechanics/ModValueSearch"
 MOD_VALUE_SEARCH_ENTRY = "com/spd/mod/mechanics/ModValueSearch.class"
 MOD_SAVE_TRANSFER_PREFIX = "com/spd/mod/mechanics/ModSaveTransfer"
 MOD_SAVE_TRANSFER_ENTRY = "com/spd/mod/mechanics/ModSaveTransfer.class"
-MOD_ASSASSIN_INSTINCT_PREFIX = "com/spd/mod/mechanics/ModAssassinInstinct"
-MOD_ASSASSIN_INSTINCT_ENTRY = "com/spd/mod/mechanics/ModAssassinInstinct.class"
+MOD_ASSASSIN_BUFF_PREFIX = "com/spd/mod/mechanics/ModAssassinBuff"
+MOD_ASSASSIN_BUFF_ENTRY = "com/spd/mod/mechanics/ModAssassinBuff.class"
 MOD_ASSASSIN_PREFIX = "com/spd/mod/mechanics/ModAssassin"
 MOD_ASSASSIN_ENTRY = "com/spd/mod/mechanics/ModAssassin.class"
 MOD_FLASH_PREFIX = "com/spd/mod/mechanics/ModFlash"
@@ -218,7 +218,7 @@ public class JarInjectorHelper {
 
     static final String MOD_ANKH = "com/spd/mod/items/ModAnkh";
     static final String MOD_DEBUG_PREFIX = "com/spd/mod/mechanics/ModDebug";
-    static final String MOD_ASSASSIN_INSTINCT_PREFIX = "com/spd/mod/mechanics/ModAssassinInstinct";
+    static final String MOD_ASSASSIN_BUFF_PREFIX = "com/spd/mod/mechanics/ModAssassinBuff";
     static final String MOD_ASSASSIN_PREFIX = "com/spd/mod/mechanics/ModAssassin";
     static final String MOD_FLASH_PREFIX = "com/spd/mod/mechanics/ModFlash";
     static final String DUNGEON = "com/shatteredpixel/shatteredpixeldungeon/Dungeon";
@@ -263,7 +263,7 @@ public class JarInjectorHelper {
 
     static boolean isInjectedPayload(String name) {
         return name.startsWith(MOD_DEBUG_PREFIX)
-                || name.startsWith(MOD_ASSASSIN_INSTINCT_PREFIX)
+                || name.startsWith(MOD_ASSASSIN_BUFF_PREFIX)
                 || name.startsWith(MOD_ASSASSIN_PREFIX)
                 || name.startsWith(MOD_FLASH_PREFIX);
     }
@@ -783,9 +783,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         name.startswith(MOD_SAVE_TRANSFER_PREFIX + "$")
                         and name.endswith(".class")
                     )
-                    or name == MOD_ASSASSIN_INSTINCT_ENTRY
+                    or name == MOD_ASSASSIN_BUFF_ENTRY
                     or (
-                        name.startswith(MOD_ASSASSIN_INSTINCT_PREFIX + "$")
+                        name.startswith(MOD_ASSASSIN_BUFF_PREFIX + "$")
                         and name.endswith(".class")
                     )
                     or name == MOD_ASSASSIN_ENTRY
@@ -806,8 +806,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModValueSearch")
             if MOD_SAVE_TRANSFER_ENTRY not in debug_names:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModSaveTransfer")
-            if MOD_ASSASSIN_INSTINCT_ENTRY not in debug_names:
-                raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModAssassinInstinct")
+            if MOD_ASSASSIN_BUFF_ENTRY not in debug_names:
+                raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModAssassinBuff")
             if MOD_ASSASSIN_ENTRY not in debug_names:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModAssassin")
             if MOD_FLASH_ENTRY not in debug_names:
@@ -837,7 +837,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_DEBUG_ENTRY,
                 MOD_VALUE_SEARCH_ENTRY,
                 MOD_SAVE_TRANSFER_ENTRY,
-                MOD_ASSASSIN_INSTINCT_ENTRY,
+                MOD_ASSASSIN_BUFF_ENTRY,
                 MOD_ASSASSIN_ENTRY,
                 MOD_FLASH_ENTRY,
             ],
