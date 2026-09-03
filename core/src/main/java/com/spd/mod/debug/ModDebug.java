@@ -74,10 +74,17 @@ public final class ModDebug {
                 try {
                     execute(command);
                 } catch (Throwable error) {
-                    String message = error.getMessage();
-                    GLog.n("Debug command failed: " + error.getClass().getSimpleName()
-                            + (message == null || message.isEmpty() ? "" : ": " + message));
                     error.printStackTrace();
+                    String message = error.getMessage();
+                    if (message == null || message.isEmpty()) {
+                        GLog.n("Debug command failed.");
+                    } else {
+                        GLog.n(str(
+                                "Debug command failed: ",
+                                error.getClass().getSimpleName(),
+                                ": ",
+                                message));
+                    }
                 }
             }
         });
@@ -110,7 +117,7 @@ public final class ModDebug {
                 use(args);
                 break;
             default:
-                GLog.w("Unknown debug command: " + command + ". Type 'help'.");
+                GLog.w(str("Unknown debug command: ", command, ". Type 'help'."));
                 break;
         }
     }
@@ -135,7 +142,7 @@ public final class ModDebug {
 
         Class<?> raw = resolveClass(args.get(0), Item.class);
         if (raw == null) {
-            throw new IllegalArgumentException("Item class not found: " + args.get(0));
+            throw new IllegalArgumentException(str("Item class not found: ", args.get(0)));
         }
 
         Integer level = null;
@@ -147,7 +154,7 @@ public final class ModDebug {
             } else if (token.matches("(?i)x\\d+")) {
                 quantity = boundedCount(Integer.parseInt(token.substring(1)));
             } else {
-                throw new IllegalArgumentException("Unrecognized give argument: " + token);
+                throw new IllegalArgumentException(str("Unrecognized give argument: ", token));
             }
         }
 
@@ -158,14 +165,18 @@ public final class ModDebug {
                 item.level(level);
             }
             if (!item.collect()) {
-                GLog.w("Backpack full; stopped after " + made + " item(s).");
+                GLog.w(str("Backpack full; stopped after ", made, " item(s)."));
                 break;
             }
             made++;
         }
 
-        GLog.p("Created " + made + " x " + raw.getSimpleName()
-                + (level == null ? "" : " (level " + level + ")"));
+        if (level == null) {
+            GLog.p(str("Created ", made, " x ", raw.getSimpleName()));
+        } else {
+            GLog.p(str("Created ", made, " x ", raw.getSimpleName(),
+                    " (level ", level, ")"));
+        }
     }
 
     private static void spawn(List<String> args) throws Exception {
@@ -178,7 +189,7 @@ public final class ModDebug {
 
         Class<?> raw = resolveClass(args.get(0), Mob.class);
         if (raw == null) {
-            throw new IllegalArgumentException("Mob class not found: " + args.get(0));
+            throw new IllegalArgumentException(str("Mob class not found: ", args.get(0)));
         }
 
         int quantity = 1;
@@ -205,7 +216,7 @@ public final class ModDebug {
             made++;
         }
 
-        GLog.p("Spawned " + made + " x " + raw.getSimpleName());
+        GLog.p(str("Spawned ", made, " x ", raw.getSimpleName()));
     }
 
     private static void affect(List<String> args) throws Exception {
@@ -220,7 +231,7 @@ public final class ModDebug {
 
         Class<?> raw = resolveClass(args.get(0), Buff.class);
         if (raw == null) {
-            throw new IllegalArgumentException("Buff class not found: " + args.get(0));
+            throw new IllegalArgumentException(str("Buff class not found: ", args.get(0)));
         }
 
         Float duration = null;
@@ -237,11 +248,11 @@ public final class ModDebug {
         } else {
             buff = Buff.affect(hero, (Class) raw);
             if (duration != null) {
-                GLog.w("Duration ignored: " + raw.getSimpleName() + " is not a FlavourBuff.");
+                GLog.w(str("Duration ignored: ", raw.getSimpleName(), " is not a FlavourBuff."));
             }
         }
 
-        GLog.p("Affected hero with " + buff.getClass().getSimpleName());
+        GLog.p(str("Affected hero with ", buff.getClass().getSimpleName()));
     }
 
     private static void inspect(List<String> args) throws Exception {
@@ -254,8 +265,8 @@ public final class ModDebug {
 
         List<Field> fields = allFields(type);
         List<Method> methods = allMethods(type);
-        fields.sort(Comparator.comparing(Field::getName));
-        methods.sort(Comparator.comparing(ModDebug::methodKey));
+        Collections.sort(fields, new FieldNameComparator());
+        Collections.sort(methods, new MethodKeyComparator());
 
         StringBuilder out = new StringBuilder(type.getName());
 
@@ -317,7 +328,7 @@ public final class ModDebug {
         List<String> rawArgs = args.subList(2, args.size());
 
         List<Method> candidates = allMethods(ref.type);
-        candidates.sort(Comparator.comparing(ModDebug::methodKey));
+        Collections.sort(candidates, new MethodKeyComparator());
 
         Exception lastError = null;
         for (Method method : candidates) {
@@ -339,7 +350,7 @@ public final class ModDebug {
             try {
                 method.setAccessible(true);
                 Object result = method.invoke(receiver, converted);
-                GLog.p(method.getName() + " -> " + valueString(result));
+                GLog.p(str(method.getName(), " -> ", valueString(result)));
                 return;
             } catch (Exception error) {
                 lastError = error;
@@ -350,9 +361,9 @@ public final class ModDebug {
             throw lastError;
         }
 
-        throw new NoSuchMethodException(
-                "No compatible " + ref.type.getSimpleName() + "." + name
-                        + " with " + rawArgs.size() + " argument(s)");
+        throw new NoSuchMethodException(str(
+                "No compatible ", ref.type.getSimpleName(), ".", name,
+                " with ", rawArgs.size(), " argument(s)"));
     }
 
     private static TargetRef target(String token) throws Exception {
@@ -463,7 +474,7 @@ public final class ModDebug {
 
     private static Object newInstance(Class<?> type) throws Exception {
         if (type.isInterface() || Modifier.isAbstract(type.getModifiers())) {
-            throw new InstantiationException("Cannot instantiate " + type.getName());
+            throw new InstantiationException(str("Cannot instantiate ", type.getName()));
         }
 
         Constructor<?> constructor = type.getDeclaredConstructor();
@@ -487,7 +498,7 @@ public final class ModDebug {
         }
 
         for (String root : ROOTS) {
-            direct = tryLoad(root + "." + name, parent);
+            direct = tryLoad(str(root, ".", name), parent);
             if (direct != null) {
                 return direct;
             }
@@ -505,16 +516,14 @@ public final class ModDebug {
             String simple = className.substring(split + 1);
 
             if (className.equalsIgnoreCase(name)
-                    || fullLower.endsWith("." + lower)
-                    || fullLower.endsWith("$" + lower)
+                    || fullLower.endsWith(str(".", lower))
+                    || fullLower.endsWith(str("$", lower))
                     || simple.equalsIgnoreCase(name)) {
                 matches.add(className);
             }
         }
 
-        matches.sort(
-                Comparator.comparingInt(String::length)
-                        .thenComparing(Comparator.naturalOrder()));
+        Collections.sort(matches, new ClassNameComparator());
 
         for (String candidate : matches) {
             Class<?> loaded = tryLoad(candidate, parent);
@@ -667,7 +676,7 @@ public final class ModDebug {
     private static void addIndexedName(Set<String> names, String className) {
         for (String root : ROOTS) {
             if (className.equals(root)
-                    || className.startsWith(root + ".")) {
+                    || className.startsWith(str(root, "."))) {
                 names.add(className);
                 return;
             }
@@ -683,8 +692,8 @@ public final class ModDebug {
                 current = current.getSuperclass()) {
 
             for (Field field : current.getDeclaredFields()) {
-                String key =
-                        field.getName() + ":" + field.getType().getName();
+                String key = str(
+                        field.getName(), ":", field.getType().getName());
                 if (seen.add(key)) {
                     result.add(field);
                 }
@@ -746,6 +755,14 @@ public final class ModDebug {
         return result.append(']').toString();
     }
 
+    private static String str(Object... parts) {
+        StringBuilder result = new StringBuilder();
+        for (Object part : parts) {
+            result.append(String.valueOf(part));
+        }
+        return result.toString();
+    }
+
     private static List<String> tokenize(String text) {
         ArrayList<String> tokens = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -802,6 +819,31 @@ public final class ModDebug {
         }
 
         return tokens;
+    }
+
+    private static final class FieldNameComparator implements Comparator<Field> {
+        @Override
+        public int compare(Field left, Field right) {
+            return left.getName().compareTo(right.getName());
+        }
+    }
+
+    private static final class MethodKeyComparator implements Comparator<Method> {
+        @Override
+        public int compare(Method left, Method right) {
+            return methodKey(left).compareTo(methodKey(right));
+        }
+    }
+
+    private static final class ClassNameComparator implements Comparator<String> {
+        @Override
+        public int compare(String left, String right) {
+            int byLength = Integer.compare(left.length(), right.length());
+            if (byLength != 0) {
+                return byLength;
+            }
+            return left.compareTo(right);
+        }
     }
 
     private static final class TargetRef {
