@@ -81,6 +81,21 @@ def patch_play_games_version(build_file, android_build_file):
     )
 
 
+def patch_proguard(file_path):
+    with open(file_path, 'r', encoding='utf-8') as f:
+        data = f.read()
+
+    marker = 'com.spd.mod.debug.**'
+    if marker not in data:
+        data = data.rstrip() + (
+            '\n\n# Keep SMM debug console stable for binary injection\n'
+            '-keep class com.spd.mod.debug.** { *; }\n'
+        )
+
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.write(data)
+
+
 def patch_manifest(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         data = f.read()
@@ -103,4 +118,5 @@ if __name__ == '__main__':
     patch_play_games_version(
         'spd_src/build.gradle', 'spd_src/android/build.gradle'
     )
+    patch_proguard('spd_src/android/proguard-rules.pro')
     patch_manifest('spd_src/android/src/main/AndroidManifest.xml')

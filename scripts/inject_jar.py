@@ -6,7 +6,7 @@ Usage:
 
 The source JAR is a compiled SMM desktop JAR containing ModAnkh.class.
 The target JAR remains the base. The injector:
-  * copies only com/spd/mod/items/ModAnkh.class from the donor;
+  * copies ModAnkh plus the controlled com/spd/mod/debug/ payload from the donor;
   * adapts Item.setCurrent(Hero) when the target exposes the older
     curUser/curItem fields instead;
   * validates ModAnkh's executable SPD API references against the target JAR;
@@ -33,6 +33,8 @@ from pathlib import Path
 from typing import Sequence
 
 MOD_ANKH_ENTRY = "com/spd/mod/items/ModAnkh.class"
+MOD_DEBUG_PREFIX = "com/spd/mod/debug/"
+MOD_DEBUG_ENTRY = "com/spd/mod/debug/ModDebug.class"
 DUNGEON_ENTRY = "com/shatteredpixel/shatteredpixeldungeon/Dungeon.class"
 CLASS_MAGIC = b"\xca\xfe\xba\xbe"
 
@@ -135,6 +137,7 @@ def rebuild_jar(
     target: Path,
     patched_dungeon: Path,
     patched_modankh: Path,
+    debug_payload: dict[str, bytes],
     output: Path,
 ) -> None:
     dungeon_bytes = patched_dungeon.read_bytes()
@@ -143,6 +146,11 @@ def rebuild_jar(
         raise InjectError("Patched Dungeon.class is invalid")
     if not modankh_bytes.startswith(CLASS_MAGIC):
         raise InjectError("Patched ModAnkh.class is invalid")
+    if MOD_DEBUG_ENTRY not in debug_payload:
+        raise InjectError("Donor JAR is missing com.spd.mod.debug.ModDebug")
+    for name, data in debug_payload.items():
+        if not data.startswith(CLASS_MAGIC):
+            raise InjectError(f"Invalid debug payload class: {name}")
 
     with zipfile.ZipFile(target, "r") as zin:
         names = zin.namelist()
@@ -151,11 +159,21 @@ def rebuild_jar(
         if MOD_ANKH_ENTRY in names:
             raise InjectError("Target JAR already contains ModAnkh; refusing a second injection")
 
+        collisions = sorted(name for name in debug_payload if name in names)
+        if collisions:
+            raise InjectError(
+                "Target JAR already contains injected debug classes: "
+                + ", ".join(collisions)
+            )
+
         dungeon_count = sum(1 for name in names if name == DUNGEON_ENTRY)
         if dungeon_count != 1:
             raise InjectError(f"Expected one Dungeon.class entry, found {dungeon_count}")
 
-        dungeon_info = next(info for info in zin.infolist() if info.filename == DUNGEON_ENTRY)
+        dungeon_info = next(
+            info for info in zin.infolist()
+            if info.filename == DUNGEON_ENTRY
+        )
 
         with zipfile.ZipFile(output, "w", allowZip64=True) as zout:
             for info in zin.infolist():
@@ -165,7 +183,15 @@ def rebuild_jar(
                 data = dungeon_bytes if name == DUNGEON_ENTRY else zin.read(name)
                 zout.writestr(clone_zipinfo(info), data)
 
-            zout.writestr(clone_zipinfo(dungeon_info, MOD_ANKH_ENTRY), modankh_bytes)
+            zout.writestr(
+                clone_zipinfo(dungeon_info, MOD_ANKH_ENTRY),
+                modankh_bytes,
+            )
+            for name in sorted(debug_payload):
+                zout.writestr(
+                    clone_zipinfo(dungeon_info, name),
+                    debug_payload[name],
+                )
 
 
 JAVA_HELPER = r'''
@@ -179,6 +205,7 @@ public class JarInjectorHelper {
     static final int API = Opcodes.ASM8;
 
     static final String MOD_ANKH = "com/spd/mod/items/ModAnkh";
+    static final String MOD_DEBUG_PREFIX = "com/spd/mod/debug/";
     static final String DUNGEON = "com/shatteredpixel/shatteredpixeldungeon/Dungeon";
     static final String HERO_CLASS = "com/shatteredpixel/shatteredpixeldungeon/actors/hero/HeroClass";
     static final String HERO = "com/shatteredpixel/shatteredpixeldungeon/actors/hero/Hero";
@@ -411,7 +438,8 @@ public class JarInjectorHelper {
     }
 
     static void checkClass(String name, String context) {
-        if (name == null || name.equals(MOD_ANKH) || isJdk(name)) return;
+        if (name == null || name.equals(MOD_ANKH)
+                || name.startsWith(MOD_DEBUG_PREFIX) || isJdk(name)) return;
         ClassInfo info = classes.get(name);
         if (info == null) {
             errors.add(context + ": missing class " + name);
@@ -472,7 +500,7 @@ public class JarInjectorHelper {
                     public void visitFieldInsn(int opcode, String owner, String name, String desc) {
                         checkClass(owner, methodName + ": field owner");
                         checkDescriptor(desc, methodName + ": field descriptor");
-                        if (isJdk(owner)) return;
+                        if (isJdk(owner) || owner.startsWith(MOD_DEBUG_PREFIX)) return;
                         MemberInfo member = resolveField(owner, name, desc);
                         if (member == null) {
                             errors.add(methodName + ": missing field " + owner + "." + name + ":" + desc);
@@ -493,7 +521,7 @@ public class JarInjectorHelper {
                                                 String desc, boolean isInterface) {
                         checkClass(owner, methodName + ": method owner");
                         checkDescriptor(desc, methodName + ": method descriptor");
-                        if (isJdk(owner)) return;
+                        if (isJdk(owner) || owner.startsWith(MOD_DEBUG_PREFIX)) return;
                         MemberInfo member = resolveMethod(owner, name, desc);
                         if (member == null) {
                             errors.add(methodName + ": missing method " + owner + "." + name + desc);
@@ -715,6 +743,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         donor_modankh = work / "donor-ModAnkh.class"
         with zipfile.ZipFile(source) as zf:
             donor_modankh.write_bytes(zf.read(MOD_ANKH_ENTRY))
+            debug_names = sorted(
+                name for name in zf.namelist()
+                if name.startswith(MOD_DEBUG_PREFIX) and name.endswith(".class")
+            )
+            if MOD_DEBUG_ENTRY not in debug_names:
+                raise InjectError("Donor JAR is missing com.spd.mod.debug.ModDebug")
+            debug_payload = {
+                name: zf.read(name) for name in debug_names
+            }
 
         step("Adapting and validating donor ModAnkh against target JAR")
         patched_modankh, patched_dungeon = patch_classes(java, target, donor_modankh, work)
@@ -722,14 +759,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         step("Repacking target JAR")
         output.parent.mkdir(parents=True, exist_ok=True)
         unsigned_tmp = work / "output.jar"
-        rebuild_jar(target, patched_dungeon, patched_modankh, unsigned_tmp)
-        validate_jar(unsigned_tmp, [DUNGEON_ENTRY, MOD_ANKH_ENTRY])
+        rebuild_jar(
+            target,
+            patched_dungeon,
+            patched_modankh,
+            debug_payload,
+            unsigned_tmp,
+        )
+        validate_jar(
+            unsigned_tmp,
+            [DUNGEON_ENTRY, MOD_ANKH_ENTRY, MOD_DEBUG_ENTRY],
+        )
         shutil.copy2(unsigned_tmp, output)
 
         step("Done")
         log(f"Output : {output}")
         log(f"SHA-256: {sha256(output)}")
-        log("Injected: ModAnkh only")
+        log(
+            f"Injected: ModAnkh + debug console "
+            f"({len(debug_payload)} debug classes)"
+        )
         if args.keep_work:
             log(f"Work files kept at: {work}")
         return 0
