@@ -5,7 +5,7 @@ Usage:
     python scripts/inject_apk.py <source-smm.apk> <target.apk> [--out output.apk]
 
 Scope is intentionally narrow:
-  * copies ModAnkh plus the controlled Lcom/spd/mod/debug/ payload;
+  * copies ModAnkh plus the controlled ModDebug payload;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * leaves AndroidManifest.xml and all resources untouched;
   * builds one small first-dex overlay containing patched Dungeon + ModAnkh/debug classes;
@@ -46,8 +46,8 @@ APKTOOL_SHA256 = "dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f94
 SMALI_VERSION = "3.0.9"
 
 MOD_ANKH = "Lcom/spd/mod/items/ModAnkh;"
-MOD_DEBUG_PREFIX = "Lcom/spd/mod/debug/"
-MOD_DEBUG = "Lcom/spd/mod/debug/ModDebug;"
+MOD_DEBUG_PREFIX = "Lcom/spd/mod/mechanics/ModDebug"
+MOD_DEBUG = "Lcom/spd/mod/mechanics/ModDebug;"
 DUNGEON = "Lcom/shatteredpixel/shatteredpixeldungeon/Dungeon;"
 HERO_CLASS = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/HeroClass;"
 HERO = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/Hero;"
@@ -1035,7 +1035,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if desc.startswith(MOD_DEBUG_PREFIX)
         }
         if MOD_DEBUG not in debug_payload:
-            raise InjectError("Donor APK is missing com.spd.mod.debug.ModDebug")
+            raise InjectError("Donor APK is missing com.spd.mod.mechanics.ModDebug")
         collisions = sorted(desc for desc in debug_payload if desc in target_index)
         if collisions:
             raise InjectError(
