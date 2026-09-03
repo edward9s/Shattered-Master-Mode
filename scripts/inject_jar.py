@@ -6,10 +6,12 @@ Usage:
 
 The source JAR is a compiled SMM desktop JAR containing ModAnkh.class.
 The target JAR remains the base. The injector:
-  * copies ModAnkh plus the controlled ModDebug payload from the donor;
+  * copies ModAnkh, the dedicated ModAnkhStore payload, and the controlled
+    ModDebug payload from the donor;
   * adapts Item.setCurrent(Hero) when the target exposes the older
     curUser/curItem fields instead;
-  * validates ModAnkh's executable SPD API references against the target JAR;
+  * validates ModAnkh's executable SPD API references against the target JAR
+    plus the injected ModAnkhStore payload;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * preserves every other target JAR entry byte-for-byte at the uncompressed
     data level and removes stale JAR signature/index metadata.
@@ -33,6 +35,8 @@ from pathlib import Path
 from typing import Sequence
 
 MOD_ANKH_ENTRY = "com/spd/mod/items/ModAnkh.class"
+MOD_ANKH_STORE_PREFIX = "com/spd/mod/items/ModAnkhStore"
+MOD_ANKH_STORE_ENTRY = "com/spd/mod/items/ModAnkhStore.class"
 MOD_DEBUG_PREFIX = "com/spd/mod/mechanics/ModDebug"
 MOD_DEBUG_ENTRY = "com/spd/mod/mechanics/ModDebug.class"
 MOD_VALUE_SEARCH_PREFIX = "com/spd/mod/mechanics/ModValueSearch"
@@ -141,6 +145,7 @@ def rebuild_jar(
     target: Path,
     patched_dungeon: Path,
     patched_modankh: Path,
+    store_payload: dict[str, bytes],
     debug_payload: dict[str, bytes],
     output: Path,
 ) -> None:
@@ -150,10 +155,15 @@ def rebuild_jar(
         raise InjectError("Patched Dungeon.class is invalid")
     if not modankh_bytes.startswith(CLASS_MAGIC):
         raise InjectError("Patched ModAnkh.class is invalid")
+    if MOD_ANKH_STORE_ENTRY not in store_payload:
+        raise InjectError("Donor JAR is missing com.spd.mod.items.ModAnkhStore")
     if MOD_DEBUG_ENTRY not in debug_payload:
         raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModDebug")
     if MOD_VALUE_SEARCH_ENTRY not in debug_payload:
         raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModValueSearch")
+    for name, data in store_payload.items():
+        if not data.startswith(CLASS_MAGIC):
+            raise InjectError(f"Invalid ModAnkhStore payload class: {name}")
     for name, data in debug_payload.items():
         if not data.startswith(CLASS_MAGIC):
             raise InjectError(f"Invalid debug payload class: {name}")
@@ -165,10 +175,12 @@ def rebuild_jar(
         if MOD_ANKH_ENTRY in names:
             raise InjectError("Target JAR already contains ModAnkh; refusing a second injection")
 
-        collisions = sorted(name for name in debug_payload if name in names)
+        injected_names = set(store_payload)
+        injected_names.update(debug_payload)
+        collisions = sorted(name for name in injected_names if name in names)
         if collisions:
             raise InjectError(
-                "Target JAR already contains injected debug classes: "
+                "Target JAR already contains injected payload classes: "
                 + ", ".join(collisions)
             )
 
@@ -193,6 +205,11 @@ def rebuild_jar(
                 clone_zipinfo(dungeon_info, MOD_ANKH_ENTRY),
                 modankh_bytes,
             )
+            for name in sorted(store_payload):
+                zout.writestr(
+                    clone_zipinfo(dungeon_info, name),
+                    store_payload[name],
+                )
             for name in sorted(debug_payload):
                 zout.writestr(
                     clone_zipinfo(dungeon_info, name),
@@ -211,6 +228,8 @@ public class JarInjectorHelper {
     static final int API = Opcodes.ASM8;
 
     static final String MOD_ANKH = "com/spd/mod/items/ModAnkh";
+    static final String MOD_ANKH_STORE = "com/spd/mod/items/ModAnkhStore";
+    static final String MOD_ANKH_STORE_PREFIX = MOD_ANKH_STORE + "$";
     static final String MOD_DEBUG_PREFIX = "com/spd/mod/mechanics/ModDebug";
     static final String DUNGEON = "com/shatteredpixel/shatteredpixeldungeon/Dungeon";
     static final String HERO_CLASS = "com/shatteredpixel/shatteredpixeldungeon/actors/hero/HeroClass";
@@ -250,6 +269,10 @@ public class JarInjectorHelper {
         return name.startsWith("java/") || name.startsWith("javax/")
                 || name.startsWith("jdk/") || name.startsWith("sun/")
                 || name.startsWith("org/w3c/") || name.startsWith("org/xml/");
+    }
+
+    static boolean isStoreClass(String name) {
+        return MOD_ANKH_STORE.equals(name) || name.startsWith(MOD_ANKH_STORE_PREFIX);
     }
 
     static String packageName(String name) {
@@ -300,6 +323,30 @@ public class JarInjectorHelper {
                 }
             }
         }
+    }
+
+    static int loadDonorStoreClasses(Path jarPath) throws IOException {
+        int count = 0;
+        try (JarFile jar = new JarFile(jarPath.toFile())) {
+            Enumeration<JarEntry> entries = jar.entries();
+            while (entries.hasMoreElements()) {
+                JarEntry entry = entries.nextElement();
+                if (entry.isDirectory() || !entry.getName().endsWith(".class")) continue;
+                String entryName = entry.getName();
+                String internalName = entryName.substring(0, entryName.length() - ".class".length());
+                if (!isStoreClass(internalName)) continue;
+                try (InputStream in = jar.getInputStream(entry)) {
+                    byte[] bytes = in.readAllBytes();
+                    ClassInfo info = parseClass(bytes);
+                    classes.put(info.name, info);
+                    count++;
+                }
+            }
+        }
+        if (!classes.containsKey(MOD_ANKH_STORE)) {
+            throw new IllegalStateException("Donor JAR has no ModAnkhStore class");
+        }
+        return count;
     }
 
     static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
@@ -473,6 +520,7 @@ public class JarInjectorHelper {
     }
 
     static void validateModAnkh(byte[] bytes) {
+        errors.clear();
         ClassInfo own = parseClass(bytes);
         if (!MOD_ANKH.equals(own.name)) {
             throw new IllegalStateException("Donor class is not " + MOD_ANKH + ": " + own.name);
@@ -652,20 +700,24 @@ public class JarInjectorHelper {
     }
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 4) {
+        if (args.length != 5) {
             throw new IllegalArgumentException(
-                    "Usage: JarInjectorHelper <target.jar> <donor-ModAnkh.class> <out-ModAnkh.class> <out-Dungeon.class>");
+                    "Usage: JarInjectorHelper <target.jar> <donor.jar> <donor-ModAnkh.class> <out-ModAnkh.class> <out-Dungeon.class>");
         }
         Path targetJar = Paths.get(args[0]);
-        Path donorModAnkh = Paths.get(args[1]);
-        Path outModAnkh = Paths.get(args[2]);
-        Path outDungeon = Paths.get(args[3]);
+        Path donorJar = Paths.get(args[1]);
+        Path donorModAnkh = Paths.get(args[2]);
+        Path outModAnkh = Paths.get(args[3]);
+        Path outDungeon = Paths.get(args[4]);
 
         loadTargetClasses(targetJar);
         if (!classes.containsKey(DUNGEON)) throw new IllegalStateException("Target has no Dungeon class");
         if (!classes.containsKey(ITEM)) throw new IllegalStateException("Target has no Item class");
         if (!classes.containsKey(HERO_CLASS)) throw new IllegalStateException("Target has no HeroClass class");
         if (!classes.containsKey(HERO)) throw new IllegalStateException("Target has no Hero class");
+
+        int storeClassCount = loadDonorStoreClasses(donorJar);
+        System.out.println("ModAnkhStore payload classes registered: " + storeClassCount);
 
         byte[] donorBytes = Files.readAllBytes(donorModAnkh);
         ClassInfo donorInfo = parseClass(donorBytes);
@@ -686,7 +738,13 @@ public class JarInjectorHelper {
 '''
 
 
-def patch_classes(java: Path, target: Path, donor_modankh: Path, work: Path) -> tuple[Path, Path]:
+def patch_classes(
+    java: Path,
+    target: Path,
+    source: Path,
+    donor_modankh: Path,
+    work: Path,
+) -> tuple[Path, Path]:
     helper = work / "JarInjectorHelper.java"
     helper.write_text(JAVA_HELPER, encoding="utf-8")
     out_modankh = work / "ModAnkh.class"
@@ -696,6 +754,7 @@ def patch_classes(java: Path, target: Path, donor_modankh: Path, work: Path) -> 
         "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
         helper,
         target,
+        source,
         donor_modankh,
         out_modankh,
         out_dungeon,
@@ -732,7 +791,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if output in {source, target}:
         raise InjectError("Refusing to overwrite an input JAR")
 
-    validate_jar(source, [MOD_ANKH_ENTRY])
+    validate_jar(source, [MOD_ANKH_ENTRY, MOD_ANKH_STORE_ENTRY])
     validate_jar(target, [DUNGEON_ENTRY])
     java = ensure_java()
 
@@ -749,6 +808,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         donor_modankh = work / "donor-ModAnkh.class"
         with zipfile.ZipFile(source) as zf:
             donor_modankh.write_bytes(zf.read(MOD_ANKH_ENTRY))
+
+            store_names = sorted(
+                name for name in zf.namelist()
+                if (
+                    name == MOD_ANKH_STORE_ENTRY
+                    or (
+                        name.startswith(MOD_ANKH_STORE_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
+                )
+            )
+            if MOD_ANKH_STORE_ENTRY not in store_names:
+                raise InjectError("Donor JAR is missing com.spd.mod.items.ModAnkhStore")
+            store_payload = {
+                name: zf.read(name) for name in store_names
+            }
+
             debug_names = sorted(
                 name for name in zf.namelist()
                 if (
@@ -780,7 +856,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
 
         step("Adapting and validating donor ModAnkh against target JAR")
-        patched_modankh, patched_dungeon = patch_classes(java, target, donor_modankh, work)
+        patched_modankh, patched_dungeon = patch_classes(
+            java,
+            target,
+            source,
+            donor_modankh,
+            work,
+        )
 
         step("Repacking target JAR")
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -789,6 +871,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             target,
             patched_dungeon,
             patched_modankh,
+            store_payload,
             debug_payload,
             unsigned_tmp,
         )
@@ -797,6 +880,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             [
                 DUNGEON_ENTRY,
                 MOD_ANKH_ENTRY,
+                MOD_ANKH_STORE_ENTRY,
                 MOD_DEBUG_ENTRY,
                 MOD_VALUE_SEARCH_ENTRY,
                 MOD_SAVE_TRANSFER_ENTRY,
@@ -808,7 +892,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         log(f"Output : {output}")
         log(f"SHA-256: {sha256(output)}")
         log(
-            f"Injected: ModAnkh + debug console "
+            f"Injected: ModAnkh + ModAnkhStore "
+            f"({len(store_payload)} store classes) + debug console "
             f"({len(debug_payload)} debug classes)"
         )
         if args.keep_work:
