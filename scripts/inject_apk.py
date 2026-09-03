@@ -7,7 +7,8 @@ Usage:
 Scope is intentionally narrow:
   * copies ModAnkh plus the controlled ModDebug payload;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
-  * leaves AndroidManifest.xml and all resources untouched;
+  * adds the storage permissions required by ModDebug save/load;
+  * otherwise leaves target resources and non-DEX APK entries untouched;
   * builds one small first-dex overlay containing patched Dungeon + ModAnkh/debug classes;
   * preserves every original target DEX byte-for-byte and shifts them back one slot;
   * validates ModAnkh's executable target API references before packaging.
@@ -27,6 +28,7 @@ import platform
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tarfile
@@ -44,6 +46,12 @@ DEFAULT_CACHE = Path(os.environ.get("SMM_INJECT_CACHE", Path.home() / ".cache" /
 APKTOOL_VERSION = "3.0.3"
 APKTOOL_SHA256 = "dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f9423"
 SMALI_VERSION = "3.0.9"
+
+STORAGE_PERMISSIONS = (
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.WRITE_EXTERNAL_STORAGE",
+    "android.permission.MANAGE_EXTERNAL_STORAGE",
+)
 
 MOD_ANKH = "Lcom/spd/mod/items/ModAnkh;"
 MOD_DEBUG = "Lcom/spd/mod/mechanics/ModDebug;"
@@ -966,10 +974,659 @@ def is_signature(name: str) -> bool:
     return leaf == "MANIFEST.MF" or leaf.endswith((".SF", ".RSA", ".DSA", ".EC"))
 
 
+RES_XML_TYPE = 0x0003
+RES_STRING_POOL_TYPE = 0x0001
+RES_XML_RESOURCE_MAP_TYPE = 0x0180
+RES_XML_START_ELEMENT_TYPE = 0x0102
+RES_XML_END_ELEMENT_TYPE = 0x0103
+RES_XML_NO_INDEX = 0xFFFFFFFF
+RES_STRING_POOL_UTF8_FLAG = 0x00000100
+RES_STRING_POOL_SORTED_FLAG = 0x00000001
+RES_VALUE_TYPE_STRING = 0x03
+ANDROID_NAME_RESOURCE_ID = 0x01010003
+
+
+def axml_chunks(data: bytes, start: int = 8):
+    offset = start
+    while offset < len(data):
+        if offset + 8 > len(data):
+            raise InjectError(
+                f"Truncated binary AndroidManifest.xml chunk at {offset}"
+            )
+        chunk_type, header_size, size = struct.unpack_from(
+            "<HHI", data, offset
+        )
+        if (
+            header_size < 8
+            or size < header_size
+            or offset + size > len(data)
+        ):
+            raise InjectError(
+                f"Invalid binary AndroidManifest.xml chunk at {offset}"
+            )
+        yield offset, chunk_type, header_size, size
+        offset += size
+
+    if offset != len(data):
+        raise InjectError("Binary AndroidManifest.xml chunk sizes do not match")
+
+
+def axml_read_length8(data: bytes, offset: int) -> tuple[int, int]:
+    first = data[offset]
+    offset += 1
+    if first & 0x80:
+        return (
+            ((first & 0x7F) << 8) | data[offset],
+            offset + 1,
+        )
+    return first, offset
+
+
+def axml_read_length16(data: bytes, offset: int) -> tuple[int, int]:
+    first = struct.unpack_from("<H", data, offset)[0]
+    offset += 2
+    if first & 0x8000:
+        second = struct.unpack_from("<H", data, offset)[0]
+        return (
+            ((first & 0x7FFF) << 16) | second,
+            offset + 2,
+        )
+    return first, offset
+
+
+def axml_encode_length8(length: int) -> bytes:
+    if length < 0x80:
+        return bytes((length,))
+    if length <= 0x7FFF:
+        return bytes((
+            0x80 | ((length >> 8) & 0x7F),
+            length & 0xFF,
+        ))
+    raise InjectError("Binary manifest string is too long")
+
+
+def axml_encode_length16(length: int) -> bytes:
+    if length < 0x8000:
+        return struct.pack("<H", length)
+    if length <= 0x7FFFFFFF:
+        return struct.pack(
+            "<HH",
+            0x8000 | ((length >> 16) & 0x7FFF),
+            length & 0xFFFF,
+        )
+    raise InjectError("Binary manifest string is too long")
+
+
+@dataclass
+class AxmlStringPool:
+    offset: int
+    header_size: int
+    size: int
+    string_count: int
+    style_count: int
+    flags: int
+    strings_start: int
+    styles_start: int
+    string_offsets: list[int]
+    style_offsets: list[int]
+    strings: list[str]
+
+    @property
+    def utf8(self) -> bool:
+        return bool(self.flags & RES_STRING_POOL_UTF8_FLAG)
+
+
+def parse_axml_string_pool(data: bytes, offset: int) -> AxmlStringPool:
+    chunk_type, header_size, size = struct.unpack_from(
+        "<HHI", data, offset
+    )
+    if (
+        chunk_type != RES_STRING_POOL_TYPE
+        or header_size < 28
+        or offset + size > len(data)
+    ):
+        raise InjectError("Invalid binary manifest string pool")
+
+    (
+        string_count,
+        style_count,
+        flags,
+        strings_start,
+        styles_start,
+    ) = struct.unpack_from("<IIIII", data, offset + 8)
+
+    offsets_start = offset + header_size
+    string_offsets = list(struct.unpack_from(
+        "<" + ("I" * string_count),
+        data,
+        offsets_start,
+    )) if string_count else []
+
+    style_offsets_start = offsets_start + 4 * string_count
+    style_offsets = list(struct.unpack_from(
+        "<" + ("I" * style_count),
+        data,
+        style_offsets_start,
+    )) if style_count else []
+
+    strings: list[str] = []
+    utf8 = bool(flags & RES_STRING_POOL_UTF8_FLAG)
+    strings_base = offset + strings_start
+
+    for relative in string_offsets:
+        cursor = strings_base + relative
+        if utf8:
+            _, cursor = axml_read_length8(data, cursor)
+            byte_length, cursor = axml_read_length8(data, cursor)
+            raw = data[cursor:cursor + byte_length]
+            strings.append(raw.decode("utf-8"))
+        else:
+            length, cursor = axml_read_length16(data, cursor)
+            raw = data[cursor:cursor + length * 2]
+            strings.append(raw.decode("utf-16le"))
+
+    return AxmlStringPool(
+        offset,
+        header_size,
+        size,
+        string_count,
+        style_count,
+        flags,
+        strings_start,
+        styles_start,
+        string_offsets,
+        style_offsets,
+        strings,
+    )
+
+
+def encode_axml_pool_string(value: str, utf8: bool) -> bytes:
+    if utf8:
+        raw = value.encode("utf-8")
+        utf16_units = len(value.encode("utf-16le")) // 2
+        return (
+            axml_encode_length8(utf16_units)
+            + axml_encode_length8(len(raw))
+            + raw
+            + b"\x00"
+        )
+
+    raw = value.encode("utf-16le")
+    return (
+        axml_encode_length16(len(raw) // 2)
+        + raw
+        + b"\x00\x00"
+    )
+
+
+def rebuild_axml_string_pool(
+    data: bytes,
+    pool: AxmlStringPool,
+    requested: Sequence[str],
+) -> tuple[bytes, dict[str, int]]:
+    existing = {
+        value: index
+        for index, value in enumerate(pool.strings)
+    }
+    additions: list[str] = []
+
+    for value in requested:
+        if value not in existing and value not in additions:
+            additions.append(value)
+
+    if not additions:
+        return (
+            data[pool.offset:pool.offset + pool.size],
+            {},
+        )
+
+    new_indices = {
+        value: pool.string_count + index
+        for index, value in enumerate(additions)
+    }
+
+    chunk = data[pool.offset:pool.offset + pool.size]
+    header_extension = chunk[28:pool.header_size]
+
+    old_strings_end = (
+        pool.styles_start
+        if pool.styles_start
+        else pool.size
+    )
+    old_string_region = chunk[
+        pool.strings_start:old_strings_end
+    ]
+    style_data = (
+        chunk[pool.styles_start:pool.size]
+        if pool.styles_start
+        else b""
+    )
+
+    string_offsets = list(pool.string_offsets)
+    appended = bytearray()
+    base_relative = len(old_string_region)
+
+    for value in additions:
+        string_offsets.append(base_relative + len(appended))
+        appended.extend(encode_axml_pool_string(value, pool.utf8))
+
+    string_region = bytearray(old_string_region)
+    string_region.extend(appended)
+    while len(string_region) % 4:
+        string_region.append(0)
+
+    new_string_count = pool.string_count + len(additions)
+    new_strings_start = (
+        pool.header_size
+        + 4 * new_string_count
+        + 4 * pool.style_count
+    )
+    new_styles_start = (
+        new_strings_start + len(string_region)
+        if pool.styles_start
+        else 0
+    )
+    new_size = (
+        new_strings_start
+        + len(string_region)
+        + len(style_data)
+    )
+
+    # Appending strings can make a previously sorted pool unsorted.
+    flags = pool.flags & ~RES_STRING_POOL_SORTED_FLAG
+
+    out = bytearray()
+    out.extend(struct.pack(
+        "<HHI",
+        RES_STRING_POOL_TYPE,
+        pool.header_size,
+        new_size,
+    ))
+    out.extend(struct.pack(
+        "<IIIII",
+        new_string_count,
+        pool.style_count,
+        flags,
+        new_strings_start,
+        new_styles_start,
+    ))
+    out.extend(header_extension)
+
+    if string_offsets:
+        out.extend(struct.pack(
+            "<" + ("I" * len(string_offsets)),
+            *string_offsets,
+        ))
+    if pool.style_offsets:
+        out.extend(struct.pack(
+            "<" + ("I" * len(pool.style_offsets)),
+            *pool.style_offsets,
+        ))
+
+    if len(out) != new_strings_start:
+        raise InjectError("Binary manifest string-pool layout is invalid")
+
+    out.extend(string_region)
+    out.extend(style_data)
+
+    if len(out) != new_size:
+        raise InjectError("Binary manifest string-pool size is invalid")
+
+    return bytes(out), new_indices
+
+
+def parse_axml_start_element(
+    data: bytes,
+    offset: int,
+    header_size: int,
+) -> tuple[int, int, list[tuple[int, int, int, int, int]]]:
+    extension = offset + header_size
+    (
+        namespace,
+        name,
+        attribute_start,
+        attribute_size,
+        attribute_count,
+        _,
+        _,
+        _,
+    ) = struct.unpack_from("<IIHHHHHH", data, extension)
+
+    if attribute_size < 20:
+        raise InjectError("Binary manifest has an invalid attribute size")
+
+    attributes: list[tuple[int, int, int, int, int]] = []
+    first_attribute = extension + attribute_start
+
+    for index in range(attribute_count):
+        attribute = first_attribute + index * attribute_size
+        (
+            attr_namespace,
+            attr_name,
+            raw_value,
+            value_size,
+            value_res0,
+            value_type,
+            value_data,
+        ) = struct.unpack_from("<IIIHBBI", data, attribute)
+
+        if value_size != 8 or value_res0 != 0:
+            raise InjectError(
+                "Binary manifest has an unsupported attribute value layout"
+            )
+
+        attributes.append((
+            attr_namespace,
+            attr_name,
+            raw_value,
+            value_type,
+            value_data,
+        ))
+
+    return namespace, name, attributes
+
+
+def build_axml_permission_node(
+    uses_permission_index: int,
+    android_namespace_index: int,
+    name_index: int,
+    permission_index: int,
+) -> bytes:
+    start = bytearray()
+    start.extend(struct.pack(
+        "<HHIII",
+        RES_XML_START_ELEMENT_TYPE,
+        16,
+        56,
+        0,
+        RES_XML_NO_INDEX,
+    ))
+    start.extend(struct.pack(
+        "<IIHHHHHH",
+        RES_XML_NO_INDEX,
+        uses_permission_index,
+        20,
+        20,
+        1,
+        0,
+        0,
+        0,
+    ))
+    start.extend(struct.pack(
+        "<IIIHBBI",
+        android_namespace_index,
+        name_index,
+        permission_index,
+        8,
+        0,
+        RES_VALUE_TYPE_STRING,
+        permission_index,
+    ))
+
+    end = struct.pack(
+        "<HHIIIII",
+        RES_XML_END_ELEMENT_TYPE,
+        16,
+        24,
+        0,
+        RES_XML_NO_INDEX,
+        RES_XML_NO_INDEX,
+        uses_permission_index,
+    )
+
+    return bytes(start) + end
+
+
+def patch_binary_manifest_permissions(
+    data: bytes,
+    permissions: Sequence[str],
+) -> tuple[bytes, list[str]]:
+    if len(data) < 8:
+        raise InjectError("AndroidManifest.xml is too short")
+
+    xml_type, header_size, total_size = struct.unpack_from(
+        "<HHI", data, 0
+    )
+    if (
+        xml_type != RES_XML_TYPE
+        or header_size != 8
+        or total_size != len(data)
+    ):
+        raise InjectError("AndroidManifest.xml is not standard binary XML")
+
+    chunks = list(axml_chunks(data))
+    string_chunk = next(
+        (
+            chunk
+            for chunk in chunks
+            if chunk[1] == RES_STRING_POOL_TYPE
+        ),
+        None,
+    )
+    if string_chunk is None:
+        raise InjectError("Binary AndroidManifest.xml has no string pool")
+
+    pool = parse_axml_string_pool(data, string_chunk[0])
+    string_index = {
+        value: index
+        for index, value in enumerate(pool.strings)
+    }
+
+    android_uri = "http://schemas.android.com/apk/res/android"
+    required_strings = (
+        android_uri,
+        "name",
+        "application",
+        "manifest",
+    )
+    missing_standard = [
+        value
+        for value in required_strings
+        if value not in string_index
+    ]
+    if missing_standard:
+        raise InjectError(
+            "Binary AndroidManifest.xml lacks required standard strings: "
+            + ", ".join(missing_standard)
+        )
+
+    android_namespace_index = string_index[android_uri]
+    name_index = string_index["name"]
+
+    resource_map = next(
+        (
+            chunk
+            for chunk in chunks
+            if chunk[1] == RES_XML_RESOURCE_MAP_TYPE
+        ),
+        None,
+    )
+    if resource_map is None:
+        raise InjectError("Binary AndroidManifest.xml has no resource map")
+
+    map_offset, _, map_header_size, map_size = resource_map
+    resource_count = (map_size - map_header_size) // 4
+    resource_ids = list(struct.unpack_from(
+        "<" + ("I" * resource_count),
+        data,
+        map_offset + map_header_size,
+    )) if resource_count else []
+
+    if (
+        name_index >= len(resource_ids)
+        or resource_ids[name_index] != ANDROID_NAME_RESOURCE_ID
+    ):
+        raise InjectError(
+            "Binary AndroidManifest.xml has an unexpected android:name mapping"
+        )
+
+    existing_permissions: set[str] = set()
+    insertion_offset: int | None = None
+    manifest_end: int | None = None
+
+    for offset, chunk_type, chunk_header_size, _ in chunks:
+        if chunk_type == RES_XML_START_ELEMENT_TYPE:
+            _, element_name, attributes = parse_axml_start_element(
+                data,
+                offset,
+                chunk_header_size,
+            )
+
+            if element_name >= len(pool.strings):
+                raise InjectError(
+                    "Binary AndroidManifest.xml has an invalid element name"
+                )
+
+            tag = pool.strings[element_name]
+            if tag == "application" and insertion_offset is None:
+                insertion_offset = offset
+
+            if tag == "uses-permission":
+                for (
+                    attr_namespace,
+                    attr_name,
+                    raw_value,
+                    value_type,
+                    value_data,
+                ) in attributes:
+                    if (
+                        attr_namespace != android_namespace_index
+                        or attr_name != name_index
+                    ):
+                        continue
+
+                    value: str | None = None
+                    if (
+                        raw_value != RES_XML_NO_INDEX
+                        and raw_value < len(pool.strings)
+                    ):
+                        value = pool.strings[raw_value]
+                    elif (
+                        value_type == RES_VALUE_TYPE_STRING
+                        and value_data < len(pool.strings)
+                    ):
+                        value = pool.strings[value_data]
+
+                    if value is not None:
+                        existing_permissions.add(value)
+
+        elif chunk_type == RES_XML_END_ELEMENT_TYPE:
+            namespace, element_name = struct.unpack_from(
+                "<II",
+                data,
+                offset + chunk_header_size,
+            )
+            del namespace
+            if (
+                element_name < len(pool.strings)
+                and pool.strings[element_name] == "manifest"
+            ):
+                manifest_end = offset
+
+    if insertion_offset is None:
+        insertion_offset = manifest_end
+    if insertion_offset is None:
+        raise InjectError(
+            "Unable to find a binary manifest permission insertion point"
+        )
+
+    missing = [
+        permission
+        for permission in permissions
+        if permission not in existing_permissions
+    ]
+    if not missing:
+        return data, []
+
+    strings_to_add: list[str] = []
+    if "uses-permission" not in string_index:
+        strings_to_add.append("uses-permission")
+    strings_to_add.extend(
+        permission
+        for permission in missing
+        if permission not in string_index
+    )
+
+    new_string_chunk, added_indices = rebuild_axml_string_pool(
+        data,
+        pool,
+        strings_to_add,
+    )
+
+    def final_string_index(value: str) -> int:
+        if value in string_index:
+            return string_index[value]
+        return added_indices[value]
+
+    uses_permission_index = final_string_index("uses-permission")
+    permission_nodes = b"".join(
+        build_axml_permission_node(
+            uses_permission_index,
+            android_namespace_index,
+            name_index,
+            final_string_index(permission),
+        )
+        for permission in missing
+    )
+
+    pool_end = pool.offset + pool.size
+    if insertion_offset < pool_end:
+        raise InjectError(
+            "Binary AndroidManifest.xml has an unexpected chunk order"
+        )
+
+    patched = bytearray(
+        data[:pool.offset]
+        + new_string_chunk
+        + data[pool_end:insertion_offset]
+        + permission_nodes
+        + data[insertion_offset:]
+    )
+    struct.pack_into("<I", patched, 4, len(patched))
+
+    # Re-parse the output immediately so malformed chunk edits never ship.
+    list(axml_chunks(bytes(patched)))
+    reparsed_pool = parse_axml_string_pool(
+        bytes(patched),
+        string_chunk[0],
+    )
+    for permission in missing:
+        if permission not in reparsed_pool.strings:
+            raise InjectError(
+                f"Patched binary manifest lost permission string: {permission}"
+            )
+
+    return bytes(patched), missing
+
+
+def manifest_with_storage_permissions(target: Path) -> bytes:
+    step("Patching target binary manifest storage permissions")
+
+    with zipfile.ZipFile(target, "r") as zf:
+        try:
+            original = zf.read("AndroidManifest.xml")
+        except KeyError as exc:
+            raise InjectError("Target APK has no AndroidManifest.xml") from exc
+
+    patched, added = patch_binary_manifest_permissions(
+        original,
+        STORAGE_PERMISSIONS,
+    )
+
+    if added:
+        for permission in added:
+            log("  added " + permission)
+    else:
+        log("Storage permissions already present in target manifest")
+
+    return patched
+
+
 def rebuild_apk(
     target: Path,
     overlay_dex: Path,
     output: Path,
+    manifest: bytes | None = None,
 ) -> list[tuple[str, str]]:
     """Prepend a tiny overlay dex and preserve every target dex byte-for-byte.
 
@@ -1002,6 +1659,10 @@ def rebuild_apk(
             inserted_overlay = False
             for info in zin.infolist():
                 if is_signature(info.filename):
+                    continue
+
+                if info.filename == "AndroidManifest.xml" and manifest is not None:
+                    zout.writestr(clone_zipinfo(info), manifest)
                     continue
 
                 if DEX_RE.match(info.filename):
@@ -1228,6 +1889,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         log("ModAnkh target API check: OK")
 
+        manifest_bytes = manifest_with_storage_permissions(target)
+
         step("Building first-dex overlay: patched Dungeon + ModAnkh debug console")
         original_dungeon = dungeon_path.read_text(
             encoding="utf-8",
@@ -1272,6 +1935,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             target,
             overlay_dex,
             unsigned,
+            manifest_bytes,
         )
         with zipfile.ZipFile(unsigned) as zf:
             bad = zf.testzip()
