@@ -58,7 +58,7 @@ JAVA_FRAMEWORK_PREFIXES = (
 TARGET_API_PREFIXES = (
     "Lcom/shatteredpixel/", "Lcom/watabou/", "Lcom/badlogic/",
 ) + JAVA_FRAMEWORK_PREFIXES
-DESCRIPTOR_RE = re.compile(r"L[^;\s]+;")
+CLASS_DESCRIPTOR_RE = re.compile(r"L[A-Za-z0-9_$/]+;")
 
 CLASS_RE = re.compile(r"(?m)^\.class\b[^\n]*?\s+(L[^;\s]+;)")
 SUPER_RE = re.compile(r"(?m)^\.super\s+(L[^;\s]+;)")
@@ -607,10 +607,36 @@ def is_debug_root(descriptor: str) -> bool:
     )
 
 
-def smali_dependencies(item: SmaliClass) -> set[str]:
-    """Return class descriptors referenced by a donor smali class."""
+def descriptor_classes(descriptor: str) -> set[str]:
+    """Extract object class descriptors from a JVM/Dalvik descriptor."""
 
-    deps = set(DESCRIPTOR_RE.findall(item.text))
+    return set(CLASS_DESCRIPTOR_RE.findall(descriptor))
+
+
+def smali_dependencies(item: SmaliClass) -> set[str]:
+    """Return actual class dependencies referenced by a donor smali class."""
+
+    deps: set[str] = set()
+
+    if item.superclass:
+        deps.add(item.superclass)
+    deps.update(item.interfaces)
+    deps.update(TYPE_INSN_RE.findall(item.text))
+
+    for _, owner, _, proto in METHOD_INSN_RE.findall(item.text):
+        deps.add(owner)
+        deps.update(descriptor_classes(proto))
+
+    for _, owner, _, typ in FIELD_INSN_RE.findall(item.text):
+        deps.add(owner)
+        deps.update(descriptor_classes(typ))
+
+    for _, _, proto in METHOD_DEF_RE.findall(item.text):
+        deps.update(descriptor_classes(proto))
+
+    for _, _, typ in FIELD_DEF_RE.findall(item.text):
+        deps.update(descriptor_classes(typ))
+
     deps.discard(item.descriptor)
     return deps
 
@@ -624,13 +650,10 @@ def rewrite_smali_class(
     item: SmaliClass,
     replacements: dict[str, str],
 ) -> SmaliClass:
-    text = item.text
-    for old, new in sorted(
-        replacements.items(),
-        key=lambda pair: len(pair[0]),
-        reverse=True,
-    ):
-        text = text.replace(old, new)
+    text = CLASS_DESCRIPTOR_RE.sub(
+        lambda match: replacements.get(match.group(0), match.group(0)),
+        item.text,
+    )
     return SmaliClass.from_text(item.path, text)
 
 
