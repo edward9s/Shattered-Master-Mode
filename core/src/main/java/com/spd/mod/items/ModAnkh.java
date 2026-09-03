@@ -1,5 +1,6 @@
 package com.spd.mod.items;
 
+import com.spd.mod.debug.ModDebug;
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 public class ModAnkh extends Ankh {
 
     public static final String AC_UNBLESS = "UNBLESS";
+    public static final String AC_CONSOLE = "CONSOLE";
 
     // Times revived via blessed ankh (kept inventory, instant revive).
     private int timesRevived = 0;
@@ -115,6 +117,10 @@ public class ModAnkh extends Ankh {
             }
         }
 
+        if (!actions.contains(AC_CONSOLE)) {
+            actions.add(AC_CONSOLE);
+        }
+
         return actions;
     }
 
@@ -122,13 +128,18 @@ public class ModAnkh extends Ankh {
     public String actionName(String action, Hero hero) {
         if (AC_UNBLESS.equals(action)) {
             return "Unbless";
+        } else if (AC_CONSOLE.equals(action)) {
+            return "Console";
         }
         return super.actionName(action, hero);
     }
 
     @Override
     public void execute(Hero hero, String action) {
-        if (AC_BLESS.equals(action)) {
+        if (AC_CONSOLE.equals(action)) {
+            GameScene.cancel();
+            ModDebug.open();
+        } else if (AC_BLESS.equals(action)) {
             GameScene.cancel();
             setCurrent(hero);
 

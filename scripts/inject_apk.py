@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Inject only SMM's ModAnkh into an SPD-derived APK.
+"""Inject SMM's ModAnkh and debug console into an SPD-derived APK.
 
 Usage:
     python scripts/inject_apk.py <source-smm.apk> <target.apk> [--out output.apk]
 
 Scope is intentionally narrow:
-  * copies only Lcom/spd/mod/items/ModAnkh;
+  * copies ModAnkh plus the controlled Lcom/spd/mod/debug/ payload;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * leaves AndroidManifest.xml and all resources untouched;
-  * builds one tiny first-dex overlay containing patched Dungeon + ModAnkh;
+  * builds one small first-dex overlay containing patched Dungeon + ModAnkh/debug classes;
   * preserves every original target DEX byte-for-byte and shifts them back one slot;
   * validates ModAnkh's executable target API references before packaging.
 
@@ -46,6 +46,8 @@ APKTOOL_SHA256 = "dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f94
 SMALI_VERSION = "3.0.9"
 
 MOD_ANKH = "Lcom/spd/mod/items/ModAnkh;"
+MOD_DEBUG_PREFIX = "Lcom/spd/mod/debug/"
+MOD_DEBUG = "Lcom/spd/mod/debug/ModDebug;"
 DUNGEON = "Lcom/shatteredpixel/shatteredpixeldungeon/Dungeon;"
 HERO_CLASS = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/HeroClass;"
 HERO = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/Hero;"
@@ -938,7 +940,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         target_index = index_smali(tgt)
+        donor_index = index_smali(donor)
         _, donor_ankh = find_class(donor, MOD_ANKH)
+        debug_payload = {
+            desc: cls for desc, cls in donor_index.items()
+            if desc.startswith(MOD_DEBUG_PREFIX)
+        }
+        if MOD_DEBUG not in debug_payload:
+            raise InjectError("Donor APK is missing com.spd.mod.debug.ModDebug")
+        collisions = sorted(desc for desc in debug_payload if desc in target_index)
+        if collisions:
+            raise InjectError(
+                "Target already contains injected debug classes: "
+                + ", ".join(collisions)
+            )
         dungeon_dir, dungeon_path = find_class(tgt, DUNGEON)
         log(f"Dungeon source dex: {smali_dir_dex_name(dungeon_dir)}")
 
@@ -951,7 +966,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         for note in notes:
             log("  " + note)
 
-        errors = modankh_compatibility_errors(mod_text, target_index)
+        compatibility_index = dict(target_index)
+        compatibility_index.update(debug_payload)
+        errors = modankh_compatibility_errors(mod_text, compatibility_index)
         if errors:
             log("ModAnkh compatibility errors:")
             for e in errors:
@@ -962,7 +979,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         log("ModAnkh target API check: OK")
 
-        step("Building first-dex overlay: patched Dungeon + ModAnkh")
+        step("Building first-dex overlay: patched Dungeon + ModAnkh debug console")
         original_dungeon = dungeon_path.read_text(
             encoding="utf-8",
             errors="replace",
@@ -984,6 +1001,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             mod_text,
             encoding="utf-8",
         )
+
+        for descriptor, donor_class in sorted(debug_payload.items()):
+            overlay_class = overlay_root / Path(descriptor[1:-1] + ".smali")
+            overlay_class.parent.mkdir(parents=True, exist_ok=True)
+            overlay_class.write_text(donor_class.text, encoding="utf-8")
+        log(f"Debug payload classes: {len(debug_payload)}")
 
         overlay_dex = work / "overlay.dex"
         compile_smali(
@@ -1041,6 +1064,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log(f"Output : {out}")
         log(f"SHA-256: {sha256(out)}")
         log("Package: unchanged from target (re-signed APK)")
+        log("Injected: ModAnkh + debug console")
         if not args.keystore:
             log(
                 "Install note: uninstall the original target first "
