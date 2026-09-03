@@ -8,7 +8,6 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
-import com.shatteredpixel.shatteredpixeldungeon.windows.WndOptions;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTextInput;
 
 import java.io.File;
@@ -50,63 +49,6 @@ public final class ModDebug {
     private static boolean indexed;
 
     private ModDebug() {
-    }
-
-    public static void openBuffs() {
-        final Hero hero = Dungeon.hero;
-        if (hero == null) {
-            GLog.w("No active hero.");
-            return;
-        }
-
-        final Class<? extends Buff>[] buffClasses = new Class[]{
-                ModAssassinBuff.class,
-                ModParryRiposte.class
-        };
-
-        String[] options = new String[]{
-                buffOption(hero, "Assassin Instinct", ModAssassinBuff.class),
-                buffOption(hero, "Total Parry / Riposte", ModParryRiposte.class)
-        };
-
-        GameScene.show(new WndOptions(
-                "Master Mode Buffs",
-                "Toggle a buff on the Hero.",
-                options) {
-            @Override
-            protected void onSelect(int index) {
-                if (index < 0 || index >= buffClasses.length) {
-                    return;
-                }
-                toggleHeroBuff(hero, buffClasses[index]);
-            }
-        });
-    }
-
-    private static String buffOption(
-            Hero hero,
-            String name,
-            Class<? extends Buff> buffClass) {
-        return str(name, hero.buff(buffClass) == null ? " [OFF]" : " [ON]");
-    }
-
-    private static void toggleHeroBuff(
-            Hero hero,
-            Class<? extends Buff> buffClass) {
-        Buff current = hero.buff(buffClass);
-        if (current != null) {
-            String name = current.name();
-            current.detach();
-            GLog.w(str("Detached ", name));
-            return;
-        }
-
-        Buff applied = Buff.affect(hero, buffClass);
-        if (applied == null || applied.target != hero) {
-            GLog.w(str("Unable to affect ", buffClass.getSimpleName()));
-            return;
-        }
-        GLog.p(str("Affected ", applied.name()));
     }
 
     public static void open() {
