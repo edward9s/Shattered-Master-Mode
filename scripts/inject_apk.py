@@ -46,8 +46,8 @@ APKTOOL_SHA256 = "dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f94
 SMALI_VERSION = "3.0.9"
 
 MOD_ANKH = "Lcom/spd/mod/items/ModAnkh;"
-MOD_DEBUG_PREFIX = "Lcom/spd/mod/mechanics/ModDebug"
 MOD_DEBUG = "Lcom/spd/mod/mechanics/ModDebug;"
+MOD_DEBUG_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModDebug$"
 DUNGEON = "Lcom/shatteredpixel/shatteredpixeldungeon/Dungeon;"
 HERO_CLASS = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/HeroClass;"
 HERO = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/Hero;"
@@ -1032,7 +1032,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _, donor_ankh = find_class(donor, MOD_ANKH)
         debug_payload = {
             desc: cls for desc, cls in donor_index.items()
-            if desc.startswith(MOD_DEBUG_PREFIX)
+            if desc == MOD_DEBUG or desc.startswith(MOD_DEBUG_INNER_PREFIX)
         }
         if MOD_DEBUG not in debug_payload:
             raise InjectError("Donor APK is missing com.spd.mod.mechanics.ModDebug")
