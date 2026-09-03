@@ -11,16 +11,26 @@ public class ModBlobPane {
         pane.addHeader("Gases & Blobs");
 
         for (Class<? extends Blob> blobClass : ModBlobClass.allBlobs()) {
+            String infoTitle = blobClass.getSimpleName();
+            String infoDescription = null;
+
             try {
                 Blob blob = Reflection.newInstanceUnhandled(blobClass);
-                ModGridBlob item = new ModGridBlob(
-                        blobClass,
-                        Messages.titleCase(Messages.get(blob, "name")),
-                        blob.tileDesc());
-                pane.addItem(item);
+
+                String localizedName = Messages.get(blob, "name");
+                if (ModGridEntry.hasUsableText(localizedName)) {
+                    infoTitle = Messages.titleCase(localizedName);
+                }
+
+                infoDescription = blob.tileDesc();
             } catch (Exception ignored) {
-                // Internal blob classes without authoritative journal text are not entries.
+                // Blob effects remain available even if journal metadata cannot be resolved.
             }
+
+            pane.addItem(new ModGridBlob(
+                    blobClass,
+                    infoTitle,
+                    infoDescription));
         }
     }
 }
