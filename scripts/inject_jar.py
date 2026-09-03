@@ -37,6 +37,8 @@ MOD_DEBUG_PREFIX = "com/spd/mod/mechanics/ModDebug"
 MOD_DEBUG_ENTRY = "com/spd/mod/mechanics/ModDebug.class"
 MOD_VALUE_SEARCH_PREFIX = "com/spd/mod/mechanics/ModValueSearch"
 MOD_VALUE_SEARCH_ENTRY = "com/spd/mod/mechanics/ModValueSearch.class"
+MOD_SAVE_TRANSFER_PREFIX = "com/spd/mod/mechanics/ModSaveTransfer"
+MOD_SAVE_TRANSFER_ENTRY = "com/spd/mod/mechanics/ModSaveTransfer.class"
 DUNGEON_ENTRY = "com/shatteredpixel/shatteredpixeldungeon/Dungeon.class"
 CLASS_MAGIC = b"\xca\xfe\xba\xbe"
 
@@ -760,12 +762,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                         name.startswith(MOD_VALUE_SEARCH_PREFIX + "$")
                         and name.endswith(".class")
                     )
+                    or name == MOD_SAVE_TRANSFER_ENTRY
+                    or (
+                        name.startswith(MOD_SAVE_TRANSFER_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
                 )
             )
             if MOD_DEBUG_ENTRY not in debug_names:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModDebug")
             if MOD_VALUE_SEARCH_ENTRY not in debug_names:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModValueSearch")
+            if MOD_SAVE_TRANSFER_ENTRY not in debug_names:
+                raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModSaveTransfer")
             debug_payload = {
                 name: zf.read(name) for name in debug_names
             }
@@ -790,6 +799,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_ANKH_ENTRY,
                 MOD_DEBUG_ENTRY,
                 MOD_VALUE_SEARCH_ENTRY,
+                MOD_SAVE_TRANSFER_ENTRY,
             ],
         )
         shutil.copy2(unsigned_tmp, output)
