@@ -8,8 +8,8 @@ Scope is intentionally narrow:
   * copies only Lcom/spd/mod/items/ModAnkh;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * leaves AndroidManifest.xml and all resources untouched;
-  * rebuilds only the target dex that contains Dungeon;
-  * appends ModAnkh as a new final dex;
+  * builds one tiny first-dex overlay containing patched Dungeon + ModAnkh;
+  * preserves every original target DEX byte-for-byte and shifts them back one slot;
   * validates ModAnkh's executable target API references before packaging.
 
 The output keeps the target package name. Because it is re-signed, an installed
@@ -705,11 +705,8 @@ def dex_number(name: str) -> int:
     return int(m.group(1) or "1")
 
 
-def next_dex_name(names: Iterable[str]) -> str:
-    nums = [dex_number(name) for name in names if DEX_RE.match(name)]
-    if not nums:
-        raise InjectError("Target APK has no classes.dex")
-    return f"classes{max(nums) + 1}.dex"
+def shifted_dex_name(number: int) -> str:
+    return "classes.dex" if number == 1 else f"classes{number}.dex"
 
 
 def clone_zipinfo(
@@ -737,39 +734,65 @@ def is_signature(name: str) -> bool:
 
 def rebuild_apk(
     target: Path,
-    replaced_dex_name: str,
-    replaced_dex: Path,
-    modankh_dex: Path,
+    overlay_dex: Path,
     output: Path,
-) -> str:
+) -> list[tuple[str, str]]:
+    """Prepend a tiny overlay dex and preserve every target dex byte-for-byte.
+
+    Reassembling a large R8 target dex can move a method/field/string index from
+    65535 to 65536 and make a non-jumbo instruction unencodable.  Therefore the
+    injector never rewrites target dex content.  The overlay is classes.dex and
+    original target dex files are renamed to classes2.dex, classes3.dex, ...
+    in their original order.
+    """
+    overlay = overlay_dex.read_bytes()
+    if not overlay.startswith(b"dex\n"):
+        raise InjectError("Overlay is not a valid dex file")
+
     with zipfile.ZipFile(target, "r") as zin:
-        names = zin.namelist()
-        if replaced_dex_name not in names:
-            raise InjectError(f"Target lacks {replaced_dex_name}")
-        new_dex = next_dex_name(names)
+        dex_infos = sorted(
+            [info for info in zin.infolist() if DEX_RE.match(info.filename)],
+            key=lambda info: dex_number(info.filename),
+        )
+        if not dex_infos or dex_infos[0].filename != "classes.dex":
+            raise InjectError("Target APK has no classes.dex")
+
+        mapping = [
+            (info.filename, shifted_dex_name(index + 2))
+            for index, info in enumerate(dex_infos)
+        ]
+        mapped = dict(mapping)
+        first_dex = dex_infos[0]
 
         with zipfile.ZipFile(output, "w", allowZip64=True) as zout:
+            inserted_overlay = False
             for info in zin.infolist():
                 if is_signature(info.filename):
                     continue
-                data = (
-                    replaced_dex.read_bytes()
-                    if info.filename == replaced_dex_name
-                    else zin.read(info.filename)
-                )
-                zout.writestr(clone_zipinfo(info), data)
 
-            template = next(
-                (i for i in zin.infolist() if DEX_RE.match(i.filename)),
-                None,
-            )
-            if template is None:
-                raise InjectError("Target lacks dex template")
-            zout.writestr(
-                clone_zipinfo(template, new_dex),
-                modankh_dex.read_bytes(),
-            )
-    return new_dex
+                if DEX_RE.match(info.filename):
+                    if not inserted_overlay:
+                        zout.writestr(
+                            clone_zipinfo(first_dex, "classes.dex"),
+                            overlay,
+                        )
+                        inserted_overlay = True
+
+                    zout.writestr(
+                        clone_zipinfo(info, mapped[info.filename]),
+                        zin.read(info.filename),
+                    )
+                    continue
+
+                zout.writestr(
+                    clone_zipinfo(info),
+                    zin.read(info.filename),
+                )
+
+            if not inserted_overlay:
+                raise InjectError("Failed to insert overlay dex")
+
+    return mapping
 
 
 def ensure_debug_keystore(java: JavaTools, cache: Path) -> Path:
@@ -917,7 +940,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         target_index = index_smali(tgt)
         _, donor_ankh = find_class(donor, MOD_ANKH)
         dungeon_dir, dungeon_path = find_class(tgt, DUNGEON)
-        log(f"Dungeon dex: {smali_dir_dex_name(dungeon_dir)}")
+        log(f"Dungeon source dex: {smali_dir_dex_name(dungeon_dir)}")
 
         step("Adapting and validating ModAnkh against target API")
         mod_text = donor_ankh.read_text(
@@ -939,47 +962,43 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         log("ModAnkh target API check: OK")
 
-        step("Patching Dungeon.init()")
+        step("Building first-dex overlay: patched Dungeon + ModAnkh")
         original_dungeon = dungeon_path.read_text(
             encoding="utf-8",
             errors="replace",
         )
-        dungeon_path.write_text(
-            patch_dungeon(original_dungeon),
+        patched_dungeon = patch_dungeon(original_dungeon)
+
+        overlay_root = work / "overlay-smali"
+
+        overlay_dungeon = overlay_root / Path(DUNGEON[1:-1] + ".smali")
+        overlay_dungeon.parent.mkdir(parents=True, exist_ok=True)
+        overlay_dungeon.write_text(
+            patched_dungeon,
             encoding="utf-8",
         )
 
-        step("Building patched Dungeon dex")
-        patched_dex = work / smali_dir_dex_name(dungeon_dir)
+        overlay_ankh = overlay_root / Path(MOD_ANKH[1:-1] + ".smali")
+        overlay_ankh.parent.mkdir(parents=True, exist_ok=True)
+        overlay_ankh.write_text(
+            mod_text,
+            encoding="utf-8",
+        )
+
+        overlay_dex = work / "overlay.dex"
         compile_smali(
             java.java,
             smali,
-            dungeon_dir,
-            patched_dex,
+            overlay_root,
+            overlay_dex,
             api,
         )
 
-        step("Building one-class ModAnkh dex")
-        mod_root = work / "modankh-smali"
-        mod_path = mod_root / Path(MOD_ANKH[1:-1] + ".smali")
-        mod_path.parent.mkdir(parents=True, exist_ok=True)
-        mod_path.write_text(mod_text, encoding="utf-8")
-        mod_dex = work / "modankh.dex"
-        compile_smali(
-            java.java,
-            smali,
-            mod_root,
-            mod_dex,
-            api,
-        )
-
-        step("Repacking APK (manifest/resources untouched)")
+        step("Repacking APK with untouched target DEX files")
         unsigned = work / "unsigned.apk"
-        appended = rebuild_apk(
+        dex_mapping = rebuild_apk(
             target,
-            smali_dir_dex_name(dungeon_dir),
-            patched_dex,
-            mod_dex,
+            overlay_dex,
             unsigned,
         )
         with zipfile.ZipFile(unsigned) as zf:
@@ -988,7 +1007,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise InjectError(
                     f"Corrupt APK entry after rebuild: {bad}"
                 )
-        log(f"ModAnkh dex: {appended}")
+            if not zf.read("classes.dex").startswith(b"dex\n"):
+                raise InjectError("Output overlay classes.dex is invalid")
+            for _, shifted in dex_mapping:
+                if not zf.read(shifted).startswith(b"dex\n"):
+                    raise InjectError(f"Shifted target dex is invalid: {shifted}")
+
+        log("DEX layout:")
+        log("  overlay -> classes.dex")
+        for original, shifted in dex_mapping:
+            log(f"  {original} -> {shifted} (byte-for-byte)")
 
         step("Signing")
         if args.keystore:
