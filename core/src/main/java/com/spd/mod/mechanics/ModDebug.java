@@ -163,7 +163,7 @@ public final class ModDebug {
                 "Debug commands:\n"
                 + "give <Item> [+level] [xquantity]\n"
                 + "spawn <Mob> [xquantity|-p|--place]\n"
-                + "affect <Buff> [duration]  (select a character)\n"
+                + "affect <Buff> [duration] [method [args...]]  (select a character)\n"
                 + "inspect <Class|hero|level>\n"
                 + "use <Class|hero|level> <method> [args...]\n"
                 + "goto <depth> [branch]  (branch defaults to 0)\n"
@@ -304,8 +304,9 @@ public final class ModDebug {
     }
 
     private static void affect(List<String> args) throws Exception {
-        if (args.isEmpty() || args.size() > 2) {
-            throw new IllegalArgumentException("affect <Buff> [duration]");
+        if (args.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "affect <Buff> [duration] [method [args...]]");
         }
         if (Dungeon.hero == null || Dungeon.level == null) {
             throw new IllegalStateException("No active dungeon");
@@ -315,9 +316,8 @@ public final class ModDebug {
         if (raw == null) {
             throw new IllegalArgumentException(str("Buff class not found: ", args.get(0)));
         }
-        final Float duration = args.size() == 2
-                ? Float.parseFloat(args.get(1))
-                : null;
+        final List<String> options =
+                new ArrayList<>(args.subList(1, args.size()));
 
         GameScene.selectCell(new CellSelector.Listener() {
             @Override
@@ -336,23 +336,84 @@ public final class ModDebug {
                     return;
                 }
 
-                Buff buff;
-                if (duration != null && FlavourBuff.class.isAssignableFrom(raw)) {
-                    buff = Buff.affect(target, (Class) raw, duration);
-                } else {
-                    buff = Buff.affect(target, (Class) raw);
-                    if (duration != null) {
-                        GLog.w(str(
-                                "Duration ignored: ", raw.getSimpleName(),
-                                " is not a FlavourBuff."));
+                try {
+                    applyAffect(target, raw, options);
+                } catch (Exception error) {
+                    error.printStackTrace();
+                    String message = error.getMessage();
+                    if (message == null || message.isEmpty()) {
+                        GLog.n("Affect failed.");
+                    } else {
+                        GLog.n(str(
+                                "Affect failed: ",
+                                error.getClass().getSimpleName(),
+                                ": ",
+                                message));
                     }
                 }
-
-                GLog.p(str(
-                        "Affected ", target.getClass().getSimpleName(),
-                        " with ", buff.getClass().getSimpleName()));
             }
         });
+    }
+
+    private static void applyAffect(
+            Char target, Class<?> raw, List<String> options) throws Exception {
+
+        int index = 0;
+        Buff buff;
+
+        if (FlavourBuff.class.isAssignableFrom(raw) && !options.isEmpty()) {
+            Float duration = tryParseFloat(options.get(0));
+            if (duration != null) {
+                buff = Buff.affect(target, (Class) raw, duration);
+                index = 1;
+            } else {
+                buff = Buff.affect(target, (Class) raw);
+            }
+        } else {
+            buff = Buff.affect(target, (Class) raw);
+        }
+
+        if (buff == null) {
+            throw new IllegalStateException(str(
+                    "Buff could not be attached: ", raw.getSimpleName()));
+        }
+
+        boolean invoked = false;
+        List<String> remaining = options.subList(index, options.size());
+
+        if (!FlavourBuff.class.isAssignableFrom(raw) && !remaining.isEmpty()) {
+            String[] commonMethods = {"set", "reset", "prolong", "extend"};
+            for (String methodName : commonMethods) {
+                if (invokeCompatible(
+                        buff, buff.getClass(), methodName, remaining, false)) {
+                    invoked = true;
+                    break;
+                }
+            }
+        }
+
+        if (!invoked && index < options.size()) {
+            String methodName = options.get(index);
+            List<String> methodArgs = options.subList(index + 1, options.size());
+            if (!invokeCompatible(
+                    buff, buff.getClass(), methodName, methodArgs, false)) {
+                GLog.w(str(
+                        "No supported method matching ", methodName,
+                        " was found on ", buff.getClass().getSimpleName(), "."));
+            }
+        }
+
+        GLog.p(str(
+                "Affected ", target.getClass().getSimpleName(),
+                " with ", buff.getClass().getSimpleName()));
+    }
+
+    private static Float tryParseFloat(String raw) {
+        try {
+            return Float.parseFloat(raw);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private static void inspect(List<String> args) throws Exception {
@@ -427,7 +488,21 @@ public final class ModDebug {
         String name = args.get(1);
         List<String> rawArgs = args.subList(2, args.size());
 
-        List<Method> candidates = allMethods(ref.type);
+        if (!invokeCompatible(ref.instance, ref.type, name, rawArgs, true)) {
+            throw new NoSuchMethodException(str(
+                    "No compatible ", ref.type.getSimpleName(), ".", name,
+                    " with ", rawArgs.size(), " argument(s)"));
+        }
+    }
+
+    private static boolean invokeCompatible(
+            Object receiver,
+            Class<?> type,
+            String name,
+            List<String> rawArgs,
+            boolean logResult) throws Exception {
+
+        List<Method> candidates = allMethods(type);
         Collections.sort(candidates, new MethodKeyComparator());
 
         Exception lastError = null;
@@ -442,16 +517,18 @@ public final class ModDebug {
                 continue;
             }
 
-            Object receiver = null;
+            Object actualReceiver = null;
             if (!Modifier.isStatic(method.getModifiers())) {
-                receiver = ref.instance != null ? ref.instance : newInstance(ref.type);
+                actualReceiver = receiver != null ? receiver : newInstance(type);
             }
 
             try {
                 method.setAccessible(true);
-                Object result = method.invoke(receiver, converted);
-                GLog.p(str(method.getName(), " -> ", valueString(result)));
-                return;
+                Object result = method.invoke(actualReceiver, converted);
+                if (logResult) {
+                    GLog.p(str(method.getName(), " -> ", valueString(result)));
+                }
+                return true;
             } catch (Exception error) {
                 lastError = error;
             }
@@ -460,10 +537,7 @@ public final class ModDebug {
         if (lastError != null) {
             throw lastError;
         }
-
-        throw new NoSuchMethodException(str(
-                "No compatible ", ref.type.getSimpleName(), ".", name,
-                " with ", rawArgs.size(), " argument(s)"));
+        return false;
     }
 
     private static void gotoLevel(List<String> args) throws Exception {
