@@ -6,6 +6,10 @@ SMM 的 Debug Console 是給 Shattered Pixel Dungeon 衍生版本使用的遊戲
 
 Console 由 **ModAnkh** 提供。使用 ModAnkh，選擇 **Console**，然後一次輸入一條指令。
 
+## 致謝
+
+SMM Debug Console 的設計部分受到 [Zrp200 的 ScrollOfDebug](https://github.com/Zrp200/ScrollOfDebug) 啟發；它以 reflection 為核心的命令介面與遊戲內除錯工具，為這類開發工具提供了重要參考。感謝 Zrp200 與 ScrollOfDebug contributors 的工作、貢獻與啟發。
+
 > 可用的 class、field 與 method 會隨目標 SPD fork 與版本不同。碰到目標版本沒有的 API 時，對應指令可能失敗。
 
 ## 先理解這四件事

@@ -6,6 +6,10 @@ The SMM debug console is an in-game reflection and editing tool for Shattered Pi
 
 The console is exposed through **ModAnkh**. Use the ModAnkh, choose **Console**, then enter one command at a time.
 
+## Acknowledgements
+
+SMM's Debug Console was inspired in part by [Zrp200's ScrollOfDebug](https://github.com/Zrp200/ScrollOfDebug), whose reflection-driven command interface and in-game debugging tools provided important inspiration for this style of developer tooling. Thanks to Zrp200 and the ScrollOfDebug contributors for their work and contributions.
+
 > The exact classes, fields, and methods available depend on the target SPD fork and version. Commands that refer to game internals can fail when a target uses a different API.
 
 ## The basic model
