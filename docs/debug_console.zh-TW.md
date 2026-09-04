@@ -83,6 +83,18 @@ inspect RingOfEnergy
 
 `inspect` 會列出可找到的 field 與 method，也包含繼承自 superclass 的成員。不知道實際欄位或方法名稱時，通常先跑 `inspect` 最有效。
 
+也可以在 target 後面加一個 query，同時篩選 field 與 method 名稱：
+
+```text
+inspect @item quan
+inspect @hero buff
+inspect @mob attk
+```
+
+搜尋不分大小寫，結果依符合程度排序：完全相同、前綴相同、包含字串，最後才是 fuzzy subsequence match。模糊匹配只要求 query 的字元依序出現在名稱中，所以 `attk` 也能找到 `attack` 一類的名稱。結果數量不設上限；如果搜尋太廣，直接把 query 打得更精確即可。
+
+不帶 query 時，`inspect` 仍維持原本的完整列表行為。
+
 Class 名稱可用簡名，例如 `Rat`、`RingOfEnergy`，也可以輸入完整 Java class 名稱。
 
 ## 直接讀寫 field
