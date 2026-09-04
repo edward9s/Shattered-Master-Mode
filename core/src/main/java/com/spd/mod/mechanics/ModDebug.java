@@ -206,11 +206,20 @@ public final class ModDebug {
                 break;
 
             case "get":
-                ModValueSearch.get(args);
+                if (!args.isEmpty() && args.get(0).startsWith("@")) {
+                    stored = getObjectField(args);
+                    hasStoredResult = stored != null;
+                } else {
+                    ModValueSearch.get(args);
+                }
                 break;
 
             case "set":
-                ModValueSearch.set(args);
+                if (!args.isEmpty() && args.get(0).startsWith("@")) {
+                    setObjectField(args);
+                } else {
+                    ModValueSearch.set(args);
+                }
                 break;
 
             case "clear":
@@ -344,6 +353,8 @@ public final class ModDebug {
                 + "!!  (repeat the previous command)\n"
                 + "search <number|changed|unchanged|increased|decreased>\n"
                 + "results [#id] | get #id | set #id <number> | clear\n"
+                + "get @object <field> | set @object <field> <value>\n"
+                + "@x get @object <field>  (store a non-null field value)\n"
                 + "save  (Android: export app save files to Download/<package>)\n"
                 + "load  (Android: import them, then restart the app)\n"
                 + "Class names may be simple (RingOfEnergy) or fully qualified.\n"
@@ -1083,6 +1094,76 @@ public final class ModDebug {
                 false, false);
 
         GLog.p(str("Warped to cell ", cell));
+    }
+
+    private static Object getObjectField(List<String> args)
+            throws Exception {
+
+        if (args.size() != 2
+                || !args.get(0).startsWith("@")) {
+            throw new IllegalArgumentException(
+                    "get @object <field>");
+        }
+
+        Object object = getVariable(args.get(0));
+        if (object == null) {
+            throw new IllegalArgumentException(str(
+                    "Variable is undefined or inactive: ",
+                    args.get(0)));
+        }
+
+        Field field = findField(
+                object.getClass(), args.get(1));
+        if (field == null) {
+            throw new NoSuchFieldException(str(
+                    object.getClass().getName(),
+                    ".", args.get(1)));
+        }
+
+        Object value = field.get(object);
+        GLog.p(str(
+                field.getName(), " -> ",
+                valueString(value)));
+        return value;
+    }
+
+    private static void setObjectField(List<String> args)
+            throws Exception {
+
+        if (args.size() != 3
+                || !args.get(0).startsWith("@")) {
+            throw new IllegalArgumentException(
+                    "set @object <field> <value>");
+        }
+
+        Object object = getVariable(args.get(0));
+        if (object == null) {
+            throw new IllegalArgumentException(str(
+                    "Variable is undefined or inactive: ",
+                    args.get(0)));
+        }
+
+        Field field = findField(
+                object.getClass(), args.get(1));
+        if (field == null) {
+            throw new NoSuchFieldException(str(
+                    object.getClass().getName(),
+                    ".", args.get(1)));
+        }
+
+        Object value = convertArg(
+                field.getType(), args.get(2));
+        if (value == BAD_ARG) {
+            throw new IllegalArgumentException(str(
+                    "Cannot assign ", args.get(2),
+                    " to ", field.getType().getName(),
+                    " field ", field.getName()));
+        }
+
+        field.set(object, value);
+        GLog.p(str(
+                field.getName(), " = ",
+                valueString(field.get(object))));
     }
 
     private static void inspect(List<String> args)
