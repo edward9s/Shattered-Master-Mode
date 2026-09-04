@@ -243,6 +243,17 @@ class Toolchain:
         keytool = shutil.which("keytool")
         if java and keytool:
             return JavaTools(Path(java), Path(keytool))
+
+        # Keep the existing PATH-first behavior, but also honor a JDK that is
+        # exposed only through JAVA_HOME before falling back to the cache/download.
+        java_home = os.environ.get("JAVA_HOME")
+        if java_home:
+            home_bin = Path(java_home) / "bin"
+            hj = executable(home_bin / "java")
+            hk = executable(home_bin / "keytool")
+            if hj and hk:
+                return JavaTools(hj.resolve(), hk.resolve())
+
         cached = self.cache / "jdk"
         cj = first_descendant(cached, {"java.exe" if os.name == "nt" else "java"})
         ck = first_descendant(cached, {"keytool.exe" if os.name == "nt" else "keytool"})

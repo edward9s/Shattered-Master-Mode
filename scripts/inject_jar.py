@@ -25,11 +25,18 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import json
 import os
+import platform
 import shutil
+import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Sequence
@@ -91,17 +98,123 @@ def sha256(path: Path) -> str:
 
 
 def ensure_java() -> Path:
+    # Preserve the existing preference order: JAVA_HOME first, then PATH.
     java_home = os.environ.get("JAVA_HOME")
     candidates: list[Path] = []
     if java_home:
-        candidates.append(Path(java_home) / "bin" / ("java.exe" if os.name == "nt" else "java"))
+        candidates.append(
+            Path(java_home) / "bin" / ("java.exe" if os.name == "nt" else "java")
+        )
     found = shutil.which("java")
     if found:
         candidates.append(Path(found))
     for candidate in candidates:
         if candidate.is_file():
             return candidate.resolve()
-    raise InjectError("Java not found. Install/use a JDK and ensure java is on PATH or JAVA_HOME is set.")
+
+    cache = Path(
+        os.environ.get(
+            "SMM_INJECT_CACHE",
+            Path.home() / ".cache" / "smm-apk-injector",
+        )
+    )
+    cached = cache / "jdk"
+    java_name = "java.exe" if os.name == "nt" else "java"
+
+    if cached.exists():
+        hit = next(
+            (p for p in cached.rglob(java_name) if p.is_file()),
+            None,
+        )
+        if hit is not None:
+            if os.name != "nt":
+                hit.chmod(hit.stat().st_mode | stat.S_IXUSR)
+            return hit.resolve()
+
+    system = platform.system().lower()
+    if system == "windows":
+        adoptium_os = "windows"
+    elif system == "linux":
+        adoptium_os = "linux"
+    elif system == "darwin":
+        adoptium_os = "mac"
+    else:
+        raise InjectError(f"Unsupported OS for portable JDK: {platform.system()}")
+
+    machine = platform.machine().lower()
+    if machine in {"x86_64", "amd64"}:
+        arch = "x64"
+    elif machine in {"aarch64", "arm64"}:
+        arch = "aarch64"
+    elif machine in {"x86", "i386", "i686"}:
+        arch = "x86"
+    else:
+        raise InjectError(f"Unsupported CPU for portable JDK: {platform.machine()}")
+
+    step("Downloading portable Temurin JDK 21")
+    api_url = (
+        "https://api.adoptium.net/v3/assets/latest/21/hotspot"
+        f"?architecture={urllib.parse.quote(arch)}&image_type=jdk"
+        f"&os={urllib.parse.quote(adoptium_os)}&vendor=eclipse"
+    )
+    request = urllib.request.Request(
+        api_url, headers={"User-Agent": "SMM-ModAnkh-Jar-Injector/1"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = json.load(response)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise InjectError(f"Unable to locate portable JDK: {exc}") from exc
+
+    if not isinstance(data, list) or not data:
+        raise InjectError("Adoptium returned no JDK")
+    package = data[0].get("binary", {}).get("package", {})
+    link = package.get("link")
+    name = package.get("name", "temurin-jdk")
+    if not link:
+        raise InjectError("Adoptium response has no JDK URL")
+
+    cache.mkdir(parents=True, exist_ok=True)
+    archive = cache / name
+    part = archive.with_suffix(archive.suffix + ".part")
+    request = urllib.request.Request(
+        str(link), headers={"User-Agent": "SMM-ModAnkh-Jar-Injector/1"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response, part.open("wb") as out:
+            shutil.copyfileobj(response, out)
+    except (OSError, urllib.error.URLError) as exc:
+        with contextlib.suppress(OSError):
+            part.unlink()
+        raise InjectError(f"Portable JDK download failed: {exc}") from exc
+    part.replace(archive)
+
+    shutil.rmtree(cached, ignore_errors=True)
+    cached.mkdir(parents=True, exist_ok=True)
+    if zipfile.is_zipfile(archive):
+        with zipfile.ZipFile(archive) as zf:
+            zf.extractall(cached)
+    else:
+        try:
+            with tarfile.open(archive) as tf:
+                root = cached.resolve()
+                for member in tf.getmembers():
+                    target = (cached / member.name).resolve()
+                    if root != target and root not in target.parents:
+                        raise InjectError(f"Unsafe JDK archive path: {member.name}")
+                tf.extractall(cached)
+        except tarfile.TarError as exc:
+            raise InjectError(f"Unsupported JDK archive: {archive}") from exc
+
+    hit = next(
+        (p for p in cached.rglob(java_name) if p.is_file()),
+        None,
+    )
+    if hit is None:
+        raise InjectError("Downloaded JDK lacks java")
+    if os.name != "nt":
+        hit.chmod(hit.stat().st_mode | stat.S_IXUSR)
+    return hit.resolve()
 
 
 def validate_jar(path: Path, required: Sequence[str] = ()) -> None:
