@@ -32,6 +32,12 @@ public class ModAnkh extends Ankh {
     // Times resurrected via unblessed ankh (lost inventory, via WndResurrect).
     private int timesResurrected = 0;
 
+    // Item.detach() is final and clears the quickslot before onDetach(). Hero.die()
+    // checks isBlessed() immediately before consuming the selected ankh, so keep the
+    // current slot here long enough to restore it after our infinite-use collect.
+    // -1 means the ModAnkh was not quickslotted and must remain unassigned.
+    private int revivalQuickslot = -1;
+
     private static final String TIMES_REVIVED     = "times_revived";
     private static final String TIMES_RESURRECTED = "times_resurrected";
 
@@ -53,6 +59,17 @@ public class ModAnkh extends Ankh {
         this.icon = ItemSpriteSheet.Icons.POTION_EXP;
         this.keptThoughLostInvent = true;
         this.unique = true;
+        this.revivalQuickslot = -1;
+    }
+
+    @Override
+    public boolean isBlessed() {
+        if (Dungeon.quickslot != null) {
+            revivalQuickslot = Dungeon.quickslot.getSlot(this);
+        } else {
+            revivalQuickslot = -1;
+        }
+        return super.isBlessed();
     }
 
     @Override
@@ -83,30 +100,33 @@ public class ModAnkh extends Ankh {
             if ("die".equals(methodName) && className.endsWith("Hero")) {
                 // Detached from die(): blessed path = instant revive, keeping inventory.
                 timesRevived++;
-
-                if (Dungeon.hero != null && Dungeon.hero.belongings != null
-                        && Dungeon.hero.belongings.backpack != null) {
-                    Bag backpack = Dungeon.hero.belongings.backpack;
-                    if (!backpack.contains(this)) {
-                        this.collect(backpack);
-                    }
-                }
+                restoreAfterRevival();
                 break;
 
             } else if (className.endsWith("WndResurrect")) {
                 // Detached from WndResurrect: unblessed path = resurrection, losing inventory.
                 timesResurrected++;
-
-                if (Dungeon.hero != null && Dungeon.hero.belongings != null
-                        && Dungeon.hero.belongings.backpack != null) {
-                    Bag backpack = Dungeon.hero.belongings.backpack;
-                    if (!backpack.contains(this)) {
-                        this.collect(backpack);
-                    }
-                }
+                restoreAfterRevival();
                 break;
             }
         }
+    }
+
+    private void restoreAfterRevival() {
+        if (Dungeon.hero != null && Dungeon.hero.belongings != null
+                && Dungeon.hero.belongings.backpack != null) {
+            Bag backpack = Dungeon.hero.belongings.backpack;
+            if (!backpack.contains(this)) {
+                this.collect(backpack);
+            }
+
+            if (revivalQuickslot >= 0 && Dungeon.quickslot != null
+                    && backpack.contains(this)) {
+                Dungeon.quickslot.setSlot(revivalQuickslot, this);
+                updateQuickslot();
+            }
+        }
+        revivalQuickslot = -1;
     }
 
     @Override
