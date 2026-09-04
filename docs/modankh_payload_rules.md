@@ -130,10 +130,33 @@ Matching order:
 1. exact
 2. unique prefix
 3. unique substring
-4. unique fuzzy subsequence
-5. ambiguous result: show `Similar:` suggestions and do not guess
+4. compact ordered subsequence
+5. ambiguous best result: show `Similar:` suggestions and do not guess
 
 Exact names always win. If an exact method name exists but its arguments are invalid, do not silently redirect to another fuzzy-matched method.
+
+#### Ordered fuzzy matching
+
+The fuzzy tier is deliberately stricter than a plain subsequence search:
+
+- query letters must appear in the candidate in the same order;
+- queries shorter than 3 characters do not use subsequence fuzzy matching;
+- the total skipped characters inside the matched span must be at most `max(4, query length)`;
+- the matched span must be no more than twice the query length;
+- lower scores are better, with skipped-character gaps carrying the strongest penalty;
+- earlier starts, CamelCase/word-boundary hits, and shorter candidates act as tie-breakers.
+
+For operations that must choose one identifier (class, field, method, enum), only candidates tied for the best fuzzy score remain eligible. A unique best score may be auto-resolved; equal best scores remain ambiguous and produce `Similar:`. `inspect` may display multiple qualifying fuzzy matches, but they are ordered by match quality.
+
+Examples that should remain useful include `goem` → `Golem`, `potheal` → `PotionOfHealing`, `ringenergy` → `RingOfEnergy`, and `atk` → `attack`. A query whose letters are scattered across a long unrelated identifier should be rejected by the gap/span limits.
+
+#### Class-name search scope
+
+Unqualified class queries fuzzy-match **only the simple class name**. Package names must not contribute letters to a fuzzy match.
+
+A query is treated as qualified only when it explicitly contains `.` or `$`; only then may the full qualified/binary class name participate in fuzzy matching.
+
+This prevents results such as `etchain` being suggested as `ScrollOfRecharging` merely because letters can be collected from `com.shatteredpixel...items.scrolls.ScrollOfRecharging`. For an ordinary `etchain` query, only `ScrollOfRecharging` itself is considered, so that candidate does not match.
 
 The following remain exact by design:
 

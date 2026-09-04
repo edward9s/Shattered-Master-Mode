@@ -19,10 +19,8 @@ import java.util.Map;
 /**
  * User-facing ModDebug console with fuzzy identifier resolution.
  *
- * This class deliberately avoids lambdas, method references, and Java 8
- * collection default methods. R8 may otherwise merge their desugared synthetic
- * helpers with unrelated application code, making the APK donor payload depend
- * on donor-specific obfuscated classes.
+ * This class keeps its helper code explicit so the compiled donor dependency
+ * graph stays predictable under R8/desugaring.
  *
  * The '$' in this top-level class name is intentional: the APK/JAR injectors
  * already treat ModDebug$* as part of the self-contained ModDebug payload.
@@ -139,9 +137,10 @@ public final class ModDebug$Console {
                 && "help".equalsIgnoreCase(tokens.get(0))) {
             GLog.i(
                     "Class, field, method, Class-argument, and enum identifiers support "
-                    + "case-insensitive fuzzy matching. Exact matches win; ambiguous "
-                    + "matches show Similar suggestions. Command names, @handles, "
-                    + "numbers, and ordinary strings remain exact.");
+                    + "case-insensitive fuzzy matching. Exact matches win; compact "
+                    + "ordered fuzzy matches are ranked by gap and word boundaries; "
+                    + "ambiguous matches show Similar suggestions. Command names, "
+                    + "@handles, numbers, and ordinary strings remain exact.");
         }
     }
 
@@ -361,10 +360,6 @@ public final class ModDebug$Console {
         }
 
         for (int rank = 1; rank <= 3; rank++) {
-            if (rank == 3 && rawName.length() < 2) {
-                break;
-            }
-
             List<Method> ranked = methodsByNameRank(
                     methods, rawName, rank, rawArgs.size());
             if (ranked.isEmpty()) {
@@ -495,11 +490,22 @@ public final class ModDebug$Console {
             List<String> names = new ArrayList<String>();
             for (int rank = 0; rank <= 3; rank++) {
                 names.clear();
+                int bestScore = Integer.MAX_VALUE;
                 for (Object constant : constants) {
                     String name = ((Enum<?>) constant).name();
-                    if (matchRank(name, raw) == rank) {
-                        names.add(name);
+                    if (matchRank(name, raw) != rank) {
+                        continue;
                     }
+                    if (rank == 3) {
+                        int score = fuzzyScore(name, raw);
+                        if (score < bestScore) {
+                            names.clear();
+                            bestScore = score;
+                        } else if (score > bestScore) {
+                            continue;
+                        }
+                    }
+                    names.add(name);
                 }
                 if (!names.isEmpty()) {
                     break;
@@ -528,11 +534,24 @@ public final class ModDebug$Console {
     private static List<Method> methodsByNameRank(
             List<Method> methods, String rawName, int rank, int arity) {
         List<Method> result = new ArrayList<Method>();
+        int bestScore = Integer.MAX_VALUE;
         for (Method method : methods) {
-            if ((arity < 0 || method.getParameterTypes().length == arity)
-                    && matchRank(method.getName(), rawName) == rank) {
-                result.add(method);
+            if (arity >= 0 && method.getParameterTypes().length != arity) {
+                continue;
             }
+            if (matchRank(method.getName(), rawName) != rank) {
+                continue;
+            }
+            if (rank == 3) {
+                int score = fuzzyScore(method.getName(), rawName);
+                if (score < bestScore) {
+                    result.clear();
+                    bestScore = score;
+                } else if (score > bestScore) {
+                    continue;
+                }
+            }
+            result.add(method);
         }
         return result;
     }
@@ -540,12 +559,7 @@ public final class ModDebug$Console {
     private static List<Method> bestNamedMethods(
             List<Method> methods, String rawName) {
         for (int rank = 0; rank <= 3; rank++) {
-            List<Method> result = new ArrayList<Method>();
-            for (Method method : methods) {
-                if (matchRank(method.getName(), rawName) == rank) {
-                    result.add(method);
-                }
-            }
+            List<Method> result = methodsByNameRank(methods, rawName, rank, -1);
             if (!result.isEmpty()) {
                 return result;
             }
@@ -565,12 +579,23 @@ public final class ModDebug$Console {
         List<Field> fields = allFields(type);
         for (int rank = 0; rank <= 3; rank++) {
             Map<String, Field> matches = new LinkedHashMap<String, Field>();
+            int bestScore = Integer.MAX_VALUE;
             for (Field field : fields) {
-                if (matchRank(field.getName(), rawName) == rank) {
-                    String key = field.getName().toLowerCase(Locale.ROOT);
-                    if (!matches.containsKey(key)) {
-                        matches.put(key, field);
+                if (matchRank(field.getName(), rawName) != rank) {
+                    continue;
+                }
+                if (rank == 3) {
+                    int score = fuzzyScore(field.getName(), rawName);
+                    if (score < bestScore) {
+                        matches.clear();
+                        bestScore = score;
+                    } else if (score > bestScore) {
+                        continue;
                     }
+                }
+                String key = field.getName().toLowerCase(Locale.ROOT);
+                if (!matches.containsKey(key)) {
+                    matches.put(key, field);
                 }
             }
             if (matches.size() == 1) {
@@ -594,30 +619,29 @@ public final class ModDebug$Console {
 
         ensureClassIndex();
         final String needle = query.toLowerCase(Locale.ROOT);
+        final boolean qualifiedQuery = query.indexOf('.') >= 0 || query.indexOf('$') >= 0;
         List<String> names = classNames();
 
         for (int rank = 1; rank <= 3; rank++) {
-            if (rank == 3 && needle.length() < 3) {
-                break;
-            }
-
             List<Class<?>> matches = new ArrayList<Class<?>>();
-            for (String className : names) {
-                String simple = simpleClassName(className);
-                int simpleRank = matchRank(simple, needle);
-                int fullRank = matchRank(className, needle);
-                int candidateRank;
+            int bestScore = Integer.MAX_VALUE;
 
-                if (simpleRank < 0) {
-                    candidateRank = fullRank;
-                } else if (fullRank < 0) {
-                    candidateRank = simpleRank;
-                } else {
-                    candidateRank = Math.min(simpleRank, fullRank);
+            for (String className : names) {
+                String candidate = qualifiedQuery
+                        ? className
+                        : simpleClassName(className);
+                if (matchRank(candidate, needle) != rank) {
+                    continue;
                 }
 
-                if (candidateRank != rank) {
-                    continue;
+                if (rank == 3) {
+                    int score = fuzzyScore(candidate, needle);
+                    if (score < bestScore) {
+                        matches.clear();
+                        bestScore = score;
+                    } else if (score > bestScore) {
+                        continue;
+                    }
                 }
 
                 Class<?> loaded = resolveClass(className, parent);
@@ -630,16 +654,19 @@ public final class ModDebug$Console {
                 Collections.sort(matches, new Comparator<Class<?>>() {
                     @Override
                     public int compare(Class<?> left, Class<?> right) {
-                        int leftDelta = Math.abs(
-                                left.getSimpleName().length() - needle.length());
-                        int rightDelta = Math.abs(
-                                right.getSimpleName().length() - needle.length());
+                        String leftName = qualifiedQuery
+                                ? left.getName()
+                                : left.getSimpleName();
+                        String rightName = qualifiedQuery
+                                ? right.getName()
+                                : right.getSimpleName();
+                        int leftDelta = Math.abs(leftName.length() - needle.length());
+                        int rightDelta = Math.abs(rightName.length() - needle.length());
                         int byDelta = Integer.compare(leftDelta, rightDelta);
                         if (byDelta != 0) {
                             return byDelta;
                         }
-                        int byName = left.getSimpleName()
-                                .compareToIgnoreCase(right.getSimpleName());
+                        int byName = leftName.compareToIgnoreCase(rightName);
                         if (byName != 0) {
                             return byName;
                         }
@@ -721,11 +748,19 @@ public final class ModDebug$Console {
         Collections.sort(fields, new Comparator<Field>() {
             @Override
             public int compare(Field left, Field right) {
-                int byRank = Integer.compare(
-                        matchRank(left.getName(), needle),
-                        matchRank(right.getName(), needle));
+                int leftRank = matchRank(left.getName(), needle);
+                int rightRank = matchRank(right.getName(), needle);
+                int byRank = Integer.compare(leftRank, rightRank);
                 if (byRank != 0) {
                     return byRank;
+                }
+                if (leftRank == 3) {
+                    int byScore = Integer.compare(
+                            fuzzyScore(left.getName(), needle),
+                            fuzzyScore(right.getName(), needle));
+                    if (byScore != 0) {
+                        return byScore;
+                    }
                 }
                 int byName = left.getName().compareToIgnoreCase(right.getName());
                 if (byName != 0) {
@@ -738,11 +773,19 @@ public final class ModDebug$Console {
         Collections.sort(methods, new Comparator<Method>() {
             @Override
             public int compare(Method left, Method right) {
-                int byRank = Integer.compare(
-                        matchRank(left.getName(), needle),
-                        matchRank(right.getName(), needle));
+                int leftRank = matchRank(left.getName(), needle);
+                int rightRank = matchRank(right.getName(), needle);
+                int byRank = Integer.compare(leftRank, rightRank);
                 if (byRank != 0) {
                     return byRank;
+                }
+                if (leftRank == 3) {
+                    int byScore = Integer.compare(
+                            fuzzyScore(left.getName(), needle),
+                            fuzzyScore(right.getName(), needle));
+                    if (byScore != 0) {
+                        return byScore;
+                    }
                 }
                 return methodKey(left).compareToIgnoreCase(methodKey(right));
             }
@@ -921,13 +964,90 @@ public final class ModDebug$Console {
         if (haystack.contains(needle)) {
             return 2;
         }
-        int at = 0;
-        for (int i = 0; i < haystack.length() && at < needle.length(); i++) {
-            if (haystack.charAt(i) == needle.charAt(at)) {
-                at++;
+        return fuzzyScore(name, query) >= 0 ? 3 : -1;
+    }
+
+    private static int fuzzyScore(String name, String query) {
+        String haystack = name.toLowerCase(Locale.ROOT);
+        String needle = query.toLowerCase(Locale.ROOT);
+        if (needle.length() < 3 || needle.length() > haystack.length()) {
+            return -1;
+        }
+
+        int allowedGaps = Math.max(4, needle.length());
+        int best = Integer.MAX_VALUE;
+
+        for (int start = 0; start < haystack.length(); start++) {
+            if (haystack.charAt(start) != needle.charAt(0)) {
+                continue;
+            }
+
+            int previous = start;
+            int searchAt = start + 1;
+            int gaps = 0;
+            int boundaries = isWordBoundary(name, start) ? 1 : 0;
+            boolean matched = true;
+
+            for (int q = 1; q < needle.length(); q++) {
+                int found = -1;
+                for (int i = searchAt; i < haystack.length(); i++) {
+                    if (haystack.charAt(i) == needle.charAt(q)) {
+                        found = i;
+                        break;
+                    }
+                }
+                if (found < 0) {
+                    matched = false;
+                    break;
+                }
+
+                gaps += found - previous - 1;
+                previous = found;
+                searchAt = found + 1;
+                if (isWordBoundary(name, found)) {
+                    boundaries++;
+                }
+            }
+
+            if (!matched) {
+                continue;
+            }
+
+            int span = previous - start + 1;
+            if (gaps > allowedGaps || span > needle.length() * 2) {
+                continue;
+            }
+
+            int score = gaps * 100
+                    + start * 10
+                    + (needle.length() - boundaries) * 2
+                    + Math.max(0, name.length() - needle.length());
+            if (score < best) {
+                best = score;
             }
         }
-        return at == needle.length() ? 3 : -1;
+
+        return best == Integer.MAX_VALUE ? -1 : best;
+    }
+
+    private static boolean isWordBoundary(String name, int index) {
+        if (index <= 0) {
+            return true;
+        }
+
+        char current = name.charAt(index);
+        char previous = name.charAt(index - 1);
+        if (previous == '.'
+                || previous == '$'
+                || previous == '_'
+                || previous == '-'
+                || Character.isWhitespace(previous)) {
+            return true;
+        }
+        if (Character.isUpperCase(current) && Character.isLowerCase(previous)) {
+            return true;
+        }
+        return Character.isDigit(current) != Character.isDigit(previous);
     }
 
     private static String methodKey(Method method) {
