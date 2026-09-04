@@ -97,6 +97,22 @@ inspect @mob attk
 
 Class 名稱可用簡名，例如 `Rat`、`RingOfEnergy`，也可以輸入完整 Java class 名稱。
 
+### Class 名稱模糊協助
+
+互動式輸入中的 `give`、`spawn`、`affect`、`seed`、`trap`、`inspect`、`use`，其 class 參數也支援不分大小寫的模糊名稱。原本的精確解析仍然優先；精確名稱找不到時，才依序嘗試唯一的前綴匹配、唯一的包含匹配，最後才做 fuzzy subsequence match。
+
+例如：
+
+```text
+give potheal
+spawn goem
+inspect ringenergy
+```
+
+若最佳匹配只有一個，Console 會直接採用並提示實際 class，例如 `Using PotionOfHealing for potheal`。若最佳匹配存在歧義，指令不會執行，而是顯示 `Similar:` 候選讓你縮小名稱。
+
+候選會依指令所需型別過濾：`give` 只找 `Item`、`spawn` 只找 `Mob`、`affect` 只找 `Buff`，`seed` 與 `trap` 也只找各自相容的基類；`inspect` 與 `use` 才會從一般 class index 中尋找。
+
 ## 直接讀寫 field
 
 ### 讀取 field
