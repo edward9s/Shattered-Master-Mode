@@ -22,9 +22,9 @@ Payload 應盡可能小，而且其邊界必須是刻意設計的。
 - `com.spd.mod.items.ModAnkh`
 - `com.spd.mod.items.ModAnkhStore` 及其 `$*` class
 - `com.spd.mod.mechanics.ModDebug` 及其 `$*` class
-- JAR injector 明確指定的 helper payload，例如 `ModValueSearch`、`ModSaveTransfer`
+- 明確支援的 helper，例如 `ModValueSearch`、`ModSaveTransfer`
 
-不要假設只要某個 class 能從上述 class 觸及，就適合一起複製到 target。
+不要假設只要某個 donor class 能從上述 class 觸及，就適合一起複製到 target。
 
 ### 規則
 
@@ -36,32 +36,60 @@ Payload 應盡可能小，而且其邊界必須是刻意設計的。
 
 ## 2. R8 / desugaring 安全規則
 
-Binary donor 對 compiler-generated synthetic class 很敏感。R8/D8 可能把 synthetic helper 合併或共用到原本毫不相關的程式碼中。如果 injector 將這類 helper 判定成 donor-only dependency 並一路收進 closure，就可能把無關的 donor 程式碼一起拖進 Debug payload。
+Binary donor 對最佳化後 bytecode 的形狀很敏感。R8/D8 可能重新命名、合併、outline，或共用原本分屬不同程式碼的 compiler-generated helper。若 injector 對 donor-only dependency 不加區別地一路追蹤，就可能把無關的 donor 程式碼一起拖進 payload，最後在 target compatibility validation 時爆炸。
 
-我們已經實際遇過 `ModDebug$Donor_*` 意外引用 donor 專屬 LibGDX member，以及其他無關 SMM 程式碼的情況。
+典型症狀是出現一串 `ModDebug$Donor_*` relocated class，卻意外引用與 Debug payload 無關的 LibGDX member 或其他 donor-only API。
 
-### Injectable payload 中應避免
+### 這次 fuzzy console 事件的重要經驗
 
-若能以簡單明確的寫法取代，應避免容易產生 shared desugar helper 的結構，尤其是：
+擴大 fuzzy identifier 支援之後，編譯後的 bytecode 形狀改變，確實觸發了這個問題；但 **fuzzy 功能本身並沒有被證明是根因**。
 
-- lambda（`x -> ...`）
-- method reference（`Type::method`）
-- `Collection.removeIf(...)`
-- `Map.computeIfAbsent(...)`
-- 其他 Java 8 collection/default-interface convenience method
+尤其是：在 fuzzy 擴充前，一個能正常 inject 的 `ModDebug$Console` 版本本來就已經使用 `removeIf` 與 lambda，卻仍然可以正常工作。因此：
 
-### 優先使用
+- 不能只因為新版出錯，就直接認定 lambda、method reference 或 Java 8 collection method 是根因；
+- 這些寫法只能視為 R8/desugar 相關的風險訊號；
+- 第一優先應比較「最後一個可運作 donor」與「失敗 donor」的完整 build pipeline 與 R8 規則是否真的一致。
+
+### 優先選擇容易預測的 payload 寫法
+
+若沒有明確理由使用較間接的語法，仍應優先選擇編譯後 dependency graph 較容易判讀的寫法，例如：
 
 - 一般迴圈
 - 明確的 `get` / `put` / `containsKey`
 - 一般 helper method
 - 需要 callback/comparator 時使用匿名 inner class
 
-只要 anonymous inner class 明確留在 payload family 內，例如 `ModDebug$Console$1`，這種形式是可接受的。
+這是為了提高 binary donor 的可預測性，不代表 Java 8 語法本身不能使用。
 
-這些限制的原因是 binary donor isolation，而不是 Java 語言本身不支援相關功能。
+## 3. Donor build 必須與 CI 保持一致
 
-## 3. Target API 相容性
+Donor APK 是否可用，不只取決於 source，也取決於它是否經過 injector 所假定的 payload-preservation build 規則。
+
+Android donor release build 在編譯前必須執行 `patch_android.patch_proguard()`。這個 patch 會加入保護 ModAnkh / ModDebug payload 的 R8 `-keep` 規則。
+
+### 這次已證實的失敗原因
+
+本機 `scripts/build.py` 原本會呼叫：
+
+- `patch_gradle()`
+- `patch_play_games_version()`
+- `patch_manifest()`
+
+卻漏掉了 `patch_proguard()`。
+
+相對地，CI workflow 是直接執行 `scripts/patch_android.py`，而該 script **確實會執行 `patch_proguard()`**。因此，本機 build 與 CI build 其實並不等價，儘管 `build.py` 的設計與註解宣稱流程相同。
+
+在 fuzzy 擴充以前，即使缺少這些 keep rules，本機 donor 的 bytecode 形狀仍剛好能被 injector 正常處理；加入 fuzzy 後，程式結構改變，使 R8 產生不同的最佳化結果，injector 才開始追到帶有無關 LibGDX reference 的 `ModDebug$Donor_*`。
+
+把遺漏的 `patch_proguard()` 補回本機 build 後，重新建置 donor，再執行 injection，即可成功運作。
+
+### 規則
+
+凡是宣稱「本機 build 與 CI 等價」的 script，都必須實際逐項確認 patch sequence，不得只相信註解或設計意圖。
+
+Android donor build 的實際 pre-build 流程必須包含 payload ProGuard patch。
+
+## 4. Target API 相容性
 
 不要假設所有 SPD fork 都與目前 SMM donor 暴露完全相同的 source API。
 
@@ -69,14 +97,14 @@ Binary donor 對 compiler-generated synthetic class 很敏感。R8/D8 可能把 
 
 - 將 target API 差異視為正常情況。
 - 只有在 API 對支援的 target 足夠穩定時才直接呼叫。
-- 對已知且可安全對應的 API 差異，優先在 injector adapter 層處理，而不是複製大量 target-specific 程式碼。
+- 對已知且可安全對應的 API 差異，優先在 injector adapter 層處理。
 - 對 optional 或容易變動的 API，適合時優先使用 reflection / capability probing。
 - Reflection 必須保持聚焦，不要因此在 compile time 拉進大型而無關的 type graph。
 - Compatibility validator 若回報真正缺少 executable reference，應修 payload 或增加明確 adapter；不得只是把 validator 放寬。
 
 例如：若 target 沒有 `Item.setCurrent(Hero)`，但仍有舊版的 `curUser` / `curItem` field，injector 可以做明確的相容轉換。
 
-## 4. Debug Console 一致性
+## 5. Debug Console 一致性
 
 Debug Console 的行為不應因指令從哪條路徑進入 executor 而不同。
 
@@ -116,7 +144,7 @@ Exact match 永遠優先。尤其當某個 method 名稱本身精確存在、但
 - 數字、cell、quantity、duration
 - 一般字串參數
 
-## 5. APK injector 不變量
+## 6. APK injector 不變量
 
 除非未來有明確的架構決策改變，應維持以下性質：
 
@@ -130,7 +158,7 @@ Exact match 永遠優先。尤其當某個 method 名稱本身精確存在、但
 
 不得只是為了解決 payload 問題，就重建或大量修改整個 target APK，除非這成為明確的新架構決策。
 
-## 6. JAR injector 不變量
+## 7. JAR injector 不變量
 
 Desktop JAR injector 也遵循相同的 isolation 原則：
 
@@ -143,22 +171,23 @@ Desktop JAR injector 也遵循相同的 isolation 原則：
 
 只要 payload structure 有變，就必須同時考慮 APK 與 JAR injector；APK 成功不代表 JAR 一定安全。
 
-## 7. 驗證要求
+## 8. 驗證要求
 
 在認定 payload 改動完成之前：
 
 1. 編譯變更過的 Java source。
-2. 視情況掃描 injectable payload source，確認沒有意外加入 lambda、method reference 或會造成 shared desugar helper 的 default-method 用法。
-3. 重新 build 一份新的 SMM donor artifact；舊 donor 仍然包含舊的 R8 輸出。
-4. 至少對一個具代表性的 target 執行對應 injector。
-5. 確認沒有出現非預期的 `ModDebug$Donor_*` 或其他 relocated helper。
-6. 若真的出現 relocated helper，先追查它為何進入 dependency closure，不要直接 whitelist。
-7. Compatibility validation 必須在沒有壓掉真實錯誤的情況下通過。
-8. 能做到時，應在 injected build 中實際操作受影響的功能。
+2. 確認 donor build path 與 CI 套用了同一套 payload-preservation patch；Android release 特別要確認 `patch_proguard()`。
+3. 除了確認 repository 裡存在 `patch_proguard()`，還要確認實際使用的 build path **真的呼叫到了它**，必要時直接檢查最終 ProGuard rules。
+4. 重新 build 一份新的 SMM donor artifact；舊 donor 仍然包含舊的 R8 輸出。
+5. 至少對一個具代表性的 target 執行對應 injector。
+6. 確認沒有出現非預期的 `ModDebug$Donor_*` 或其他 relocated helper。
+7. 若真的出現 relocated helper，先追查它為何進入 dependency closure，不要先改 allowlist 或放寬 validator。
+8. Compatibility validation 必須在沒有壓掉真實錯誤的情況下通過。
+9. 能做到時，應在 injected build 中實際操作受影響的功能。
 
 對 binary-injection 相關變更而言，只做 source compile 是必要條件，但不是充分條件。
 
-## 8. 失敗診斷
+## 9. 失敗診斷
 
 Injection 失敗時，先分類問題，再修改程式。
 
@@ -172,7 +201,17 @@ Injection 失敗時，先分類問題，再修改程式。
 
 ### `ModDebug$Donor_*` 出現大量無關 LibGDX/API error
 
-優先懷疑 shared R8/desugar synthetic dependency。檢查近期 payload source 是否加入 lambda、method reference、collection default method 或其他 compiler-generated helper。
+**不要先怪罪最後一個 source 改動。**
+
+應依序檢查：
+
+1. donor 是否確實由目前 source 重新 build？
+2. 實際使用的 build path 是否執行 `patch_proguard()`？
+3. 最終 Android ProGuard 設定是否真的包含預期的 payload `-keep` 規則？
+4. local build 與 CI build 是否有任何流程差異？
+5. 上述都正確後，才檢查最近 source 是否新增 R8/desugar-sensitive 寫法或新的 dependency edge。
+
+這次 fuzzy console 事件證明：一個 source 改動有時只是把早已存在的 build-pipeline bug 暴露出來。
 
 ### `donor-only dependency ... is not present`
 
@@ -180,7 +219,7 @@ Injection 失敗時，先分類問題，再修改程式。
 
 不得以關掉 self-containment check 的方式處理這些問題。
 
-## 9. Repository attribution 剛性規定
+## 10. Repository 寫入剛性規則
 
 此 repository 有以下剛性規定：
 
@@ -190,16 +229,18 @@ Injection 失敗時，先分類問題，再修改程式。
 
 因此：
 
+- 除非使用者明確要求，不得建立 branch
+- 除非使用者明確要求，不得開 PR
+- 不得建立臨時／測試 ref、no-op commit 或 throwaway workflow
 - 不得使用 GitHub Actions/bot 進行 commit 或 push
 - 不得使用其他帳號或 GitHub App identity 寫入 repository
 - 不得加入其他 identity 的 `Co-authored-by`
-- 除非未來明確允許，避免會產生其他公開 attribution 的 PR/merge 工作流程
 - 只能使用能確認最終 author 與 committer 都是 `edward9s` 的寫入路徑
 
-Force-push 或 history rewrite 本身並不被禁止。真正的硬規則是 attribution identity。
+Force-push 或 history rewrite 本身並不被禁止。真正的硬規則是公開 identity，以及避免不必要的公開 repository 紀錄。
 
-## 10. 設計原則
+## 11. 設計原則
 
-當「較聰明、較簡短的寫法」與「較明確、編譯後 dependency graph 更容易理解的寫法」之間需要取捨時，injectable payload 應優先選後者。
+當「較聰明、較簡短的寫法」與「較明確、編譯後 dependency graph 及 build requirements 更容易稽核的寫法」之間需要取捨時，injectable payload 應優先選後者。
 
-對一般 SMM 程式碼而言，source-level elegance 往往足夠；但對 ModAnkh injectable payload 而言，編譯後 APK/JAR 的 dependency graph 本身就是 API 的一部分。
+對一般 SMM 程式碼而言，source-level correctness 往往足夠；但對 ModAnkh injectable payload 而言，編譯後 APK/JAR 的 dependency graph **以及 donor build pipeline 本身**，都是相容性契約的一部分。
