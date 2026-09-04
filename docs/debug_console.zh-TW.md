@@ -6,10 +6,6 @@ SMM 的 Debug Console 是給 Shattered Pixel Dungeon 衍生版本使用的遊戲
 
 Console 由 **ModAnkh** 提供。使用 ModAnkh，選擇 **Console**，然後一次輸入一條指令。
 
-## 致謝
-
-SMM Debug Console 的設計部分受到 [Zrp200 的 ScrollOfDebug](https://github.com/Zrp200/ScrollOfDebug) 啟發；它以 reflection 為核心的命令介面與遊戲內除錯工具，為這類開發工具提供了重要參考。感謝 Zrp200 與 ScrollOfDebug contributors 的工作、貢獻與啟發。
-
 > 可用的 class、field 與 method 會隨目標 SPD fork 與版本不同。碰到目標版本沒有的 API 時，對應指令可能失敗。
 
 ## 先理解這四件事
@@ -442,3 +438,7 @@ warp @home
 - `warp` 是刻意允許異常地形的 debug 工具；`spawn -p` 則刻意保留正常 Mob 落點限制。
 
 如果要做破壞性 field 修改，建議先用可丟棄的存檔，或先匯出備份。
+
+## 致謝
+
+SMM Debug Console 的設計部分受到 [Zrp200 的 ScrollOfDebug](https://github.com/Zrp200/ScrollOfDebug) 啟發；它以 reflection 為核心的命令介面與遊戲內除錯工具，為這類開發工具提供了重要參考。感謝 Zrp200 與 ScrollOfDebug contributors 的工作、貢獻與啟發。
