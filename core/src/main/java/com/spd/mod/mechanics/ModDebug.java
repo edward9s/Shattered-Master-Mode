@@ -414,7 +414,7 @@ public final class ModDebug {
                     new Object[0], false, false);
 
             if (level != null) {
-                item.level(level);
+                setItemLevel(item, level);
             }
 
             if (methodName != null) {
@@ -430,7 +430,7 @@ public final class ModDebug {
             }
 
             boolean collected = force
-                    ? item.collect()
+                    ? collectItem(item)
                     : debugPickUp(item);
 
             if (!collected) {
@@ -457,9 +457,57 @@ public final class ModDebug {
         return firstCreated;
     }
 
+    private static void setItemLevel(Item item, int level) throws Exception {
+        InvocationResult result = invokeCompatibleObjects(
+                item, item.getClass(), "level",
+                new Object[]{level}, false, false);
+
+        if (!result.invoked) {
+            throw new NoSuchMethodException(
+                    "Target item has no compatible level(int) setter");
+        }
+    }
+
+    private static boolean collectItem(Item item) throws Exception {
+        InvocationResult result = invokeCompatibleObjects(
+                item, item.getClass(), "collect",
+                new Object[0], false, false);
+
+        if (!result.invoked) {
+            throw new NoSuchMethodException(
+                    "Target item has no compatible collect()");
+        }
+
+        return !(result.result instanceof Boolean)
+                || (Boolean) result.result;
+    }
+
+    private static void refundPickupTime() {
+        if (Dungeon.hero == null) {
+            return;
+        }
+
+        try {
+            InvocationResult cooldown = invokeCompatibleObjects(
+                    Dungeon.hero, Dungeon.hero.getClass(), "cooldown",
+                    new Object[0], false, false);
+
+            if (!cooldown.invoked
+                    || !(cooldown.result instanceof Number)) {
+                return;
+            }
+
+            invokeCompatibleObjects(
+                    Dungeon.hero, Dungeon.hero.getClass(), "spend",
+                    new Object[]{-((Number) cooldown.result).floatValue()},
+                    false, false);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static boolean debugPickUp(Item item) throws Exception {
         if (Dungeon.hero == null) {
-            return item.collect();
+            return collectItem(item);
         }
 
         InvocationResult picked = invokeCompatibleObjects(
@@ -467,17 +515,14 @@ public final class ModDebug {
                 new Object[]{Dungeon.hero}, false, false);
 
         if (!picked.invoked) {
-            return item.collect();
+            return collectItem(item);
         }
 
         boolean success = !(picked.result instanceof Boolean)
                 || (Boolean) picked.result;
 
         if (success) {
-            try {
-                Dungeon.hero.spend(-Dungeon.hero.cooldown());
-            } catch (Throwable ignored) {
-            }
+            refundPickupTime();
         }
 
         return success;
@@ -556,7 +601,7 @@ public final class ModDebug {
                         }
 
                         mob.pos = cell;
-                        GameScene.add(mob);
+                        addMob(mob);
                         invokeGeneratedHook(
                                 mob, methodName, methodArgs);
 
@@ -579,13 +624,13 @@ public final class ModDebug {
 
         for (int i = 0; i < quantity; i++) {
             Mob mob = (Mob) newInstance(raw);
-            int cell = Dungeon.level.randomRespawnCell(mob);
+            int cell = randomRespawnCell(mob);
             if (cell < 0) {
                 break;
             }
 
             mob.pos = cell;
-            GameScene.add(mob);
+            addMob(mob);
             invokeGeneratedHook(mob, methodName, methodArgs);
 
             if (first == null) {
@@ -600,6 +645,30 @@ public final class ModDebug {
 
         GLog.p(str(
                 "Spawned ", made, " x ", raw.getSimpleName()));
+    }
+
+    private static int randomRespawnCell(Mob mob) throws Exception {
+        InvocationResult result = invokeCompatibleObjects(
+                Dungeon.level, Dungeon.level.getClass(), "randomRespawnCell",
+                new Object[]{mob}, false, false);
+
+        if (!result.invoked || !(result.result instanceof Number)) {
+            throw new NoSuchMethodException(
+                    "Target level has no compatible randomRespawnCell(Mob)");
+        }
+
+        return ((Number) result.result).intValue();
+    }
+
+    private static void addMob(Mob mob) throws Exception {
+        InvocationResult result = invokeCompatibleObjects(
+                null, GameScene.class, "add",
+                new Object[]{mob}, false, false);
+
+        if (!result.invoked) {
+            throw new NoSuchMethodException(
+                    "Target GameScene has no compatible add(mob)");
+        }
     }
 
     private static boolean validMobCell(Mob mob, int cell) {
@@ -704,15 +773,14 @@ public final class ModDebug {
 
             Float duration = tryParseFloat(options.get(0));
             if (duration != null) {
-                buff = Buff.affect(
-                        target, (Class) raw, duration);
+                buff = attachBuff(target, raw, duration);
                 index = 1;
             } else {
-                buff = Buff.affect(target, (Class) raw);
+                buff = attachBuff(target, raw, null);
             }
 
         } else {
-            buff = Buff.affect(target, (Class) raw);
+            buff = attachBuff(target, raw, null);
         }
 
         if (buff == null) {
@@ -772,6 +840,25 @@ public final class ModDebug {
                 buff.getClass().getSimpleName()));
 
         return buff;
+    }
+
+    private static Buff attachBuff(
+            Char target, Class<?> raw, Float duration) throws Exception {
+
+        Object[] args = duration == null
+                ? new Object[]{target, raw}
+                : new Object[]{target, raw, duration};
+
+        InvocationResult result = invokeCompatibleObjects(
+                null, Buff.class, "affect",
+                args, false, false);
+
+        if (!result.invoked || !(result.result instanceof Buff)) {
+            throw new NoSuchMethodException(
+                    "Target Buff has no compatible affect(Char,Class[,duration])");
+        }
+
+        return (Buff) result.result;
     }
 
     private static Float tryParseFloat(String raw) {
