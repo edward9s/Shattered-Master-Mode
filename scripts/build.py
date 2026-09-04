@@ -133,6 +133,7 @@ def patch_sources(spd: Path, depth: int) -> None:
     patch_android.patch_play_games_version(
         str(build_gradle), str(spd / "android" / "build.gradle")
     )
+    patch_android.patch_proguard(str(spd / "android" / "proguard-rules.pro"))
     patch_android.patch_manifest(str(spd / "android/src/main/AndroidManifest.xml"))
     print(f"Patched {spd / 'android/src/main/AndroidManifest.xml'}")
 
