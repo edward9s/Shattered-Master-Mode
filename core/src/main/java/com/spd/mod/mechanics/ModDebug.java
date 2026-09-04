@@ -1,11 +1,14 @@
 package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
+import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.FlavourBuff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTextInput;
@@ -159,8 +162,8 @@ public final class ModDebug {
         GLog.i(
                 "Debug commands:\n"
                 + "give <Item> [+level] [xquantity]\n"
-                + "spawn <Mob> [xquantity]\n"
-                + "affect <Buff> [duration]  (applies to hero)\n"
+                + "spawn <Mob> [xquantity|-p|--place]\n"
+                + "affect <Buff> [duration]  (select a character)\n"
                 + "inspect <Class|hero|level>\n"
                 + "use <Class|hero|level> <method> [args...]\n"
                 + "goto <depth> [branch]  (branch defaults to 0)\n"
@@ -219,28 +222,70 @@ public final class ModDebug {
     }
 
     private static void spawn(List<String> args) throws Exception {
-        if (args.isEmpty()) {
-            throw new IllegalArgumentException("spawn <Mob> [xquantity]");
+        if (args.isEmpty() || args.size() > 2) {
+            throw new IllegalArgumentException(
+                    "spawn <Mob> [xquantity|-p|--place]");
         }
         if (Dungeon.level == null) {
             throw new IllegalStateException("No active level");
         }
 
-        Class<?> raw = resolveClass(args.get(0), Mob.class);
+        final Class<?> raw = resolveClass(args.get(0), Mob.class);
         if (raw == null) {
             throw new IllegalArgumentException(str("Mob class not found: ", args.get(0)));
         }
 
         int quantity = 1;
-        if (args.size() > 1) {
+        boolean manualPlace = false;
+        if (args.size() == 2) {
             String token = args.get(1);
-            if (!token.matches("(?i)x\\d+")) {
-                throw new IllegalArgumentException("spawn quantity must look like x3");
+            if (token.matches("(?i)x\\d+")) {
+                quantity = boundedCount(Integer.parseInt(token.substring(1)));
+            } else if ("-p".equalsIgnoreCase(token)
+                    || "--place".equalsIgnoreCase(token)) {
+                manualPlace = true;
+            } else {
+                throw new IllegalArgumentException(
+                        "spawn <Mob> [xquantity|-p|--place]");
             }
-            quantity = boundedCount(Integer.parseInt(token.substring(1)));
         }
-        if (args.size() > 2) {
-            throw new IllegalArgumentException("spawn <Mob> [xquantity]");
+
+        if (manualPlace) {
+            final Mob mob = (Mob) newInstance(raw);
+            GameScene.selectCell(new CellSelector.Listener() {
+                @Override
+                public String prompt() {
+                    return str("Select a tile to place ", mob.name());
+                }
+
+                @Override
+                public void onSelect(Integer cell) {
+                    if (cell == null || cell < 0 || Dungeon.level == null) {
+                        return;
+                    }
+
+                    boolean invalid = cell >= Dungeon.level.passable.length
+                            || Actor.findChar(cell) != null
+                            || !Dungeon.level.passable[cell]
+                            || Dungeon.level.solid[cell];
+                    if (!invalid
+                            && mob.properties().contains(Char.Property.LARGE)
+                            && cell < Dungeon.level.openSpace.length
+                            && !Dungeon.level.openSpace[cell]) {
+                        invalid = true;
+                    }
+
+                    if (invalid) {
+                        GLog.w(str("You cannot place ", mob.name(), " here."));
+                        return;
+                    }
+
+                    mob.pos = cell;
+                    GameScene.add(mob);
+                    GLog.p(str("Spawned ", mob.name()));
+                }
+            });
+            return;
         }
 
         int made = 0;
@@ -259,39 +304,55 @@ public final class ModDebug {
     }
 
     private static void affect(List<String> args) throws Exception {
-        if (args.isEmpty()) {
+        if (args.isEmpty() || args.size() > 2) {
             throw new IllegalArgumentException("affect <Buff> [duration]");
         }
-
-        Hero hero = Dungeon.hero;
-        if (hero == null) {
-            throw new IllegalStateException("No active hero");
+        if (Dungeon.hero == null || Dungeon.level == null) {
+            throw new IllegalStateException("No active dungeon");
         }
 
-        Class<?> raw = resolveClass(args.get(0), Buff.class);
+        final Class<?> raw = resolveClass(args.get(0), Buff.class);
         if (raw == null) {
             throw new IllegalArgumentException(str("Buff class not found: ", args.get(0)));
         }
+        final Float duration = args.size() == 2
+                ? Float.parseFloat(args.get(1))
+                : null;
 
-        Float duration = null;
-        if (args.size() > 1) {
-            duration = Float.parseFloat(args.get(1));
-        }
-        if (args.size() > 2) {
-            throw new IllegalArgumentException("affect <Buff> [duration]");
-        }
-
-        Buff buff;
-        if (duration != null && FlavourBuff.class.isAssignableFrom(raw)) {
-            buff = Buff.affect(hero, (Class) raw, duration);
-        } else {
-            buff = Buff.affect(hero, (Class) raw);
-            if (duration != null) {
-                GLog.w(str("Duration ignored: ", raw.getSimpleName(), " is not a FlavourBuff."));
+        GameScene.selectCell(new CellSelector.Listener() {
+            @Override
+            public String prompt() {
+                return "Select the character to apply the buff to:";
             }
-        }
 
-        GLog.p(str("Affected hero with ", buff.getClass().getSimpleName()));
+            @Override
+            public void onSelect(Integer cell) {
+                if (cell == null || cell < 0) {
+                    return;
+                }
+
+                Char target = Actor.findChar(cell);
+                if (target == null) {
+                    return;
+                }
+
+                Buff buff;
+                if (duration != null && FlavourBuff.class.isAssignableFrom(raw)) {
+                    buff = Buff.affect(target, (Class) raw, duration);
+                } else {
+                    buff = Buff.affect(target, (Class) raw);
+                    if (duration != null) {
+                        GLog.w(str(
+                                "Duration ignored: ", raw.getSimpleName(),
+                                " is not a FlavourBuff."));
+                    }
+                }
+
+                GLog.p(str(
+                        "Affected ", target.getClass().getSimpleName(),
+                        " with ", buff.getClass().getSimpleName()));
+            }
+        });
     }
 
     private static void inspect(List<String> args) throws Exception {
