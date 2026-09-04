@@ -83,6 +83,18 @@ inspect RingOfEnergy
 
 `inspect` lists fields and methods found on the target, including inherited members. This is normally the best first step when you do not know the exact field or method name.
 
+You can also add a query to filter both field and method names:
+
+```text
+inspect @item quan
+inspect @hero buff
+inspect @mob attk
+```
+
+The query is case-insensitive. Matches are ordered by quality: exact match, prefix match, substring match, then fuzzy subsequence match. Fuzzy matching only requires the query characters to appear in order, so `attk` can match names such as `attack`. Results are not capped; if a query is too broad, enter a more specific one.
+
+Without a query, `inspect` keeps its normal full-list behavior.
+
 Class names may be simple names such as `Rat` or `RingOfEnergy`, or fully qualified Java class names.
 
 ## Reading and writing fields
