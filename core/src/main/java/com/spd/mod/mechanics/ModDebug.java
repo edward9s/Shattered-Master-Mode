@@ -11,9 +11,12 @@ import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTextInput;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -25,10 +28,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
@@ -51,11 +59,24 @@ public final class ModDebug {
             "com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene";
     private static final String LEVEL_CLASS =
             "com.shatteredpixel.shatteredpixeldungeon.levels.Level";
+    private static final String TERRAIN_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.levels.Terrain";
+    private static final String BLOB_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob";
+    private static final String TRAP_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap";
+    private static final String SCROLL_TELEPORT_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfTeleportation";
     private static final String GAME_CLASS = "com.watabou.noosa.Game";
 
     private static final Object BAD_ARG = new Object();
     private static final List<String> CLASS_NAMES = new ArrayList<>();
+    private static final Map<String, StoredValue> VARIABLES = new HashMap<>();
+    private static final Map<String, String> MACROS = new HashMap<>();
+
     private static boolean indexed;
+    private static boolean macrosLoaded;
+    private static String lastCommand = "";
 
     private ModDebug() {
     }
@@ -63,9 +84,9 @@ public final class ModDebug {
     public static void open() {
         GameScene.show(new WndTextInput(
                 "Debug command",
-                "help | give | spawn | affect | inspect | use | goto | where | search | results | get | set | clear | save | load",
+                "help | give | spawn | affect | seed | trap | warp | inspect | use | goto | where | macro | @ | search | results | get | set | clear | save | load",
                 "",
-                200,
+                400,
                 false,
                 "Execute",
                 "Cancel") {
@@ -83,132 +104,335 @@ public final class ModDebug {
                 try {
                     execute(command);
                 } catch (Throwable error) {
-                    error.printStackTrace();
-                    String message = error.getMessage();
-                    if (message == null || message.isEmpty()) {
-                        GLog.n("Debug command failed.");
-                    } else {
-                        GLog.n(str(
-                                "Debug command failed: ",
-                                error.getClass().getSimpleName(),
-                                ": ",
-                                message));
-                    }
+                    reportCommandError("Debug command failed", error);
                 }
             }
         });
     }
 
     public static void execute(String commandLine) throws Exception {
+        String text = commandLine == null ? "" : commandLine.trim();
+        if (text.isEmpty()) {
+            return;
+        }
+
+        if (text.contains("!!")) {
+            if (lastCommand.isEmpty()) {
+                throw new IllegalStateException("No previous debug command");
+            }
+            text = text.replace("!!", lastCommand);
+            GLog.i(str("> ", text));
+        }
+
+        lastCommand = text;
+        executeExpanded(text, 0);
+    }
+
+    private static void executeExpanded(String commandLine, int macroDepth)
+            throws Exception {
+
         List<String> args = tokenize(commandLine);
         if (args.isEmpty()) {
             return;
         }
 
+        String storeVariable = handleVariablePrefix(args);
+        if (args.isEmpty()) {
+            return;
+        }
+
         String command = args.remove(0).toLowerCase(Locale.ROOT);
+        Object stored = null;
+        boolean hasStoredResult = false;
+
         switch (command) {
             case "help":
                 help();
                 break;
+
             case "give":
-                give(args);
+                stored = give(args);
+                hasStoredResult = stored != null;
                 break;
+
             case "spawn":
-                spawn(args);
-                break;
+                spawn(args, storeVariable);
+                return;
+
             case "affect":
-                affect(args);
-                break;
+                affect(args, storeVariable);
+                return;
+
+            case "seed":
+                seed(args, storeVariable);
+                return;
+
+            case "trap":
+                trap(args, storeVariable);
+                return;
+
+            case "warp":
+                warp(args);
+                return;
+
             case "inspect":
                 inspect(args);
                 break;
+
             case "use":
-                use(args);
+                InvocationResult result = use(args);
+                if (result.invoked) {
+                    stored = result.result;
+                    hasStoredResult = result.result != null;
+                }
                 break;
+
             case "goto":
                 gotoLevel(args);
                 break;
+
             case "where":
                 where(args);
                 break;
+
+            case "macro":
+                macro(args);
+                return;
+
             case "search":
                 ModValueSearch.search(args);
                 break;
+
             case "results":
                 ModValueSearch.results(args);
                 break;
+
             case "get":
                 ModValueSearch.get(args);
                 break;
+
             case "set":
                 ModValueSearch.set(args);
                 break;
+
             case "clear":
                 ModValueSearch.clear(args);
                 break;
+
             case "save":
                 save(args);
                 break;
+
             case "load":
                 load(args);
                 break;
+
             default:
-                GLog.w(str("Unknown debug command: ", command, ". Type 'help'."));
-                break;
+                if (runMacro(command, args, macroDepth)) {
+                    return;
+                }
+                GLog.w(str(
+                        "Unknown debug command: ", command,
+                        ". Type 'help'."));
+                return;
         }
+
+        if (storeVariable != null) {
+            if (hasStoredResult) {
+                putVariable(storeVariable, stored);
+            } else {
+                GLog.w(str(
+                        storeVariable,
+                        " was not changed because the command returned no object."));
+            }
+        }
+    }
+
+    private static String handleVariablePrefix(List<String> args) {
+        if (args.isEmpty() || !args.get(0).startsWith("@")) {
+            return null;
+        }
+
+        String token = args.get(0);
+        if ("@".equals(token)) {
+            listVariables();
+            args.clear();
+            return null;
+        }
+
+        String key = variableKey(token);
+        if (key == null) {
+            throw new IllegalArgumentException(
+                    "Variable names use @name and must start with a letter or underscore.");
+        }
+
+        if (args.size() == 1) {
+            showVariable(token);
+            args.clear();
+            return null;
+        }
+
+        String action = args.get(1).toLowerCase(Locale.ROOT);
+        if ("inv".equals(action) || "inventory".equals(action)) {
+            selectInventoryVariable(token);
+            args.clear();
+            return null;
+        }
+
+        if ("cell".equals(action)) {
+            selectCellVariable(token, false, false);
+            args.clear();
+            return null;
+        }
+
+        if ("char".equals(action) || "character".equals(action)) {
+            selectCellVariable(token, true, false);
+            args.clear();
+            return null;
+        }
+
+        if ("obj".equals(action) || "object".equals(action)) {
+            selectCellVariable(token, false, true);
+            args.clear();
+            return null;
+        }
+
+        if ("hero".equals(action)) {
+            if (Dungeon.hero == null) {
+                throw new IllegalStateException("No active hero");
+            }
+            putVariable(token, Dungeon.hero);
+            args.clear();
+            return null;
+        }
+
+        if ("level".equals(action)) {
+            if (Dungeon.level == null) {
+                throw new IllegalStateException("No active level");
+            }
+            putVariable(token, Dungeon.level);
+            args.clear();
+            return null;
+        }
+
+        if ("clear".equals(action) || "delete".equals(action)) {
+            VARIABLES.remove(key);
+            GLog.i(str(token, " cleared"));
+            args.clear();
+            return null;
+        }
+
+        args.remove(0);
+        return token;
     }
 
     private static void help() {
         GLog.i(
                 "Debug commands:\n"
-                + "give <Item> [+level] [xquantity]\n"
-                + "spawn <Mob> [xquantity|-p|--place]\n"
+                + "give <Item> [+level] [xquantity] [-f|--force] [method [args...]]\n"
+                + "spawn <Mob> [xquantity|-p|--place] [method [args...]]\n"
                 + "affect <Buff> [duration] [method [args...]]  (select a character)\n"
-                + "inspect <Class|hero|level>\n"
-                + "use <Class|hero|level> <method> [args...]\n"
+                + "seed <Blob> [amount]  (select a tile)\n"
+                + "trap <Trap>  (select a tile; trap is revealed)\n"
+                + "warp [cell|@variable]  (same-floor teleport)\n"
+                + "inspect <Class|hero|level|@variable>\n"
+                + "use <Class|hero|level|@variable> <method> [args...]\n"
                 + "goto <depth> [branch]  (branch defaults to 0)\n"
                 + "where  (show current depth and branch)\n"
+                + "macro [name]  (edit; empty body deletes; %1..%9 are arguments)\n"
+                + "@  (list variables)\n"
+                + "@x inv|cell|char|obj|hero|level|clear\n"
+                + "@x use ...  (store a returned object; also works with give/spawn/affect/seed/trap)\n"
+                + "!!  (repeat the previous command)\n"
                 + "search <number|changed|unchanged|increased|decreased>\n"
                 + "results [#id] | get #id | set #id <number> | clear\n"
                 + "save  (Android: export app save files to Download/<package>)\n"
                 + "load  (Android: import them, then restart the app)\n"
                 + "Class names may be simple (RingOfEnergy) or fully qualified.\n"
-                + "Quoted strings are supported for method arguments."
+                + "Quoted strings and @variables are supported as method arguments.\n"
+                + "Commands that open a selector should be the final line of a macro."
         );
     }
 
-    private static void give(List<String> args) throws Exception {
+    private static Object give(List<String> args) throws Exception {
         if (args.isEmpty()) {
-            throw new IllegalArgumentException("give <Item> [+level] [xquantity]");
+            throw new IllegalArgumentException(
+                    "give <Item> [+level] [xquantity] [-f|--force] [method [args...]]");
         }
 
         Class<?> raw = resolveClass(args.get(0), Item.class);
         if (raw == null) {
-            throw new IllegalArgumentException(str("Item class not found: ", args.get(0)));
+            throw new IllegalArgumentException(
+                    str("Item class not found: ", args.get(0)));
         }
 
         Integer level = null;
         int quantity = 1;
+        boolean force = false;
+        String methodName = null;
+        List<String> methodArgs = Collections.emptyList();
+
         for (int i = 1; i < args.size(); i++) {
             String token = args.get(i);
+
             if (token.matches("[+-]\\d+")) {
                 level = Integer.parseInt(token);
+
             } else if (token.matches("(?i)x\\d+")) {
-                quantity = boundedCount(Integer.parseInt(token.substring(1)));
+                quantity = boundedCount(
+                        Integer.parseInt(token.substring(1)));
+
+            } else if ("-f".equalsIgnoreCase(token)
+                    || "--force".equalsIgnoreCase(token)) {
+                force = true;
+
             } else {
-                throw new IllegalArgumentException(str("Unrecognized give argument: ", token));
+                methodName = token;
+                methodArgs = new ArrayList<>(
+                        args.subList(i + 1, args.size()));
+                break;
             }
         }
 
         int made = 0;
+        Item firstCreated = null;
+
         for (int i = 0; i < quantity; i++) {
             Item item = (Item) newInstance(raw);
+
+            invokeCompatibleObjects(
+                    item, item.getClass(), "identify",
+                    new Object[0], false, false);
+
             if (level != null) {
                 item.level(level);
             }
-            if (!item.collect()) {
-                GLog.w(str("Backpack full; stopped after ", made, " item(s)."));
+
+            if (methodName != null) {
+                InvocationResult hook = invokeCompatibleRaw(
+                        item, item.getClass(), methodName,
+                        methodArgs, false, false);
+                if (!hook.invoked) {
+                    throw new NoSuchMethodException(str(
+                            "No compatible ", raw.getSimpleName(), ".",
+                            methodName, " with ",
+                            methodArgs.size(), " argument(s)"));
+                }
+            }
+
+            boolean collected = force
+                    ? item.collect()
+                    : debugPickUp(item);
+
+            if (!collected) {
+                GLog.w(str(
+                        "Backpack full or pickup rejected; stopped after ",
+                        made, " item(s)."));
                 break;
+            }
+
+            if (firstCreated == null) {
+                firstCreated = item;
             }
             made++;
         }
@@ -216,15 +440,46 @@ public final class ModDebug {
         if (level == null) {
             GLog.p(str("Created ", made, " x ", raw.getSimpleName()));
         } else {
-            GLog.p(str("Created ", made, " x ", raw.getSimpleName(),
+            GLog.p(str(
+                    "Created ", made, " x ", raw.getSimpleName(),
                     " (level ", level, ")"));
         }
+
+        return firstCreated;
     }
 
-    private static void spawn(List<String> args) throws Exception {
-        if (args.isEmpty() || args.size() > 2) {
+    private static boolean debugPickUp(Item item) throws Exception {
+        if (Dungeon.hero == null) {
+            return item.collect();
+        }
+
+        InvocationResult picked = invokeCompatibleObjects(
+                item, item.getClass(), "doPickUp",
+                new Object[]{Dungeon.hero}, false, false);
+
+        if (!picked.invoked) {
+            return item.collect();
+        }
+
+        boolean success = !(picked.result instanceof Boolean)
+                || (Boolean) picked.result;
+
+        if (success) {
+            try {
+                Dungeon.hero.spend(-Dungeon.hero.cooldown());
+            } catch (Throwable ignored) {
+            }
+        }
+
+        return success;
+    }
+
+    private static void spawn(
+            List<String> args, final String storeVariable) throws Exception {
+
+        if (args.isEmpty()) {
             throw new IllegalArgumentException(
-                    "spawn <Mob> [xquantity|-p|--place]");
+                    "spawn <Mob> [xquantity|-p|--place] [method [args...]]");
         }
         if (Dungeon.level == null) {
             throw new IllegalStateException("No active level");
@@ -232,30 +487,49 @@ public final class ModDebug {
 
         final Class<?> raw = resolveClass(args.get(0), Mob.class);
         if (raw == null) {
-            throw new IllegalArgumentException(str("Mob class not found: ", args.get(0)));
+            throw new IllegalArgumentException(
+                    str("Mob class not found: ", args.get(0)));
         }
 
         int quantity = 1;
         boolean manualPlace = false;
-        if (args.size() == 2) {
-            String token = args.get(1);
+        int index = 1;
+
+        if (index < args.size()) {
+            String token = args.get(index);
             if (token.matches("(?i)x\\d+")) {
-                quantity = boundedCount(Integer.parseInt(token.substring(1)));
+                quantity = boundedCount(
+                        Integer.parseInt(token.substring(1)));
+                index++;
+
             } else if ("-p".equalsIgnoreCase(token)
                     || "--place".equalsIgnoreCase(token)) {
                 manualPlace = true;
-            } else {
-                throw new IllegalArgumentException(
-                        "spawn <Mob> [xquantity|-p|--place]");
+                index++;
             }
+        }
+
+        final String methodName =
+                index < args.size() ? args.get(index) : null;
+        final List<String> methodArgs =
+                index < args.size()
+                        ? new ArrayList<>(
+                                args.subList(index + 1, args.size()))
+                        : Collections.<String>emptyList();
+
+        if (manualPlace && quantity != 1) {
+            throw new IllegalArgumentException(
+                    "Manual placement cannot be combined with quantity");
         }
 
         if (manualPlace) {
             final Mob mob = (Mob) newInstance(raw);
+
             GameScene.selectCell(new CellSelector.Listener() {
                 @Override
                 public String prompt() {
-                    return str("Select a tile to place ", mob.name());
+                    return str(
+                            "Select a tile to place ", mob.name());
                 }
 
                 @Override
@@ -264,46 +538,105 @@ public final class ModDebug {
                         return;
                     }
 
-                    boolean invalid = cell >= Dungeon.level.passable.length
-                            || Actor.findChar(cell) != null
-                            || !Dungeon.level.passable[cell]
-                            || Dungeon.level.solid[cell];
-                    if (!invalid
-                            && mob.properties().contains(Char.Property.LARGE)
-                            && cell < Dungeon.level.openSpace.length
-                            && !Dungeon.level.openSpace[cell]) {
-                        invalid = true;
-                    }
+                    try {
+                        if (!validMobCell(mob, cell)) {
+                            GLog.w(str(
+                                    "You cannot place ",
+                                    mob.name(), " here."));
+                            return;
+                        }
 
-                    if (invalid) {
-                        GLog.w(str("You cannot place ", mob.name(), " here."));
-                        return;
-                    }
+                        mob.pos = cell;
+                        GameScene.add(mob);
+                        invokeGeneratedHook(
+                                mob, methodName, methodArgs);
 
-                    mob.pos = cell;
-                    GameScene.add(mob);
-                    GLog.p(str("Spawned ", mob.name()));
+                        if (storeVariable != null) {
+                            putVariable(storeVariable, mob);
+                        }
+
+                        GLog.p(str("Spawned ", mob.name()));
+
+                    } catch (Exception error) {
+                        reportCommandError("Spawn failed", error);
+                    }
                 }
             });
             return;
         }
 
         int made = 0;
+        Mob first = null;
+
         for (int i = 0; i < quantity; i++) {
             Mob mob = (Mob) newInstance(raw);
             int cell = Dungeon.level.randomRespawnCell(mob);
             if (cell < 0) {
                 break;
             }
+
             mob.pos = cell;
             GameScene.add(mob);
+            invokeGeneratedHook(mob, methodName, methodArgs);
+
+            if (first == null) {
+                first = mob;
+            }
             made++;
         }
 
-        GLog.p(str("Spawned ", made, " x ", raw.getSimpleName()));
+        if (storeVariable != null && first != null) {
+            putVariable(storeVariable, first);
+        }
+
+        GLog.p(str(
+                "Spawned ", made, " x ", raw.getSimpleName()));
     }
 
-    private static void affect(List<String> args) throws Exception {
+    private static boolean validMobCell(Mob mob, int cell) {
+        boolean invalid =
+                cell < 0
+                || cell >= Dungeon.level.passable.length
+                || Actor.findChar(cell) != null
+                || !Dungeon.level.passable[cell]
+                || Dungeon.level.solid[cell];
+
+        if (!invalid
+                && mob.properties().contains(Char.Property.LARGE)
+                && cell < Dungeon.level.openSpace.length
+                && !Dungeon.level.openSpace[cell]) {
+            invalid = true;
+        }
+
+        return !invalid;
+    }
+
+    private static void invokeGeneratedHook(
+            Object object,
+            String methodName,
+            List<String> methodArgs) throws Exception {
+
+        if (methodName == null) {
+            return;
+        }
+
+        InvocationResult result = invokeCompatibleRaw(
+                object, object.getClass(), methodName,
+                methodArgs, false, false);
+
+        if (!result.invoked) {
+            throw new NoSuchMethodException(str(
+                    "No compatible ",
+                    object.getClass().getSimpleName(),
+                    ".", methodName, " with ",
+                    methodArgs.size(), " argument(s)"));
+        }
+    }
+
+    private static void affect(
+            List<String> args, final String storeVariable)
+            throws Exception {
+
         if (args.isEmpty()) {
             throw new IllegalArgumentException(
                     "affect <Buff> [duration] [method [args...]]");
@@ -314,8 +647,10 @@ public final class ModDebug {
 
         final Class<?> raw = resolveClass(args.get(0), Buff.class);
         if (raw == null) {
-            throw new IllegalArgumentException(str("Buff class not found: ", args.get(0)));
+            throw new IllegalArgumentException(
+                    str("Buff class not found: ", args.get(0)));
         }
+
         final List<String> options =
                 new ArrayList<>(args.subList(1, args.size()));
 
@@ -337,55 +672,64 @@ public final class ModDebug {
                 }
 
                 try {
-                    applyAffect(target, raw, options);
-                } catch (Exception error) {
-                    error.printStackTrace();
-                    String message = error.getMessage();
-                    if (message == null || message.isEmpty()) {
-                        GLog.n("Affect failed.");
-                    } else {
-                        GLog.n(str(
-                                "Affect failed: ",
-                                error.getClass().getSimpleName(),
-                                ": ",
-                                message));
+                    Buff buff = applyAffect(target, raw, options);
+                    if (storeVariable != null && buff != null) {
+                        putVariable(storeVariable, buff);
                     }
+                } catch (Exception error) {
+                    reportCommandError("Affect failed", error);
                 }
             }
         });
     }
 
-    private static void applyAffect(
-            Char target, Class<?> raw, List<String> options) throws Exception {
+    private static Buff applyAffect(
+            Char target, Class<?> raw, List<String> options)
+            throws Exception {
 
         int index = 0;
         Buff buff;
 
-        if (FlavourBuff.class.isAssignableFrom(raw) && !options.isEmpty()) {
+        if (FlavourBuff.class.isAssignableFrom(raw)
+                && !options.isEmpty()) {
+
             Float duration = tryParseFloat(options.get(0));
             if (duration != null) {
-                buff = Buff.affect(target, (Class) raw, duration);
+                buff = Buff.affect(
+                        target, (Class) raw, duration);
                 index = 1;
             } else {
                 buff = Buff.affect(target, (Class) raw);
             }
+
         } else {
             buff = Buff.affect(target, (Class) raw);
         }
 
         if (buff == null) {
             throw new IllegalStateException(str(
-                    "Buff could not be attached: ", raw.getSimpleName()));
+                    "Buff could not be attached: ",
+                    raw.getSimpleName()));
         }
 
         boolean invoked = false;
-        List<String> remaining = options.subList(index, options.size());
+        List<String> remaining =
+                options.subList(index, options.size());
 
-        if (!FlavourBuff.class.isAssignableFrom(raw) && !remaining.isEmpty()) {
-            String[] commonMethods = {"set", "reset", "prolong", "extend"};
+        if (!FlavourBuff.class.isAssignableFrom(raw)
+                && !remaining.isEmpty()) {
+
+            String[] commonMethods = {
+                    "set", "reset", "prolong", "extend"
+            };
+
             for (String methodName : commonMethods) {
-                if (invokeCompatible(
-                        buff, buff.getClass(), methodName, remaining, false)) {
+                InvocationResult result = invokeCompatibleRaw(
+                        buff, buff.getClass(),
+                        methodName, remaining,
+                        false, false);
+
+                if (result.invoked) {
                     invoked = true;
                     break;
                 }
@@ -394,18 +738,31 @@ public final class ModDebug {
 
         if (!invoked && index < options.size()) {
             String methodName = options.get(index);
-            List<String> methodArgs = options.subList(index + 1, options.size());
-            if (!invokeCompatible(
-                    buff, buff.getClass(), methodName, methodArgs, false)) {
+            List<String> methodArgs =
+                    options.subList(
+                            index + 1, options.size());
+
+            InvocationResult result = invokeCompatibleRaw(
+                    buff, buff.getClass(),
+                    methodName, methodArgs,
+                    false, false);
+
+            if (!result.invoked) {
                 GLog.w(str(
-                        "No supported method matching ", methodName,
-                        " was found on ", buff.getClass().getSimpleName(), "."));
+                        "No supported method matching ",
+                        methodName, " was found on ",
+                        buff.getClass().getSimpleName(),
+                        "."));
             }
         }
 
         GLog.p(str(
-                "Affected ", target.getClass().getSimpleName(),
-                " with ", buff.getClass().getSimpleName()));
+                "Affected ",
+                target.getClass().getSimpleName(),
+                " with ",
+                buff.getClass().getSimpleName()));
+
+        return buff;
     }
 
     private static Float tryParseFloat(String raw) {
@@ -416,9 +773,254 @@ public final class ModDebug {
         }
     }
 
-    private static void inspect(List<String> args) throws Exception {
+    private static void seed(
+            List<String> args, final String storeVariable)
+            throws Exception {
+
+        if (args.isEmpty() || args.size() > 2) {
+            throw new IllegalArgumentException(
+                    "seed <Blob> [amount]");
+        }
+        if (Dungeon.level == null) {
+            throw new IllegalStateException("No active level");
+        }
+
+        final Class<?> blobBase = loadRequired(BLOB_CLASS);
+        final Class<?> raw =
+                resolveClass(args.get(0), blobBase);
+
+        if (raw == null) {
+            throw new IllegalArgumentException(
+                    str("Blob class not found: ", args.get(0)));
+        }
+
+        final int amount =
+                args.size() == 2
+                        ? integerArgument(args.get(1))
+                        : 1;
+
+        GameScene.selectCell(new CellSelector.Listener() {
+            @Override
+            public String prompt() {
+                return "Select the tile to seed the blob:";
+            }
+
+            @Override
+            public void onSelect(Integer cell) {
+                if (cell == null || cell < 0) {
+                    return;
+                }
+
+                try {
+                    InvocationResult seeded =
+                            invokeCompatibleObjects(
+                                    null, blobBase, "seed",
+                                    new Object[]{
+                                            cell, amount, raw
+                                    },
+                                    false, false);
+
+                    if (!seeded.invoked
+                            || seeded.result == null) {
+                        throw new NoSuchMethodException(
+                                "No compatible Blob.seed(int,int,Class)");
+                    }
+
+                    InvocationResult added =
+                            invokeCompatibleObjects(
+                                    null, GameScene.class, "add",
+                                    new Object[]{seeded.result},
+                                    false, false);
+
+                    if (!added.invoked) {
+                        throw new NoSuchMethodException(
+                                "No compatible GameScene.add(blob)");
+                    }
+
+                    if (storeVariable != null) {
+                        putVariable(
+                                storeVariable, seeded.result);
+                    }
+
+                    GLog.p(str(
+                            "Seeded ",
+                            raw.getSimpleName(),
+                            " x", amount));
+
+                } catch (Exception error) {
+                    reportCommandError("Seed failed", error);
+                }
+            }
+        });
+    }
+
+    private static void trap(
+            List<String> args, final String storeVariable)
+            throws Exception {
+
         if (args.size() != 1) {
-            throw new IllegalArgumentException("inspect <Class|hero|level>");
+            throw new IllegalArgumentException(
+                    "trap <Trap>");
+        }
+        if (Dungeon.level == null) {
+            throw new IllegalStateException("No active level");
+        }
+
+        final Class<?> trapBase = loadRequired(TRAP_CLASS);
+        final Class<?> raw =
+                resolveClass(args.get(0), trapBase);
+
+        if (raw == null) {
+            throw new IllegalArgumentException(
+                    str("Trap class not found: ", args.get(0)));
+        }
+
+        final Object trap = newInstance(raw);
+
+        GameScene.selectCell(new CellSelector.Listener() {
+            @Override
+            public String prompt() {
+                return "Select location of trap:";
+            }
+
+            @Override
+            public void onSelect(Integer cell) {
+                if (cell == null || cell < 0) {
+                    return;
+                }
+
+                try {
+                    Object placed = trap;
+
+                    InvocationResult setResult =
+                            invokeCompatibleObjects(
+                                    trap, trap.getClass(), "set",
+                                    new Object[]{cell},
+                                    false, false);
+                    if (setResult.invoked
+                            && setResult.result != null) {
+                        placed = setResult.result;
+                    }
+
+                    InvocationResult revealResult =
+                            invokeCompatibleObjects(
+                                    placed, placed.getClass(),
+                                    "reveal", new Object[0],
+                                    false, false);
+                    if (revealResult.invoked
+                            && revealResult.result != null) {
+                        placed = revealResult.result;
+                    }
+
+                    InvocationResult levelSet =
+                            invokeCompatibleObjects(
+                                    Dungeon.level,
+                                    Dungeon.level.getClass(),
+                                    "setTrap",
+                                    new Object[]{placed, cell},
+                                    false, false);
+
+                    if (!levelSet.invoked) {
+                        throw new NoSuchMethodException(
+                                "Target level has no compatible setTrap");
+                    }
+
+                    Class<?> terrain =
+                            loadRequired(TERRAIN_CLASS);
+                    Field trapTerrain =
+                            requireField(terrain, "TRAP");
+                    int terrainValue =
+                            trapTerrain.getInt(null);
+
+                    Class<?> levelType =
+                            loadRequired(LEVEL_CLASS);
+                    InvocationResult tileSet =
+                            invokeCompatibleObjects(
+                                    null, levelType, "set",
+                                    new Object[]{
+                                            cell, terrainValue
+                                    },
+                                    false, false);
+
+                    if (!tileSet.invoked) {
+                        throw new NoSuchMethodException(
+                                "Target Level has no compatible static set(cell, terrain)");
+                    }
+
+                    if (storeVariable != null) {
+                        putVariable(
+                                storeVariable, placed);
+                    }
+
+                    GLog.p(str(
+                            "Placed ",
+                            raw.getSimpleName()));
+
+                } catch (Exception error) {
+                    reportCommandError("Trap placement failed", error);
+                }
+            }
+        });
+    }
+
+    private static void warp(List<String> args) throws Exception {
+        if (args.size() > 1) {
+            throw new IllegalArgumentException(
+                    "warp [cell|@variable]");
+        }
+        if (Dungeon.hero == null || Dungeon.level == null) {
+            throw new IllegalStateException("No active dungeon");
+        }
+
+        if (args.size() == 1) {
+            warpTo(integerArgument(args.get(0)));
+            return;
+        }
+
+        GameScene.selectCell(new CellSelector.Listener() {
+            @Override
+            public String prompt() {
+                return "Choose a location to teleport";
+            }
+
+            @Override
+            public void onSelect(Integer cell) {
+                if (cell == null || cell < 0) {
+                    return;
+                }
+
+                try {
+                    warpTo(cell);
+                } catch (Exception error) {
+                    reportCommandError("Warp failed", error);
+                }
+            }
+        });
+    }
+
+    private static void warpTo(int cell) throws Exception {
+        Class<?> teleport =
+                loadRequired(SCROLL_TELEPORT_CLASS);
+
+        InvocationResult result =
+                invokeCompatibleObjects(
+                        null, teleport,
+                        "teleportToLocation",
+                        new Object[]{Dungeon.hero, cell},
+                        false, false);
+
+        if (!result.invoked) {
+            throw new NoSuchMethodException(
+                    "Target has no compatible teleportToLocation");
+        }
+    }
+
+    private static void inspect(List<String> args)
+            throws Exception {
+
+        if (args.size() != 1) {
+            throw new IllegalArgumentException(
+                    "inspect <Class|hero|level|@variable>");
         }
 
         TargetRef target = target(args.get(0));
@@ -426,23 +1028,36 @@ public final class ModDebug {
 
         List<Field> fields = allFields(type);
         List<Method> methods = allMethods(type);
-        Collections.sort(fields, new FieldNameComparator());
-        Collections.sort(methods, new MethodKeyComparator());
 
-        StringBuilder out = new StringBuilder(type.getName());
+        Collections.sort(
+                fields, new FieldNameComparator());
+        Collections.sort(
+                methods, new MethodKeyComparator());
+
+        StringBuilder out =
+                new StringBuilder(type.getName());
+
+        if (target.instance != null) {
+            out.append("\nObject: ")
+                    .append(debugName(target.instance));
+        }
 
         if (!fields.isEmpty()) {
             out.append("\nFields:");
             int count = 0;
+
             for (Field field : fields) {
                 if (count++ >= 40) {
                     out.append("\n  ...");
                     break;
                 }
+
                 out.append("\n  ")
-                        .append(Modifier.toString(field.getModifiers()))
+                        .append(Modifier.toString(
+                                field.getModifiers()))
                         .append(' ')
-                        .append(field.getType().getSimpleName())
+                        .append(field.getType()
+                                .getSimpleName())
                         .append(' ')
                         .append(field.getName());
             }
@@ -451,26 +1066,36 @@ public final class ModDebug {
         if (!methods.isEmpty()) {
             out.append("\nMethods:");
             int count = 0;
+
             for (Method method : methods) {
                 if (count++ >= 60) {
                     out.append("\n  ...");
                     break;
                 }
+
                 out.append("\n  ")
-                        .append(Modifier.toString(method.getModifiers()))
+                        .append(Modifier.toString(
+                                method.getModifiers()))
                         .append(' ')
-                        .append(method.getReturnType().getSimpleName())
+                        .append(method.getReturnType()
+                                .getSimpleName())
                         .append(' ')
                         .append(method.getName())
                         .append('(');
 
-                Class<?>[] params = method.getParameterTypes();
-                for (int i = 0; i < params.length; i++) {
+                Class<?>[] params =
+                        method.getParameterTypes();
+
+                for (int i = 0;
+                        i < params.length; i++) {
+
                     if (i > 0) {
                         out.append(", ");
                     }
-                    out.append(params[i].getSimpleName());
+                    out.append(
+                            params[i].getSimpleName());
                 }
+
                 out.append(')');
             }
         }
@@ -478,57 +1103,851 @@ public final class ModDebug {
         GLog.i(out.toString());
     }
 
-    private static void use(List<String> args) throws Exception {
+    private static InvocationResult use(
+            List<String> args) throws Exception {
+
         if (args.size() < 2) {
             throw new IllegalArgumentException(
-                    "use <Class|hero|level> <method> [args...]");
+                    "use <Class|hero|level|@variable> <method> [args...]");
         }
 
         TargetRef ref = target(args.get(0));
         String name = args.get(1);
-        List<String> rawArgs = args.subList(2, args.size());
+        List<String> rawArgs =
+                args.subList(2, args.size());
 
-        if (!invokeCompatible(ref.instance, ref.type, name, rawArgs, true)) {
+        InvocationResult result =
+                invokeCompatibleRaw(
+                        ref.instance, ref.type,
+                        name, rawArgs,
+                        true, true);
+
+        if (!result.invoked) {
             throw new NoSuchMethodException(str(
-                    "No compatible ", ref.type.getSimpleName(), ".", name,
-                    " with ", rawArgs.size(), " argument(s)"));
+                    "No compatible ",
+                    ref.type.getSimpleName(),
+                    ".", name, " with ",
+                    rawArgs.size(),
+                    " argument(s)"));
+        }
+
+        return result;
+    }
+
+    private static void gotoLevel(List<String> args)
+            throws Exception {
+
+        if (args.isEmpty() || args.size() > 2) {
+            throw new IllegalArgumentException(
+                    "goto <depth> [branch]");
+        }
+        if (Dungeon.hero == null
+                || Dungeon.level == null) {
+            throw new IllegalStateException(
+                    "No active dungeon");
+        }
+
+        int depth = integerArgument(args.get(0));
+        int branch =
+                args.size() == 2
+                        ? integerArgument(args.get(1))
+                        : 0;
+
+        ClassLoader loader =
+                ModDebug.class.getClassLoader();
+
+        Class<?> interlevel =
+                Class.forName(
+                        INTERLEVEL_SCENE,
+                        true, loader);
+
+        Class<?> modeType =
+                Class.forName(
+                        str(INTERLEVEL_SCENE, "$Mode"),
+                        true, loader);
+
+        Object returnMode = null;
+        Object[] modes = modeType.getEnumConstants();
+
+        if (modes != null) {
+            for (Object mode : modes) {
+                if (mode instanceof Enum
+                        && "RETURN".equals(
+                                ((Enum<?>) mode)
+                                        .name())) {
+                    returnMode = mode;
+                    break;
+                }
+            }
+        }
+
+        if (returnMode == null) {
+            throw new IllegalStateException(
+                    "Target has no InterlevelScene RETURN mode");
+        }
+
+        Field returnBranch =
+                findField(interlevel, "returnBranch");
+
+        if (returnBranch == null && branch != 0) {
+            throw new IllegalArgumentException(
+                    "Target does not support branch floor selection");
+        }
+
+        invokeBeforeTransition(loader);
+
+        requireField(interlevel, "mode")
+                .set(null, returnMode);
+
+        requireField(interlevel, "returnDepth")
+                .setInt(null, depth);
+
+        if (returnBranch != null) {
+            returnBranch.setInt(null, branch);
+        }
+
+        requireField(interlevel, "returnPos")
+                .setInt(null, -1);
+
+        Class<?> game =
+                Class.forName(
+                        GAME_CLASS,
+                        true, loader);
+
+        Method switchScene =
+                game.getMethod(
+                        "switchScene", Class.class);
+
+        switchScene.invoke(null, interlevel);
+    }
+
+    private static void where(List<String> args)
+            throws Exception {
+
+        if (!args.isEmpty()) {
+            throw new IllegalArgumentException("where");
+        }
+        if (Dungeon.level == null) {
+            throw new IllegalStateException(
+                    "No active level");
+        }
+
+        int branch = 0;
+        Field branchField =
+                findField(Dungeon.class, "branch");
+
+        if (branchField != null) {
+            branch = branchField.getInt(null);
+        }
+
+        GLog.i(str(
+                "Depth ", Dungeon.depth,
+                ", branch ", branch));
+    }
+
+    private static void invokeBeforeTransition(
+            ClassLoader loader) throws Exception {
+
+        Class<?> level =
+                Class.forName(
+                        LEVEL_CLASS, false, loader);
+
+        try {
+            Method beforeTransition =
+                    level.getDeclaredMethod(
+                            "beforeTransition");
+
+            beforeTransition.setAccessible(true);
+            beforeTransition.invoke(null);
+
+        } catch (NoSuchMethodException ignored) {
         }
     }
 
-    private static boolean invokeCompatible(
+    private static void macro(List<String> args)
+            throws Exception {
+
+        loadMacros();
+
+        if (args.isEmpty()) {
+            if (MACROS.isEmpty()) {
+                GLog.i("No debug macros defined.");
+                return;
+            }
+
+            ArrayList<String> names =
+                    new ArrayList<>(MACROS.keySet());
+            Collections.sort(names);
+
+            StringBuilder out =
+                    new StringBuilder("Debug macros:");
+
+            for (String name : names) {
+                out.append("\n  ").append(name);
+            }
+
+            GLog.i(out.toString());
+            return;
+        }
+
+        if (args.size() != 1) {
+            throw new IllegalArgumentException(
+                    "macro [name]");
+        }
+
+        final String name = args.get(0);
+
+        if (!name.matches(
+                "[A-Za-z_][A-Za-z0-9_$]*")) {
+            throw new IllegalArgumentException(
+                    "Macro name must be a valid identifier");
+        }
+
+        if (isBuiltInCommand(name)) {
+            throw new IllegalArgumentException(
+                    "Macro name conflicts with a debug command");
+        }
+
+        final String existing =
+                MACROS.containsKey(name)
+                        ? MACROS.get(name)
+                        : "";
+
+        GameScene.show(new WndTextInput(
+                str("Macro ", name),
+                "Enter one debug command per line. "
+                        + "%1..%9 are macro arguments. "
+                        + "Selector commands must be last. "
+                        + "An empty body deletes the macro.",
+                existing,
+                4000,
+                true,
+                "Confirm",
+                "Cancel") {
+            @Override
+            public void onSelect(
+                    boolean positive, String text) {
+
+                if (!positive) {
+                    return;
+                }
+
+                try {
+                    setMacro(
+                            name,
+                            text == null
+                                    ? ""
+                                    : text);
+                } catch (Exception error) {
+                    reportCommandError(
+                            "Macro save failed",
+                            error);
+                }
+            }
+        });
+    }
+
+    private static boolean runMacro(
+            String name,
+            List<String> args,
+            int depth) throws Exception {
+
+        loadMacros();
+        String body = MACROS.get(name);
+        if (body == null) {
+            return false;
+        }
+
+        if (depth >= 8) {
+            throw new IllegalStateException(
+                    "Macro recursion limit reached");
+        }
+
+        String[] lines = body.split("\\r?\\n");
+        ArrayList<String> expanded =
+                new ArrayList<>();
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()
+                    || trimmed.startsWith("#")) {
+                continue;
+            }
+            expanded.add(
+                    expandMacroLine(
+                            trimmed, args));
+        }
+
+        for (int i = 0;
+                i < expanded.size(); i++) {
+
+            String line = expanded.get(i);
+
+            if (i + 1 < expanded.size()
+                    && commandNeedsSelector(line)) {
+                throw new IllegalArgumentException(str(
+                        "Selector command must be the final macro line: ",
+                        line));
+            }
+
+            GLog.i(str("> ", line));
+            executeExpanded(line, depth + 1);
+        }
+
+        return true;
+    }
+
+    private static String expandMacroLine(
+            String line,
+            List<String> args) {
+
+        String expanded = line;
+
+        for (int i = 9; i >= 1; i--) {
+            String marker = str("%", i);
+
+            if (!expanded.contains(marker)) {
+                continue;
+            }
+
+            if (i > args.size()) {
+                throw new IllegalArgumentException(str(
+                        "Macro argument ", marker,
+                        " was not provided"));
+            }
+
+            expanded = expanded.replace(
+                    marker,
+                    quoteToken(args.get(i - 1)));
+        }
+
+        Matcher unresolved =
+                Pattern.compile("%[1-9]")
+                        .matcher(expanded);
+
+        if (unresolved.find()) {
+            throw new IllegalArgumentException(str(
+                    "Macro argument ",
+                    unresolved.group(),
+                    " was not provided"));
+        }
+
+        return expanded;
+    }
+
+    private static boolean commandNeedsSelector(
+            String commandLine) {
+
+        List<String> tokens = tokenize(commandLine);
+        if (tokens.isEmpty()) {
+            return false;
+        }
+
+        if (tokens.get(0).startsWith("@")) {
+            if (tokens.size() >= 2) {
+                String variableAction =
+                        tokens.get(1)
+                                .toLowerCase(Locale.ROOT);
+
+                if ("inv".equals(variableAction)
+                        || "inventory".equals(variableAction)
+                        || "cell".equals(variableAction)
+                        || "char".equals(variableAction)
+                        || "character".equals(variableAction)
+                        || "obj".equals(variableAction)
+                        || "object".equals(variableAction)) {
+                    return true;
+                }
+            }
+
+            tokens.remove(0);
+            if (tokens.isEmpty()) {
+                return false;
+            }
+        }
+
+        String command =
+                tokens.get(0)
+                        .toLowerCase(Locale.ROOT);
+
+        if ("affect".equals(command)
+                || "seed".equals(command)
+                || "trap".equals(command)
+                || "macro".equals(command)) {
+            return true;
+        }
+
+        if ("warp".equals(command)) {
+            return tokens.size() == 1;
+        }
+
+        if ("spawn".equals(command)) {
+            for (String token : tokens) {
+                if ("-p".equalsIgnoreCase(token)
+                        || "--place".equalsIgnoreCase(token)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static void setMacro(
+            String name, String body) throws Exception {
+
+        loadMacros();
+        String trimmed = body.trim();
+
+        if (trimmed.isEmpty()) {
+            MACROS.remove(name);
+            saveMacros();
+            GLog.i(str("Macro ", name, " deleted"));
+            return;
+        }
+
+        MACROS.put(name, body);
+        saveMacros();
+        GLog.p(str("Macro ", name, " saved"));
+    }
+
+    private static synchronized void loadMacros()
+            throws Exception {
+
+        if (macrosLoaded) {
+            return;
+        }
+        macrosLoaded = true;
+
+        File file = macroFile();
+        if (!file.isFile()) {
+            return;
+        }
+
+        Properties properties = new Properties();
+
+        try (FileInputStream in =
+                new FileInputStream(file)) {
+            properties.load(in);
+        }
+
+        for (String name :
+                properties.stringPropertyNames()) {
+            MACROS.put(
+                    name,
+                    properties.getProperty(name, ""));
+        }
+    }
+
+    private static synchronized void saveMacros()
+            throws Exception {
+
+        File file = macroFile();
+        File parent = file.getParentFile();
+
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+
+        Properties properties = new Properties();
+        properties.putAll(MACROS);
+
+        try (FileOutputStream out =
+                new FileOutputStream(file)) {
+            properties.store(
+                    out, "SMM ModDebug macros");
+        }
+    }
+
+    private static File macroFile() {
+        try {
+            Class<?> activityThread =
+                    Class.forName(
+                            "android.app.ActivityThread");
+
+            Object application =
+                    activityThread
+                            .getMethod(
+                                    "currentApplication")
+                            .invoke(null);
+
+            if (application != null) {
+                Method getFilesDir =
+                        application.getClass()
+                                .getMethod(
+                                        "getFilesDir");
+
+                Object directory =
+                        getFilesDir.invoke(application);
+
+                if (directory instanceof File) {
+                    return new File(
+                            (File) directory,
+                            "smm-debug-macros.properties");
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        String home =
+                System.getProperty(
+                        "user.home", ".");
+
+        return new File(
+                home,
+                ".smm-debug-macros.properties");
+    }
+
+    private static void save(List<String> args)
+            throws Exception {
+
+        if (!args.isEmpty()) {
+            throw new IllegalArgumentException("save");
+        }
+
+        ModSaveTransfer.exportSave();
+    }
+
+    private static void load(List<String> args)
+            throws Exception {
+
+        if (!args.isEmpty()) {
+            throw new IllegalArgumentException("load");
+        }
+
+        ModSaveTransfer.importSave();
+    }
+
+    private static void listVariables() {
+        if (VARIABLES.isEmpty()) {
+            GLog.i("No debug variables defined.");
+            return;
+        }
+
+        ArrayList<String> names =
+                new ArrayList<>(VARIABLES.keySet());
+        Collections.sort(names);
+
+        StringBuilder out =
+                new StringBuilder("Debug variables:");
+
+        for (String name : names) {
+            Object value =
+                    getVariable(
+                            str("@", name));
+
+            out.append("\n  @")
+                    .append(name)
+                    .append(" = ")
+                    .append(
+                            value == null
+                                    ? "<inactive>"
+                                    : debugName(value));
+        }
+
+        GLog.i(out.toString());
+    }
+
+    private static void showVariable(String token) {
+        Object value = getVariable(token);
+
+        if (value == null) {
+            GLog.w(str(
+                    token,
+                    " is undefined or inactive"));
+        } else {
+            GLog.i(str(
+                    token, " = ",
+                    debugName(value)));
+        }
+    }
+
+    private static void selectInventoryVariable(
+            final String token) {
+
+        GameScene.selectItem(
+                new WndBag.ItemSelector() {
+                    @Override
+                    public String textPrompt() {
+                        return "Select an item";
+                    }
+
+                    @Override
+                    public boolean itemSelectable(
+                            Item item) {
+                        return item != null;
+                    }
+
+                    @Override
+                    public void onSelect(Item item) {
+                        if (item != null) {
+                            putVariable(token, item);
+                        }
+                    }
+                });
+    }
+
+    private static void selectCellVariable(
+            final String token,
+            final boolean charOnly,
+            final boolean objectMode) {
+
+        GameScene.selectCell(
+                new CellSelector.Listener() {
+                    @Override
+                    public String prompt() {
+                        if (charOnly) {
+                            return "Select a character";
+                        }
+                        if (objectMode) {
+                            return "Select a tile/object";
+                        }
+                        return "Select a cell";
+                    }
+
+                    @Override
+                    public void onSelect(Integer cell) {
+                        if (cell == null || cell < 0) {
+                            return;
+                        }
+
+                        if (charOnly) {
+                            Char target =
+                                    Actor.findChar(cell);
+
+                            if (target == null) {
+                                GLog.w(
+                                        "No character on that cell.");
+                                return;
+                            }
+
+                            putVariable(
+                                    token, target);
+                            return;
+                        }
+
+                        if (objectMode) {
+                            Object object =
+                                    objectAtCell(cell);
+                            putVariable(
+                                    token,
+                                    object != null
+                                            ? object
+                                            : cell);
+                            return;
+                        }
+
+                        putVariable(token, cell);
+                    }
+                });
+    }
+
+    private static Object objectAtCell(int cell) {
+        Char target = Actor.findChar(cell);
+        if (target != null) {
+            return target;
+        }
+
+        try {
+            Method method =
+                    GameScene.class
+                            .getDeclaredMethod(
+                                    "getObjectsAtCell",
+                                    int.class);
+
+            method.setAccessible(true);
+            Object result =
+                    method.invoke(null, cell);
+
+            if (result instanceof Iterable) {
+                for (Object object :
+                        (Iterable<?>) result) {
+                    if (object != null) {
+                        return object;
+                    }
+                }
+            }
+
+            if (result != null
+                    && result.getClass().isArray()
+                    && Array.getLength(result) > 0) {
+                return Array.get(result, 0);
+            }
+
+        } catch (Throwable ignored) {
+        }
+
+        return null;
+    }
+
+    private static void putVariable(
+            String token, Object value) {
+
+        if (value == null) {
+            return;
+        }
+
+        String key = variableKey(token);
+        if (key == null) {
+            throw new IllegalArgumentException(
+                    str("Invalid variable name: ", token));
+        }
+
+        VARIABLES.put(
+                key, new StoredValue(value));
+
+        GLog.p(str(
+                "@", key, " = ",
+                debugName(value)));
+    }
+
+    private static Object getVariable(String token) {
+        String key = variableKey(token);
+        if (key == null) {
+            return null;
+        }
+
+        StoredValue stored =
+                VARIABLES.get(key);
+
+        return stored == null
+                ? null
+                : stored.get();
+    }
+
+    private static boolean hasVariable(String token) {
+        String key = variableKey(token);
+        return key != null
+                && VARIABLES.containsKey(key);
+    }
+
+    private static String variableKey(String token) {
+        if (token == null
+                || !token.startsWith("@")
+                || token.length() < 2) {
+            return null;
+        }
+
+        String key = token.substring(1);
+
+        return key.matches(
+                "[A-Za-z_][A-Za-z0-9_$]*")
+                ? key
+                : null;
+    }
+
+    private static TargetRef target(String token)
+            throws Exception {
+
+        if (token.startsWith("@")) {
+            Object value = getVariable(token);
+
+            if (value == null) {
+                throw new IllegalArgumentException(
+                        str(
+                                "Variable is undefined or inactive: ",
+                                token));
+            }
+
+            return new TargetRef(
+                    value.getClass(), value);
+        }
+
+        if ("hero".equalsIgnoreCase(token)) {
+            if (Dungeon.hero == null) {
+                throw new IllegalStateException(
+                        "No active hero");
+            }
+
+            return new TargetRef(
+                    Dungeon.hero.getClass(),
+                    Dungeon.hero);
+        }
+
+        if ("level".equalsIgnoreCase(token)) {
+            if (Dungeon.level == null) {
+                throw new IllegalStateException(
+                        "No active level");
+            }
+
+            return new TargetRef(
+                    Dungeon.level.getClass(),
+                    Dungeon.level);
+        }
+
+        Class<?> type =
+                resolveClass(token, Object.class);
+
+        if (type == null) {
+            throw new ClassNotFoundException(token);
+        }
+
+        return new TargetRef(type, null);
+    }
+
+    private static InvocationResult invokeCompatibleRaw(
             Object receiver,
             Class<?> type,
             String name,
             List<String> rawArgs,
-            boolean logResult) throws Exception {
+            boolean instantiateReceiver,
+            boolean logResult)
+            throws Exception {
 
-        List<Method> candidates = allMethods(type);
-        Collections.sort(candidates, new MethodKeyComparator());
+        List<Method> candidates =
+                allMethods(type);
+        Collections.sort(
+                candidates,
+                new MethodKeyComparator());
 
         Exception lastError = null;
+
         for (Method method : candidates) {
-            if (!method.getName().equalsIgnoreCase(name)
-                    || method.getParameterTypes().length != rawArgs.size()) {
+            if (!method.getName()
+                    .equalsIgnoreCase(name)
+                    || method.getParameterTypes().length
+                    != rawArgs.size()) {
                 continue;
             }
 
-            Object[] converted = convertArgs(method.getParameterTypes(), rawArgs);
+            Object[] converted =
+                    convertArgs(
+                            method.getParameterTypes(),
+                            rawArgs);
+
             if (converted == null) {
                 continue;
             }
 
-            Object actualReceiver = null;
-            if (!Modifier.isStatic(method.getModifiers())) {
-                actualReceiver = receiver != null ? receiver : newInstance(type);
+            Object actualReceiver =
+                    methodReceiver(
+                            receiver, type,
+                            method,
+                            instantiateReceiver);
+
+            if (!Modifier.isStatic(
+                    method.getModifiers())
+                    && actualReceiver == BAD_ARG) {
+                continue;
             }
 
             try {
                 method.setAccessible(true);
-                Object result = method.invoke(actualReceiver, converted);
+                Object result =
+                        method.invoke(
+                                actualReceiver,
+                                converted);
+
                 if (logResult) {
-                    GLog.p(str(method.getName(), " -> ", valueString(result)));
+                    GLog.p(str(
+                            method.getName(),
+                            " -> ",
+                            valueString(result)));
                 }
-                return true;
+
+                return new InvocationResult(
+                        true, result);
+
             } catch (Exception error) {
                 lastError = error;
             }
@@ -537,149 +1956,125 @@ public final class ModDebug {
         if (lastError != null) {
             throw lastError;
         }
-        return false;
+
+        return InvocationResult.NOT_INVOKED;
     }
 
-    private static void gotoLevel(List<String> args) throws Exception {
-        if (args.isEmpty() || args.size() > 2) {
-            throw new IllegalArgumentException("goto <depth> [branch]");
-        }
-        if (Dungeon.hero == null || Dungeon.level == null) {
-            throw new IllegalStateException("No active dungeon");
-        }
+    private static InvocationResult invokeCompatibleObjects(
+            Object receiver,
+            Class<?> type,
+            String name,
+            Object[] args,
+            boolean instantiateReceiver,
+            boolean logResult)
+            throws Exception {
 
-        int depth = Integer.parseInt(args.get(0));
-        int branch = args.size() == 2 ? Integer.parseInt(args.get(1)) : 0;
+        List<Method> candidates =
+                allMethods(type);
+        Collections.sort(
+                candidates,
+                new MethodKeyComparator());
 
-        ClassLoader loader = ModDebug.class.getClassLoader();
-        Class<?> interlevel = Class.forName(INTERLEVEL_SCENE, true, loader);
-        Class<?> modeType = Class.forName(str(INTERLEVEL_SCENE, "$Mode"), true, loader);
+        Exception lastError = null;
 
-        Object returnMode = null;
-        Object[] modes = modeType.getEnumConstants();
-        if (modes != null) {
-            for (Object mode : modes) {
-                if (mode instanceof Enum
-                        && "RETURN".equals(((Enum<?>) mode).name())) {
-                    returnMode = mode;
-                    break;
+        for (Method method : candidates) {
+            if (!method.getName()
+                    .equalsIgnoreCase(name)
+                    || method.getParameterTypes().length
+                    != args.length) {
+                continue;
+            }
+
+            Object[] converted =
+                    convertObjectArgs(
+                            method.getParameterTypes(),
+                            args);
+
+            if (converted == null) {
+                continue;
+            }
+
+            Object actualReceiver =
+                    methodReceiver(
+                            receiver, type,
+                            method,
+                            instantiateReceiver);
+
+            if (!Modifier.isStatic(
+                    method.getModifiers())
+                    && actualReceiver == BAD_ARG) {
+                continue;
+            }
+
+            try {
+                method.setAccessible(true);
+                Object result =
+                        method.invoke(
+                                actualReceiver,
+                                converted);
+
+                if (logResult) {
+                    GLog.p(str(
+                            method.getName(),
+                            " -> ",
+                            valueString(result)));
                 }
+
+                return new InvocationResult(
+                        true, result);
+
+            } catch (Exception error) {
+                lastError = error;
             }
         }
-        if (returnMode == null) {
-            throw new IllegalStateException("Target has no InterlevelScene RETURN mode");
+
+        if (lastError != null) {
+            throw lastError;
         }
 
-        Field returnBranch = findField(interlevel, "returnBranch");
-        if (returnBranch == null && branch != 0) {
-            throw new IllegalArgumentException(
-                    "Target does not support branch floor selection");
-        }
-
-        invokeBeforeTransition(loader);
-
-        requireField(interlevel, "mode").set(null, returnMode);
-        requireField(interlevel, "returnDepth").setInt(null, depth);
-        if (returnBranch != null) {
-            returnBranch.setInt(null, branch);
-        }
-        requireField(interlevel, "returnPos").setInt(null, -1);
-
-        Class<?> game = Class.forName(GAME_CLASS, true, loader);
-        Method switchScene = game.getMethod("switchScene", Class.class);
-        switchScene.invoke(null, interlevel);
+        return InvocationResult.NOT_INVOKED;
     }
 
-    private static void where(List<String> args) throws Exception {
-        if (!args.isEmpty()) {
-            throw new IllegalArgumentException("where");
-        }
-        if (Dungeon.level == null) {
-            throw new IllegalStateException("No active level");
-        }
+    private static Object methodReceiver(
+            Object receiver,
+            Class<?> type,
+            Method method,
+            boolean instantiateReceiver)
+            throws Exception {
 
-        int branch = 0;
-        Field branchField = findField(Dungeon.class, "branch");
-        if (branchField != null) {
-            branch = branchField.getInt(null);
-        }
-
-        GLog.i(str("Depth ", Dungeon.depth, ", branch ", branch));
-    }
-
-    private static void invokeBeforeTransition(ClassLoader loader) throws Exception {
-        Class<?> level = Class.forName(LEVEL_CLASS, false, loader);
-        try {
-            Method beforeTransition = level.getDeclaredMethod("beforeTransition");
-            beforeTransition.setAccessible(true);
-            beforeTransition.invoke(null);
-        } catch (NoSuchMethodException ignored) {
-            // Older SPD-derived targets may not have this transition hook.
-        }
-    }
-
-    private static Field findField(Class<?> type, String name) {
-        try {
-            Field field = type.getDeclaredField(name);
-            field.setAccessible(true);
-            return field;
-        } catch (NoSuchFieldException ignored) {
+        if (Modifier.isStatic(
+                method.getModifiers())) {
             return null;
         }
+
+        if (receiver != null) {
+            return receiver;
+        }
+
+        if (!instantiateReceiver) {
+            return BAD_ARG;
+        }
+
+        return newInstance(type);
     }
 
-    private static Field requireField(Class<?> type, String name)
-            throws NoSuchFieldException {
-        Field field = findField(type, name);
-        if (field == null) {
-            throw new NoSuchFieldException(str(type.getName(), ".", name));
-        }
-        return field;
-    }
+    private static Object[] convertArgs(
+            Class<?>[] types,
+            List<String> raw) throws Exception {
 
-    private static void save(List<String> args) throws Exception {
-        if (!args.isEmpty()) {
-            throw new IllegalArgumentException("save");
-        }
-        ModSaveTransfer.exportSave();
-    }
+        Object[] result =
+                new Object[types.length];
 
-    private static void load(List<String> args) throws Exception {
-        if (!args.isEmpty()) {
-            throw new IllegalArgumentException("load");
-        }
-        ModSaveTransfer.importSave();
-    }
+        for (int i = 0;
+                i < types.length; i++) {
 
-    private static TargetRef target(String token) throws Exception {
-        if ("hero".equalsIgnoreCase(token)) {
-            if (Dungeon.hero == null) {
-                throw new IllegalStateException("No active hero");
-            }
-            return new TargetRef(Dungeon.hero.getClass(), Dungeon.hero);
-        }
-
-        if ("level".equalsIgnoreCase(token)) {
-            if (Dungeon.level == null) {
-                throw new IllegalStateException("No active level");
-            }
-            return new TargetRef(Dungeon.level.getClass(), Dungeon.level);
-        }
-
-        Class<?> type = resolveClass(token, Object.class);
-        if (type == null) {
-            throw new ClassNotFoundException(token);
-        }
-        return new TargetRef(type, null);
-    }
-
-    private static Object[] convertArgs(Class<?>[] types, List<String> raw) throws Exception {
-        Object[] result = new Object[types.length];
-
-        for (int i = 0; i < types.length; i++) {
             Object value;
+
             try {
-                value = convertArg(types[i], raw.get(i));
+                value =
+                        convertArg(
+                                types[i],
+                                raw.get(i));
             } catch (RuntimeException parseError) {
                 return null;
             }
@@ -687,66 +2082,135 @@ public final class ModDebug {
             if (value == BAD_ARG) {
                 return null;
             }
+
             result[i] = value;
         }
 
         return result;
     }
 
-    private static Object convertArg(Class<?> type, String raw) throws Exception {
-        if ("null".equalsIgnoreCase(raw)) {
-            return type.isPrimitive() ? BAD_ARG : null;
+    private static Object convertArg(
+            Class<?> type, String raw)
+            throws Exception {
+
+        if (raw.startsWith("@")
+                && hasVariable(raw)) {
+
+            Object variable =
+                    getVariable(raw);
+
+            if (variable == null) {
+                return BAD_ARG;
+            }
+
+            return convertObjectArg(
+                    type, variable);
         }
 
-        if (type == String.class || type == CharSequence.class) {
+        if ("null".equalsIgnoreCase(raw)) {
+            return type.isPrimitive()
+                    ? BAD_ARG
+                    : null;
+        }
+
+        if (type == String.class
+                || type == CharSequence.class) {
             return raw;
         }
 
-        if (type == boolean.class || type == Boolean.class) {
-            if ("true".equalsIgnoreCase(raw)) return true;
-            if ("false".equalsIgnoreCase(raw)) return false;
+        if (type == boolean.class
+                || type == Boolean.class) {
+
+            if ("true".equalsIgnoreCase(raw)) {
+                return true;
+            }
+            if ("false".equalsIgnoreCase(raw)) {
+                return false;
+            }
             return BAD_ARG;
         }
 
-        if (type == byte.class || type == Byte.class) return Byte.parseByte(raw);
-        if (type == short.class || type == Short.class) return Short.parseShort(raw);
-        if (type == int.class || type == Integer.class) return Integer.parseInt(raw);
-        if (type == long.class || type == Long.class) return Long.parseLong(raw);
-        if (type == float.class || type == Float.class) return Float.parseFloat(raw);
-        if (type == double.class || type == Double.class) return Double.parseDouble(raw);
+        if (type == byte.class
+                || type == Byte.class) {
+            return Byte.parseByte(raw);
+        }
 
-        if (type == char.class || type == Character.class) {
-            return raw.length() == 1 ? raw.charAt(0) : BAD_ARG;
+        if (type == short.class
+                || type == Short.class) {
+            return Short.parseShort(raw);
+        }
+
+        if (type == int.class
+                || type == Integer.class) {
+            return Integer.parseInt(raw);
+        }
+
+        if (type == long.class
+                || type == Long.class) {
+            return Long.parseLong(raw);
+        }
+
+        if (type == float.class
+                || type == Float.class) {
+            return Float.parseFloat(raw);
+        }
+
+        if (type == double.class
+                || type == Double.class) {
+            return Double.parseDouble(raw);
+        }
+
+        if (type == char.class
+                || type == Character.class) {
+            return raw.length() == 1
+                    ? raw.charAt(0)
+                    : BAD_ARG;
         }
 
         if (type == Class.class) {
-            Class<?> cls = resolveClass(raw, Object.class);
-            return cls == null ? BAD_ARG : cls;
+            Class<?> cls =
+                    resolveClass(
+                            raw, Object.class);
+
+            return cls == null
+                    ? BAD_ARG
+                    : cls;
         }
 
         if (type.isEnum()) {
-            for (Object constant : type.getEnumConstants()) {
-                if (((Enum<?>) constant).name().equalsIgnoreCase(raw)) {
+            for (Object constant :
+                    type.getEnumConstants()) {
+
+                if (((Enum<?>) constant)
+                        .name()
+                        .equalsIgnoreCase(raw)) {
                     return constant;
                 }
             }
+
             return BAD_ARG;
         }
 
         if (Dungeon.hero != null
                 && "hero".equalsIgnoreCase(raw)
-                && type.isInstance(Dungeon.hero)) {
+                && type.isInstance(
+                        Dungeon.hero)) {
             return Dungeon.hero;
         }
 
         if (Dungeon.level != null
                 && "level".equalsIgnoreCase(raw)
-                && type.isInstance(Dungeon.level)) {
+                && type.isInstance(
+                        Dungeon.level)) {
             return Dungeon.level;
         }
 
-        Class<?> cls = resolveClass(raw, type);
-        if (cls != null && type.isAssignableFrom(cls)) {
+        Class<?> cls =
+                resolveClass(raw, type);
+
+        if (cls != null
+                && type.isAssignableFrom(cls)) {
+
             try {
                 return newInstance(cls);
             } catch (Exception ignored) {
@@ -757,33 +2221,173 @@ public final class ModDebug {
         return BAD_ARG;
     }
 
-    private static Object newInstance(Class<?> type) throws Exception {
-        if (type.isInterface() || Modifier.isAbstract(type.getModifiers())) {
-            throw new InstantiationException(str("Cannot instantiate ", type.getName()));
+    private static Object[] convertObjectArgs(
+            Class<?>[] types, Object[] args) {
+
+        Object[] result =
+                new Object[types.length];
+
+        for (int i = 0;
+                i < types.length; i++) {
+
+            Object converted =
+                    convertObjectArg(
+                            types[i], args[i]);
+
+            if (converted == BAD_ARG) {
+                return null;
+            }
+
+            result[i] = converted;
         }
 
-        Constructor<?> constructor = type.getDeclaredConstructor();
+        return result;
+    }
+
+    private static Object convertObjectArg(
+            Class<?> type, Object value) {
+
+        if (value == null) {
+            return type.isPrimitive()
+                    ? BAD_ARG
+                    : null;
+        }
+
+        Class<?> boxed = boxedType(type);
+
+        if (boxed.isInstance(value)) {
+            return value;
+        }
+
+        if (value instanceof Number
+                && Number.class
+                        .isAssignableFrom(boxed)) {
+
+            Number number = (Number) value;
+
+            if (boxed == Byte.class) {
+                return number.byteValue();
+            }
+            if (boxed == Short.class) {
+                return number.shortValue();
+            }
+            if (boxed == Integer.class) {
+                return number.intValue();
+            }
+            if (boxed == Long.class) {
+                return number.longValue();
+            }
+            if (boxed == Float.class) {
+                return number.floatValue();
+            }
+            if (boxed == Double.class) {
+                return number.doubleValue();
+            }
+        }
+
+        return BAD_ARG;
+    }
+
+    private static Class<?> boxedType(Class<?> type) {
+        if (!type.isPrimitive()) {
+            return type;
+        }
+
+        if (type == boolean.class) {
+            return Boolean.class;
+        }
+        if (type == byte.class) {
+            return Byte.class;
+        }
+        if (type == short.class) {
+            return Short.class;
+        }
+        if (type == int.class) {
+            return Integer.class;
+        }
+        if (type == long.class) {
+            return Long.class;
+        }
+        if (type == float.class) {
+            return Float.class;
+        }
+        if (type == double.class) {
+            return Double.class;
+        }
+        if (type == char.class) {
+            return Character.class;
+        }
+
+        return type;
+    }
+
+    private static int integerArgument(
+            String token) {
+
+        if (token.startsWith("@")
+                && hasVariable(token)) {
+
+            Object value = getVariable(token);
+
+            if (value instanceof Number) {
+                return ((Number) value)
+                        .intValue();
+            }
+
+            throw new IllegalArgumentException(str(
+                    token,
+                    " does not contain a number"));
+        }
+
+        return Integer.parseInt(token);
+    }
+
+    private static Object newInstance(
+            Class<?> type) throws Exception {
+
+        if (type.isInterface()
+                || Modifier.isAbstract(
+                        type.getModifiers())) {
+
+            throw new InstantiationException(str(
+                    "Cannot instantiate ",
+                    type.getName()));
+        }
+
+        Constructor<?> constructor =
+                type.getDeclaredConstructor();
+
         constructor.setAccessible(true);
         return constructor.newInstance();
     }
 
     private static int boundedCount(int count) {
         if (count < 1 || count > 100) {
-            throw new IllegalArgumentException("quantity must be between 1 and 100");
+            throw new IllegalArgumentException(
+                    "quantity must be between 1 and 100");
         }
+
         return count;
     }
 
-    private static Class<?> resolveClass(String input, Class<?> parent) {
+    private static Class<?> resolveClass(
+            String input, Class<?> parent) {
+
         String name = input.trim();
 
-        Class<?> direct = tryLoad(name, parent);
+        Class<?> direct =
+                tryLoad(name, parent);
+
         if (direct != null) {
             return direct;
         }
 
         for (String root : ROOTS) {
-            direct = tryLoad(str(root, ".", name), parent);
+            direct =
+                    tryLoad(
+                            str(root, ".", name),
+                            parent);
+
             if (direct != null) {
                 return direct;
             }
@@ -791,27 +2395,48 @@ public final class ModDebug {
 
         ensureClassIndex();
 
-        String lower = name.toLowerCase(Locale.ROOT);
-        List<String> matches = new ArrayList<>();
-        for (String className : CLASS_NAMES) {
-            String fullLower = className.toLowerCase(Locale.ROOT);
-            int dot = className.lastIndexOf('.');
-            int dollar = className.lastIndexOf('$');
-            int split = Math.max(dot, dollar);
-            String simple = className.substring(split + 1);
+        String lower =
+                name.toLowerCase(Locale.ROOT);
+
+        List<String> matches =
+                new ArrayList<>();
+
+        for (String className :
+                CLASS_NAMES) {
+
+            String fullLower =
+                    className.toLowerCase(
+                            Locale.ROOT);
+
+            int dot =
+                    className.lastIndexOf('.');
+            int dollar =
+                    className.lastIndexOf('$');
+            int split =
+                    Math.max(dot, dollar);
+
+            String simple =
+                    className.substring(split + 1);
 
             if (className.equalsIgnoreCase(name)
-                    || fullLower.endsWith(str(".", lower))
-                    || fullLower.endsWith(str("$", lower))
+                    || fullLower.endsWith(
+                            str(".", lower))
+                    || fullLower.endsWith(
+                            str("$", lower))
                     || simple.equalsIgnoreCase(name)) {
+
                 matches.add(className);
             }
         }
 
-        Collections.sort(matches, new ClassNameComparator());
+        Collections.sort(
+                matches,
+                new ClassNameComparator());
 
         for (String candidate : matches) {
-            Class<?> loaded = tryLoad(candidate, parent);
+            Class<?> loaded =
+                    tryLoad(candidate, parent);
+
             if (loaded != null) {
                 return loaded;
             }
@@ -820,11 +2445,36 @@ public final class ModDebug {
         return null;
     }
 
-    private static Class<?> tryLoad(String name, Class<?> parent) {
+    private static Class<?> loadRequired(
+            String name) throws ClassNotFoundException {
+
+        Class<?> type =
+                tryLoad(name, null);
+
+        if (type == null) {
+            throw new ClassNotFoundException(name);
+        }
+
+        return type;
+    }
+
+    private static Class<?> tryLoad(
+            String name, Class<?> parent) {
+
         try {
-            ClassLoader loader = ModDebug.class.getClassLoader();
-            Class<?> type = Class.forName(name, false, loader);
-            return parent == null || parent.isAssignableFrom(type) ? type : null;
+            ClassLoader loader =
+                    ModDebug.class
+                            .getClassLoader();
+
+            Class<?> type =
+                    Class.forName(
+                            name, false, loader);
+
+            return parent == null
+                    || parent.isAssignableFrom(type)
+                    ? type
+                    : null;
+
         } catch (Throwable ignored) {
             return null;
         }
@@ -836,8 +2486,12 @@ public final class ModDebug {
         }
         indexed = true;
 
-        Set<String> names = new HashSet<>();
-        boolean android = indexAndroid(names);
+        Set<String> names =
+                new HashSet<>();
+
+        boolean android =
+                indexAndroid(names);
+
         if (!android) {
             indexDesktop(names);
         }
@@ -846,40 +2500,72 @@ public final class ModDebug {
         Collections.sort(CLASS_NAMES);
 
         if (CLASS_NAMES.isEmpty()) {
-            GLog.w("Debug class index is empty; use fully-qualified class names.");
+            GLog.w(
+                    "Debug class index is empty; use fully-qualified class names.");
         }
     }
 
-    private static boolean indexAndroid(Set<String> names) {
+    private static boolean indexAndroid(
+            Set<String> names) {
+
         try {
-            Class<?> activityThread = Class.forName("android.app.ActivityThread");
+            Class<?> activityThread =
+                    Class.forName(
+                            "android.app.ActivityThread");
+
             Object application =
-                    activityThread.getMethod("currentApplication").invoke(null);
+                    activityThread
+                            .getMethod(
+                                    "currentApplication")
+                            .invoke(null);
+
             if (application == null) {
                 return false;
             }
 
             Method getPackageCodePath =
-                    application.getClass().getMethod("getPackageCodePath");
-            String path = (String) getPackageCodePath.invoke(application);
+                    application.getClass()
+                            .getMethod(
+                                    "getPackageCodePath");
 
-            Class<?> dexFileClass = Class.forName("dalvik.system.DexFile");
+            String path =
+                    (String)
+                            getPackageCodePath
+                                    .invoke(application);
+
+            Class<?> dexFileClass =
+                    Class.forName(
+                            "dalvik.system.DexFile");
+
             Object dexFile =
-                    dexFileClass.getConstructor(String.class).newInstance(path);
+                    dexFileClass
+                            .getConstructor(
+                                    String.class)
+                            .newInstance(path);
+
             Enumeration<?> entries =
-                    (Enumeration<?>) dexFileClass.getMethod("entries").invoke(dexFile);
+                    (Enumeration<?>)
+                            dexFileClass
+                                    .getMethod(
+                                            "entries")
+                                    .invoke(dexFile);
 
             while (entries.hasMoreElements()) {
-                Object next = entries.nextElement();
+                Object next =
+                        entries.nextElement();
+
                 if (next instanceof String) {
-                    addIndexedName(names, (String) next);
+                    addIndexedName(
+                            names,
+                            (String) next);
                 }
             }
 
             try {
-                dexFileClass.getMethod("close").invoke(dexFile);
+                dexFileClass
+                        .getMethod("close")
+                        .invoke(dexFile);
             } catch (Throwable ignored) {
-                // close() is not present on every supported Android runtime.
             }
 
             return true;
@@ -888,97 +2574,156 @@ public final class ModDebug {
             return false;
 
         } catch (Throwable error) {
-            GLog.w("Android class scan failed; fully-qualified names still work.");
+            GLog.w(
+                    "Android class scan failed; fully-qualified names still work.");
             error.printStackTrace();
             return true;
         }
     }
 
-    private static void indexDesktop(Set<String> names) {
+    private static void indexDesktop(
+            Set<String> names) {
+
         try {
             URL location =
-                    ModDebug.class.getProtectionDomain().getCodeSource().getLocation();
+                    ModDebug.class
+                            .getProtectionDomain()
+                            .getCodeSource()
+                            .getLocation();
 
             if (location == null
-                    || !"file".equalsIgnoreCase(location.getProtocol())) {
+                    || !"file".equalsIgnoreCase(
+                            location.getProtocol())) {
                 return;
             }
 
             File path =
-                    new File(URLDecoder.decode(location.getPath(), "UTF-8"));
+                    new File(
+                            URLDecoder.decode(
+                                    location.getPath(),
+                                    "UTF-8"));
 
             if (path.isFile()) {
-                try (JarFile jar = new JarFile(path)) {
-                    Enumeration<JarEntry> entries = jar.entries();
+                try (JarFile jar =
+                        new JarFile(path)) {
+
+                    Enumeration<JarEntry> entries =
+                            jar.entries();
+
                     while (entries.hasMoreElements()) {
-                        String entry = entries.nextElement().getName();
-                        if (entry.endsWith(".class")) {
+                        String entry =
+                                entries.nextElement()
+                                        .getName();
+
+                        if (entry.endsWith(
+                                ".class")) {
+
                             addIndexedName(
                                     names,
-                                    entry.substring(0, entry.length() - 6)
-                                            .replace('/', '.'));
+                                    entry.substring(
+                                                    0,
+                                                    entry.length()
+                                                            - 6)
+                                            .replace(
+                                                    '/',
+                                                    '.'));
                         }
                     }
                 }
 
             } else if (path.isDirectory()) {
-                indexDirectory(names, path, path);
+                indexDirectory(
+                        names, path, path);
             }
 
         } catch (Throwable error) {
-            GLog.w("Desktop class scan failed; fully-qualified names still work.");
+            GLog.w(
+                    "Desktop class scan failed; fully-qualified names still work.");
             error.printStackTrace();
         }
     }
 
     private static void indexDirectory(
-            Set<String> names, File root, File directory) {
+            Set<String> names,
+            File root,
+            File directory) {
 
-        File[] files = directory.listFiles();
+        File[] files =
+                directory.listFiles();
+
         if (files == null) {
             return;
         }
 
         for (File file : files) {
             if (file.isDirectory()) {
-                indexDirectory(names, root, file);
+                indexDirectory(
+                        names, root, file);
 
-            } else if (file.getName().endsWith(".class")) {
+            } else if (file.getName()
+                    .endsWith(".class")) {
+
                 String relative =
-                        root.toURI().relativize(file.toURI()).getPath();
+                        root.toURI()
+                                .relativize(
+                                        file.toURI())
+                                .getPath();
 
-                if (relative.endsWith(".class")) {
+                if (relative.endsWith(
+                        ".class")) {
+
                     addIndexedName(
                             names,
-                            relative.substring(0, relative.length() - 6)
-                                    .replace('/', '.')
-                                    .replace('\\', '.'));
+                            relative.substring(
+                                            0,
+                                            relative.length()
+                                                    - 6)
+                                    .replace(
+                                            '/', '.')
+                                    .replace(
+                                            '\\', '.'));
                 }
             }
         }
     }
 
-    private static void addIndexedName(Set<String> names, String className) {
+    private static void addIndexedName(
+            Set<String> names,
+            String className) {
+
         for (String root : ROOTS) {
             if (className.equals(root)
-                    || className.startsWith(str(root, "."))) {
+                    || className.startsWith(
+                            str(root, "."))) {
+
                 names.add(className);
                 return;
             }
         }
     }
 
-    private static List<Field> allFields(Class<?> type) {
-        ArrayList<Field> result = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
+    private static List<Field> allFields(
+            Class<?> type) {
+
+        ArrayList<Field> result =
+                new ArrayList<>();
+        Set<String> seen =
+                new HashSet<>();
 
         for (Class<?> current = type;
                 current != null;
                 current = current.getSuperclass()) {
 
-            for (Field field : current.getDeclaredFields()) {
-                String key = str(
-                        field.getName(), ":", field.getType().getName());
+            for (Field field :
+                    current.getDeclaredFields()) {
+
+                String key =
+                        str(
+                                field.getName(),
+                                ":",
+                                field.getType()
+                                        .getName());
+
                 if (seen.add(key)) {
                     result.add(field);
                 }
@@ -988,16 +2733,24 @@ public final class ModDebug {
         return result;
     }
 
-    private static List<Method> allMethods(Class<?> type) {
-        ArrayList<Method> result = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
+    private static List<Method> allMethods(
+            Class<?> type) {
+
+        ArrayList<Method> result =
+                new ArrayList<>();
+        Set<String> seen =
+                new HashSet<>();
 
         for (Class<?> current = type;
                 current != null;
                 current = current.getSuperclass()) {
 
-            for (Method method : current.getDeclaredMethods()) {
-                String key = methodKey(method);
+            for (Method method :
+                    current.getDeclaredMethods()) {
+
+                String key =
+                        methodKey(method);
+
                 if (seen.add(key)) {
                     result.add(method);
                 }
@@ -1009,13 +2762,87 @@ public final class ModDebug {
 
     private static String methodKey(Method method) {
         StringBuilder key =
-                new StringBuilder(method.getName()).append('(');
+                new StringBuilder(
+                        method.getName())
+                        .append('(');
 
-        for (Class<?> type : method.getParameterTypes()) {
-            key.append(type.getName()).append(';');
+        for (Class<?> type :
+                method.getParameterTypes()) {
+
+            key.append(type.getName())
+                    .append(';');
         }
 
-        return key.append(')').toString();
+        return key.append(')')
+                .toString();
+    }
+
+    private static Field findField(
+            Class<?> type, String name) {
+
+        for (Class<?> current = type;
+                current != null;
+                current = current.getSuperclass()) {
+
+            try {
+                Field field =
+                        current.getDeclaredField(name);
+
+                field.setAccessible(true);
+                return field;
+
+            } catch (NoSuchFieldException ignored) {
+            }
+        }
+
+        return null;
+    }
+
+    private static Field requireField(
+            Class<?> type, String name)
+            throws NoSuchFieldException {
+
+        Field field =
+                findField(type, name);
+
+        if (field == null) {
+            throw new NoSuchFieldException(
+                    str(type.getName(), ".", name));
+        }
+
+        return field;
+    }
+
+    private static String debugName(Object value) {
+        if (value == null) {
+            return "null";
+        }
+
+        try {
+            Method name =
+                    value.getClass()
+                            .getMethod("name");
+
+            if (name.getParameterTypes().length == 0
+                    && name.getReturnType()
+                    == String.class) {
+
+                Object result =
+                        name.invoke(value);
+
+                if (result != null) {
+                    return str(
+                            value.getClass()
+                                    .getSimpleName(),
+                            "(", result, ")");
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        return str(
+                value.getClass().getSimpleName(),
+                "(", valueString(value), ")");
     }
 
     private static String valueString(Object value) {
@@ -1024,37 +2851,106 @@ public final class ModDebug {
         }
 
         Class<?> type = value.getClass();
+
         if (!type.isArray()) {
             return String.valueOf(value);
         }
 
-        int length = Array.getLength(value);
-        StringBuilder result = new StringBuilder("[");
+        int length =
+                Array.getLength(value);
+
+        StringBuilder result =
+                new StringBuilder("[");
+
         for (int i = 0; i < length; i++) {
             if (i > 0) {
                 result.append(", ");
             }
-            result.append(String.valueOf(Array.get(value, i)));
+
+            result.append(
+                    String.valueOf(
+                            Array.get(value, i)));
         }
 
-        return result.append(']').toString();
+        return result.append(']')
+                .toString();
+    }
+
+    private static void reportCommandError(
+            String prefix, Throwable error) {
+
+        error.printStackTrace();
+
+        String message =
+                error.getMessage();
+
+        if (message == null
+                || message.isEmpty()) {
+            GLog.n(str(prefix, "."));
+        } else {
+            GLog.n(str(
+                    prefix, ": ",
+                    error.getClass()
+                            .getSimpleName(),
+                    ": ", message));
+        }
+    }
+
+    private static String quoteToken(String token) {
+        if (token == null) {
+            return "\"\"";
+        }
+
+        boolean needsQuotes =
+                token.isEmpty();
+
+        for (int i = 0;
+                i < token.length()
+                && !needsQuotes; i++) {
+
+            if (Character.isWhitespace(
+                    token.charAt(i))) {
+                needsQuotes = true;
+            }
+        }
+
+        if (!needsQuotes
+                && token.indexOf('"') < 0
+                && token.indexOf('\\') < 0) {
+            return token;
+        }
+
+        return str(
+                "\"",
+                token.replace("\\", "\\\\")
+                        .replace("\"", "\\\""),
+                "\"");
     }
 
     private static String str(Object... parts) {
-        StringBuilder result = new StringBuilder();
+        StringBuilder result =
+                new StringBuilder();
+
         for (Object part : parts) {
-            result.append(String.valueOf(part));
+            result.append(
+                    String.valueOf(part));
         }
+
         return result.toString();
     }
 
     private static List<String> tokenize(String text) {
-        ArrayList<String> tokens = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
+        ArrayList<String> tokens =
+                new ArrayList<>();
+        StringBuilder current =
+                new StringBuilder();
+
         char quote = 0;
         boolean escaped = false;
 
-        for (int i = 0; i < text.length(); i++) {
+        for (int i = 0;
+                i < text.length(); i++) {
+
             char c = text.charAt(i);
 
             if (escaped) {
@@ -1077,12 +2973,14 @@ public final class ModDebug {
                 continue;
             }
 
-            if (c == '\'' || c == '"') {
+            if (c == '\''
+                    || c == '"') {
                 quote = c;
 
             } else if (Character.isWhitespace(c)) {
                 if (current.length() > 0) {
-                    tokens.add(current.toString());
+                    tokens.add(
+                            current.toString());
                     current.setLength(0);
                 }
 
@@ -1096,7 +2994,8 @@ public final class ModDebug {
         }
 
         if (quote != 0) {
-            throw new IllegalArgumentException("Unclosed quote");
+            throw new IllegalArgumentException(
+                    "Unclosed quote");
         }
 
         if (current.length() > 0) {
@@ -1106,27 +3005,94 @@ public final class ModDebug {
         return tokens;
     }
 
-    private static final class FieldNameComparator implements Comparator<Field> {
-        @Override
-        public int compare(Field left, Field right) {
-            return left.getName().compareTo(right.getName());
+    private static boolean isBuiltInCommand(
+            String name) {
+
+        String lower =
+                name.toLowerCase(Locale.ROOT);
+
+        String[] commands = {
+                "help", "give", "spawn",
+                "affect", "seed", "trap",
+                "warp", "inspect", "use",
+                "goto", "where", "macro",
+                "search", "results", "get",
+                "set", "clear", "save", "load"
+        };
+
+        for (String command : commands) {
+            if (command.equals(lower)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static final class StoredValue {
+        private final Object value;
+
+        StoredValue(Object value) {
+            this.value = value;
+        }
+
+        Object get() {
+            return value;
         }
     }
 
-    private static final class MethodKeyComparator implements Comparator<Method> {
-        @Override
-        public int compare(Method left, Method right) {
-            return methodKey(left).compareTo(methodKey(right));
+    private static final class InvocationResult {
+        static final InvocationResult NOT_INVOKED =
+                new InvocationResult(false, null);
+
+        final boolean invoked;
+        final Object result;
+
+        InvocationResult(
+                boolean invoked, Object result) {
+            this.invoked = invoked;
+            this.result = result;
         }
     }
 
-    private static final class ClassNameComparator implements Comparator<String> {
+    private static final class FieldNameComparator
+            implements Comparator<Field> {
+
         @Override
-        public int compare(String left, String right) {
-            int byLength = Integer.compare(left.length(), right.length());
+        public int compare(
+                Field left, Field right) {
+            return left.getName()
+                    .compareTo(right.getName());
+        }
+    }
+
+    private static final class MethodKeyComparator
+            implements Comparator<Method> {
+
+        @Override
+        public int compare(
+                Method left, Method right) {
+            return methodKey(left)
+                    .compareTo(methodKey(right));
+        }
+    }
+
+    private static final class ClassNameComparator
+            implements Comparator<String> {
+
+        @Override
+        public int compare(
+                String left, String right) {
+
+            int byLength =
+                    Integer.compare(
+                            left.length(),
+                            right.length());
+
             if (byLength != 0) {
                 return byLength;
             }
+
             return left.compareTo(right);
         }
     }
@@ -1135,7 +3101,8 @@ public final class ModDebug {
         final Class<?> type;
         final Object instance;
 
-        TargetRef(Class<?> type, Object instance) {
+        TargetRef(
+                Class<?> type, Object instance) {
             this.type = type;
             this.instance = instance;
         }
