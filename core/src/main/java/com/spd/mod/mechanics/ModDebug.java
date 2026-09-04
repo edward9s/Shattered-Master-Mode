@@ -65,8 +65,6 @@ public final class ModDebug {
             "com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob";
     private static final String TRAP_CLASS =
             "com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap";
-    private static final String SCROLL_TELEPORT_CLASS =
-            "com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfTeleportation";
     private static final String GAME_CLASS = "com.watabou.noosa.Game";
 
     private static final Object BAD_ARG = new Object();
@@ -999,20 +997,92 @@ public final class ModDebug {
     }
 
     private static void warpTo(int cell) throws Exception {
-        Class<?> teleport =
-                loadRequired(SCROLL_TELEPORT_CLASS);
+        if (Dungeon.hero == null || Dungeon.level == null) {
+            throw new IllegalStateException("No active dungeon");
+        }
 
-        InvocationResult result =
+        boolean insideMap = false;
+        InvocationResult inside =
                 invokeCompatibleObjects(
-                        null, teleport,
-                        "teleportToLocation",
-                        new Object[]{Dungeon.hero, cell},
+                        Dungeon.level,
+                        Dungeon.level.getClass(),
+                        "insideMap",
+                        new Object[]{cell},
                         false, false);
 
-        if (!result.invoked) {
-            throw new NoSuchMethodException(
-                    "Target has no compatible teleportToLocation");
+        if (inside.invoked && inside.result instanceof Boolean) {
+            insideMap = (Boolean) inside.result;
+        } else {
+            Field mapField =
+                    findField(Dungeon.level.getClass(), "map");
+            if (mapField == null) {
+                throw new NoSuchFieldException(
+                        "Target level has no map field");
+            }
+            Object map = mapField.get(Dungeon.level);
+            insideMap = map != null
+                    && map.getClass().isArray()
+                    && cell >= 0
+                    && cell < Array.getLength(map);
         }
+
+        if (!insideMap) {
+            throw new IllegalArgumentException(
+                    str("Cell is outside the map: ", cell));
+        }
+
+        Char occupant = Actor.findChar(cell);
+        if (occupant != null && occupant != Dungeon.hero) {
+            throw new IllegalArgumentException(
+                    str("Cell is occupied by ", occupant.name()));
+        }
+
+        Dungeon.hero.pos = cell;
+
+        InvocationResult occupied =
+                invokeCompatibleObjects(
+                        Dungeon.level,
+                        Dungeon.level.getClass(),
+                        "occupyCell",
+                        new Object[]{Dungeon.hero},
+                        false, false);
+        if (!occupied.invoked) {
+            throw new NoSuchMethodException(
+                    "Target level has no compatible occupyCell(Char)");
+        }
+
+        Field spriteField =
+                findField(Dungeon.hero.getClass(), "sprite");
+        if (spriteField != null) {
+            Object sprite = spriteField.get(Dungeon.hero);
+            if (sprite != null) {
+                invokeCompatibleObjects(
+                        sprite, sprite.getClass(),
+                        "interruptMotion",
+                        new Object[0],
+                        false, false);
+                invokeCompatibleObjects(
+                        sprite, sprite.getClass(),
+                        "place",
+                        new Object[]{cell},
+                        false, false);
+            }
+        }
+
+        invokeCompatibleObjects(
+                null, Dungeon.class,
+                "observe", new Object[0],
+                false, false);
+        invokeCompatibleObjects(
+                null, GameScene.class,
+                "updateFog", new Object[0],
+                false, false);
+        invokeCompatibleObjects(
+                Dungeon.hero, Dungeon.hero.getClass(),
+                "checkVisibleMobs", new Object[0],
+                false, false);
+
+        GLog.p(str("Warped to cell ", cell));
     }
 
     private static void inspect(List<String> args)
