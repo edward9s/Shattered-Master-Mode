@@ -1,6 +1,6 @@
 package com.spd.mod.items;
 
-import com.spd.mod.mechanics.ModDebug;
+import com.spd.mod.mechanics.ModDebug$Console;
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
@@ -185,7 +185,7 @@ public class ModAnkh extends Ankh {
             GameScene.show(new WndUseItem(null, this));
         } else if (AC_CONSOLE.equals(action)) {
             GameScene.cancel();
-            ModDebug.open();
+            ModDebug$Console.open();
         } else if (AC_PUT.equals(action)) {
             GameScene.cancel();
             store.showPutSelector(this, hero);
