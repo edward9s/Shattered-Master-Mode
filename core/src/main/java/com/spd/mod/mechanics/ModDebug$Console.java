@@ -19,6 +19,11 @@ import java.util.Map;
 /**
  * User-facing ModDebug console with fuzzy identifier resolution.
  *
+ * This class deliberately avoids lambdas, method references, and Java 8
+ * collection default methods. R8 may otherwise merge their desugared synthetic
+ * helpers with unrelated application code, making the APK donor payload depend
+ * on donor-specific obfuscated classes.
+ *
  * The '$' in this top-level class name is intentional: the APK/JAR injectors
  * already treat ModDebug$* as part of the self-contained ModDebug payload.
  */
@@ -26,6 +31,15 @@ import java.util.Map;
 public final class ModDebug$Console {
 
     private static final int MAX_SIMILAR = 8;
+
+    private static final Comparator<Method> METHOD_KEY_COMPARATOR =
+            new Comparator<Method>() {
+                @Override
+                public int compare(Method left, Method right) {
+                    return methodKey(left).compareTo(methodKey(right));
+                }
+            };
+
     private static String lastCommand = "";
 
     private ModDebug$Console() {
@@ -86,7 +100,7 @@ public final class ModDebug$Console {
             if (commandIndex >= 0 && commandIndex < tokens.size()) {
                 String name = tokens.get(commandIndex).toLowerCase(Locale.ROOT);
                 if (!isBuiltInCommand(name)) {
-                    List<String> macroArgs = new ArrayList<>(
+                    List<String> macroArgs = new ArrayList<String>(
                             tokens.subList(commandIndex + 1, tokens.size()));
                     if (runMacro(name, macroArgs, macroDepth)) {
                         return;
@@ -138,7 +152,7 @@ public final class ModDebug$Console {
             return originalCommand;
         }
 
-        List<String> tokens = new ArrayList<>(originalTokens);
+        List<String> tokens = new ArrayList<String>(originalTokens);
         int commandIndex = commandIndex(tokens);
         if (commandIndex < 0 || commandIndex >= tokens.size()) {
             return originalCommand;
@@ -163,8 +177,9 @@ public final class ModDebug$Console {
             }
 
             if ("set".equals(command) && tokens.size() > fieldIndex + 1) {
-                String rewritten = rewriteNamedValue(field.getType(), tokens.get(fieldIndex + 1));
-                tokens.set(fieldIndex + 1, rewritten);
+                tokens.set(
+                        fieldIndex + 1,
+                        rewriteNamedValue(field.getType(), tokens.get(fieldIndex + 1)));
             }
         }
 
@@ -218,45 +233,37 @@ public final class ModDebug$Console {
         String label;
         Class<?> parent;
 
-        switch (command) {
-            case "give":
-                label = "Item class";
-                parent = loadRequired(
-                        "com.shatteredpixel.shatteredpixeldungeon.items.Item");
-                break;
-            case "spawn":
-                label = "Mob class";
-                parent = loadRequired(
-                        "com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob");
-                break;
-            case "affect":
-                label = "Buff class";
-                parent = loadRequired(
-                        "com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff");
-                break;
-            case "seed":
-                label = "Blob class";
-                parent = loadRequired(
-                        "com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob");
-                break;
-            case "trap":
-                label = "Trap class";
-                parent = loadRequired(
-                        "com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap");
-                break;
-            case "inspect":
-            case "use":
-                String target = tokens.get(classIndex);
-                if (target.startsWith("@")
-                        || "hero".equalsIgnoreCase(target)
-                        || "level".equalsIgnoreCase(target)) {
-                    return targetInfo(target).type;
-                }
-                label = "Class";
-                parent = Object.class;
-                break;
-            default:
-                return null;
+        if ("give".equals(command)) {
+            label = "Item class";
+            parent = loadRequired(
+                    "com.shatteredpixel.shatteredpixeldungeon.items.Item");
+        } else if ("spawn".equals(command)) {
+            label = "Mob class";
+            parent = loadRequired(
+                    "com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob");
+        } else if ("affect".equals(command)) {
+            label = "Buff class";
+            parent = loadRequired(
+                    "com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff");
+        } else if ("seed".equals(command)) {
+            label = "Blob class";
+            parent = loadRequired(
+                    "com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob");
+        } else if ("trap".equals(command)) {
+            label = "Trap class";
+            parent = loadRequired(
+                    "com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap");
+        } else if ("inspect".equals(command) || "use".equals(command)) {
+            String target = tokens.get(classIndex);
+            if (target.startsWith("@")
+                    || "hero".equalsIgnoreCase(target)
+                    || "level".equalsIgnoreCase(target)) {
+                return targetInfo(target).type;
+            }
+            label = "Class";
+            parent = Object.class;
+        } else {
+            return null;
         }
 
         String raw = tokens.get(classIndex);
@@ -297,7 +304,7 @@ public final class ModDebug$Console {
             return;
         }
 
-        List<String> options = new ArrayList<>(
+        List<String> options = new ArrayList<String>(
                 tokens.subList(optionIndex, tokens.size()));
         String[] common = {"set", "reset", "prolong", "extend"};
         for (String name : common) {
@@ -319,7 +326,7 @@ public final class ModDebug$Console {
         }
 
         String rawName = tokens.get(methodIndex);
-        List<String> rawArgs = new ArrayList<>(
+        List<String> rawArgs = new ArrayList<String>(
                 tokens.subList(methodIndex + 1, tokens.size()));
         MethodOption option = resolveMethod(type, rawName, rawArgs);
 
@@ -338,7 +345,7 @@ public final class ModDebug$Console {
             Class<?> type, String rawName, List<String> rawArgs) throws Exception {
 
         List<Method> methods = allMethods(type);
-        Collections.sort(methods, Comparator.comparing(ModDebug$Console::methodKey));
+        Collections.sort(methods, METHOD_KEY_COMPARATOR);
 
         List<Method> exactName = methodsByNameRank(methods, rawName, 0, -1);
         if (!exactName.isEmpty()) {
@@ -358,18 +365,25 @@ public final class ModDebug$Console {
                 break;
             }
 
-            List<Method> ranked = methodsByNameRank(methods, rawName, rank, rawArgs.size());
+            List<Method> ranked = methodsByNameRank(
+                    methods, rawName, rank, rawArgs.size());
             if (ranked.isEmpty()) {
                 continue;
             }
 
-            Map<String, List<Method>> byName = new LinkedHashMap<>();
+            Map<String, List<Method>> byName =
+                    new LinkedHashMap<String, List<Method>>();
             for (Method method : ranked) {
                 String key = method.getName().toLowerCase(Locale.ROOT);
-                byName.computeIfAbsent(key, ignored -> new ArrayList<>()).add(method);
+                List<Method> overloads = byName.get(key);
+                if (overloads == null) {
+                    overloads = new ArrayList<Method>();
+                    byName.put(key, overloads);
+                }
+                overloads.add(method);
             }
 
-            List<MethodOption> options = new ArrayList<>();
+            List<MethodOption> options = new ArrayList<MethodOption>();
             for (List<Method> overloads : byName.values()) {
                 MethodOption option = firstCompatible(overloads, rawArgs);
                 if (option != null) {
@@ -402,13 +416,15 @@ public final class ModDebug$Console {
     private static MethodOption firstCompatible(
             List<Method> methods, List<String> rawArgs) throws Exception {
 
-        List<Method> sorted = new ArrayList<>(methods);
-        Collections.sort(sorted, Comparator.comparing(ModDebug$Console::methodKey));
+        List<Method> sorted = new ArrayList<Method>(methods);
+        Collections.sort(sorted, METHOD_KEY_COMPARATOR);
         AmbiguousIdentifierException firstAmbiguous = null;
+
         for (Method method : sorted) {
             List<String> rewritten;
             try {
-                rewritten = rewriteTypedArguments(method.getParameterTypes(), rawArgs);
+                rewritten = rewriteTypedArguments(
+                        method.getParameterTypes(), rawArgs);
             } catch (AmbiguousIdentifierException ambiguous) {
                 if (firstAmbiguous == null) {
                     firstAmbiguous = ambiguous;
@@ -429,6 +445,7 @@ public final class ModDebug$Console {
                 return new MethodOption(method.getName(), rewritten);
             }
         }
+
         if (firstAmbiguous != null) {
             throw firstAmbiguous;
         }
@@ -438,7 +455,7 @@ public final class ModDebug$Console {
     private static List<String> rewriteTypedArguments(
             Class<?>[] types, List<String> rawArgs) throws Exception {
 
-        List<String> result = new ArrayList<>(rawArgs);
+        List<String> result = new ArrayList<String>(rawArgs);
         for (int i = 0; i < types.length && i < result.size(); i++) {
             result.set(i, rewriteNamedValue(types[i], result.get(i)));
         }
@@ -475,7 +492,7 @@ public final class ModDebug$Console {
                 }
             }
 
-            List<String> names = new ArrayList<>();
+            List<String> names = new ArrayList<String>();
             for (int rank = 0; rank <= 3; rank++) {
                 names.clear();
                 for (Object constant : constants) {
@@ -510,7 +527,7 @@ public final class ModDebug$Console {
 
     private static List<Method> methodsByNameRank(
             List<Method> methods, String rawName, int rank, int arity) {
-        List<Method> result = new ArrayList<>();
+        List<Method> result = new ArrayList<Method>();
         for (Method method : methods) {
             if ((arity < 0 || method.getParameterTypes().length == arity)
                     && matchRank(method.getName(), rawName) == rank) {
@@ -523,7 +540,7 @@ public final class ModDebug$Console {
     private static List<Method> bestNamedMethods(
             List<Method> methods, String rawName) {
         for (int rank = 0; rank <= 3; rank++) {
-            List<Method> result = new ArrayList<>();
+            List<Method> result = new ArrayList<Method>();
             for (Method method : methods) {
                 if (matchRank(method.getName(), rawName) == rank) {
                     result.add(method);
@@ -547,18 +564,20 @@ public final class ModDebug$Console {
 
         List<Field> fields = allFields(type);
         for (int rank = 0; rank <= 3; rank++) {
-            Map<String, Field> matches = new LinkedHashMap<>();
+            Map<String, Field> matches = new LinkedHashMap<String, Field>();
             for (Field field : fields) {
                 if (matchRank(field.getName(), rawName) == rank) {
-                    matches.putIfAbsent(
-                            field.getName().toLowerCase(Locale.ROOT), field);
+                    String key = field.getName().toLowerCase(Locale.ROOT);
+                    if (!matches.containsKey(key)) {
+                        matches.put(key, field);
+                    }
                 }
             }
             if (matches.size() == 1) {
                 return matches.values().iterator().next();
             }
             if (matches.size() > 1) {
-                List<String> names = new ArrayList<>();
+                List<String> names = new ArrayList<String>();
                 for (Field field : matches.values()) {
                     names.add(field.getName());
                 }
@@ -574,7 +593,7 @@ public final class ModDebug$Console {
             String query, Class<?> parent) throws Exception {
 
         ensureClassIndex();
-        String needle = query.toLowerCase(Locale.ROOT);
+        final String needle = query.toLowerCase(Locale.ROOT);
         List<String> names = classNames();
 
         for (int rank = 1; rank <= 3; rank++) {
@@ -582,7 +601,7 @@ public final class ModDebug$Console {
                 break;
             }
 
-            List<Class<?>> matches = new ArrayList<>();
+            List<Class<?>> matches = new ArrayList<Class<?>>();
             for (String className : names) {
                 String simple = simpleClassName(className);
                 int simpleRank = matchRank(simple, needle);
@@ -611,13 +630,16 @@ public final class ModDebug$Console {
                 Collections.sort(matches, new Comparator<Class<?>>() {
                     @Override
                     public int compare(Class<?> left, Class<?> right) {
-                        int leftDelta = Math.abs(left.getSimpleName().length() - needle.length());
-                        int rightDelta = Math.abs(right.getSimpleName().length() - needle.length());
+                        int leftDelta = Math.abs(
+                                left.getSimpleName().length() - needle.length());
+                        int rightDelta = Math.abs(
+                                right.getSimpleName().length() - needle.length());
                         int byDelta = Integer.compare(leftDelta, rightDelta);
                         if (byDelta != 0) {
                             return byDelta;
                         }
-                        int byName = left.getSimpleName().compareToIgnoreCase(right.getSimpleName());
+                        int byName = left.getSimpleName()
+                                .compareToIgnoreCase(right.getSimpleName());
                         if (byName != 0) {
                             return byName;
                         }
@@ -632,25 +654,27 @@ public final class ModDebug$Console {
 
     private static IllegalArgumentException classLookupError(
             String label, String raw, List<Class<?>> matches) {
-        List<String> names = new ArrayList<>();
+        List<String> names = new ArrayList<String>();
         for (Class<?> match : matches) {
             names.add(displayClassName(match, matches));
         }
-        return new IllegalArgumentException(similarMessage(
-                label, raw, names));
+        return new IllegalArgumentException(
+                similarMessage(label, raw, names));
     }
 
     private static NoSuchMethodException methodLookupError(
             Class<?> type, String raw, List<Method> methods) {
-        Map<String, String> unique = new LinkedHashMap<>();
+        Map<String, String> unique = new LinkedHashMap<String, String>();
         for (Method method : methods) {
-            unique.putIfAbsent(
-                    method.getName().toLowerCase(Locale.ROOT), methodKey(method));
+            String key = method.getName().toLowerCase(Locale.ROOT);
+            if (!unique.containsKey(key)) {
+                unique.put(key, methodKey(method));
+            }
         }
         return new NoSuchMethodException(similarMessage(
                 "Method on " + type.getSimpleName(),
                 raw,
-                new ArrayList<>(unique.values())));
+                new ArrayList<String>(unique.values())));
     }
 
     private static String similarMessage(
@@ -676,12 +700,23 @@ public final class ModDebug$Console {
 
     private static void inspect(String targetToken, String query) throws Exception {
         TargetInfo target = targetInfo(targetToken);
-        List<Field> fields = new ArrayList<>(allFields(target.type));
-        List<Method> methods = new ArrayList<>(allMethods(target.type));
+        List<Field> allFieldList = allFields(target.type);
+        List<Method> allMethodList = allMethods(target.type);
         final String needle = query.toLowerCase(Locale.ROOT);
 
-        fields.removeIf(field -> matchRank(field.getName(), needle) < 0);
-        methods.removeIf(method -> matchRank(method.getName(), needle) < 0);
+        List<Field> fields = new ArrayList<Field>();
+        for (Field field : allFieldList) {
+            if (matchRank(field.getName(), needle) >= 0) {
+                fields.add(field);
+            }
+        }
+
+        List<Method> methods = new ArrayList<Method>();
+        for (Method method : allMethodList) {
+            if (matchRank(method.getName(), needle) >= 0) {
+                methods.add(method);
+            }
+        }
 
         Collections.sort(fields, new Comparator<Field>() {
             @Override
@@ -772,8 +807,9 @@ public final class ModDebug$Console {
             throw new IllegalStateException("Macro recursion limit reached");
         }
 
-        List<String> expanded = new ArrayList<>();
-        for (String line : body.split("\\r?\\n")) {
+        List<String> expanded = new ArrayList<String>();
+        String[] lines = body.split("\\r?\\n");
+        for (String line : lines) {
             String trimmed = line.trim();
             if (trimmed.isEmpty() || trimmed.startsWith("#")) {
                 continue;
@@ -818,30 +854,28 @@ public final class ModDebug$Console {
     }
 
     private static boolean isBuiltInCommand(String command) {
-        switch (command.toLowerCase(Locale.ROOT)) {
-            case "help":
-            case "give":
-            case "spawn":
-            case "affect":
-            case "seed":
-            case "trap":
-            case "warp":
-            case "inspect":
-            case "use":
-            case "goto":
-            case "where":
-            case "macro":
-            case "search":
-            case "results":
-            case "get":
-            case "set":
-            case "clear":
-            case "save":
-            case "load":
-                return true;
-            default:
-                return false;
+        if ("help".equals(command)
+                || "give".equals(command)
+                || "spawn".equals(command)
+                || "affect".equals(command)
+                || "seed".equals(command)
+                || "trap".equals(command)
+                || "warp".equals(command)
+                || "inspect".equals(command)
+                || "use".equals(command)
+                || "goto".equals(command)
+                || "where".equals(command)
+                || "macro".equals(command)
+                || "search".equals(command)
+                || "results".equals(command)
+                || "get".equals(command)
+                || "set".equals(command)
+                || "clear".equals(command)
+                || "save".equals(command)
+                || "load".equals(command)) {
+            return true;
         }
+        return false;
     }
 
     private static boolean isHandleAction(List<String> tokens) {
@@ -943,7 +977,7 @@ public final class ModDebug$Console {
     private static List<String> classNames() throws Exception {
         Field field = ModDebug.class.getDeclaredField("CLASS_NAMES");
         field.setAccessible(true);
-        return new ArrayList<>((List<String>) field.get(null));
+        return new ArrayList<String>((List<String>) field.get(null));
     }
 
     private static Map<String, String> macros() throws Exception {
@@ -957,14 +991,14 @@ public final class ModDebug$Console {
     }
 
     private static List<Field> allFields(Class<?> type) throws Exception {
-        return new ArrayList<>((List<Field>) invokePrivate(
+        return new ArrayList<Field>((List<Field>) invokePrivate(
                 "allFields",
                 new Class<?>[]{Class.class},
                 new Object[]{type}));
     }
 
     private static List<Method> allMethods(Class<?> type) throws Exception {
-        return new ArrayList<>((List<Method>) invokePrivate(
+        return new ArrayList<Method>((List<Method>) invokePrivate(
                 "allMethods",
                 new Class<?>[]{Class.class},
                 new Object[]{type}));
@@ -978,7 +1012,7 @@ public final class ModDebug$Console {
     }
 
     private static List<String> tokenize(String text) throws Exception {
-        return new ArrayList<>((List<String>) invokePrivate(
+        return new ArrayList<String>((List<String>) invokePrivate(
                 "tokenize",
                 new Class<?>[]{String.class},
                 new Object[]{text}));
@@ -1091,7 +1125,7 @@ public final class ModDebug$Console {
 
         MethodOption(String name, List<String> arguments) {
             this.name = name;
-            this.arguments = new ArrayList<>(arguments);
+            this.arguments = new ArrayList<String>(arguments);
         }
     }
 
