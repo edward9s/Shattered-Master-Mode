@@ -132,10 +132,33 @@ Debug Console 的行為不應因指令從哪條路徑進入 executor 而不同�
 1. exact
 2. unique prefix
 3. unique substring
-4. unique fuzzy subsequence
-5. 若有歧義：顯示 `Similar:`，不得猜測
+4. compact ordered subsequence
+5. 若最佳結果仍同分有歧義：顯示 `Similar:`，不得猜測
 
 Exact match 永遠優先。尤其當某個 method 名稱本身精確存在、但參數不合法時，不得偷偷跳去另一個 fuzzy-matched method。
+
+#### Ordered fuzzy 比對
+
+Fuzzy 層比單純的 subsequence 搜尋更嚴格：
+
+- query 的字母必須以相同順序出現在候選名稱中；
+- 少於 3 個字元的 query 不進行 subsequence fuzzy；
+- matched span 內總共跳過的字元數不得超過 `max(4, query 長度)`；
+- matched span 長度不得超過 query 長度的 2 倍；
+- 分數越低越好，其中跳過字元（gap）的懲罰最大；
+- 起始位置越前、CamelCase／word boundary 命中越多、候選名稱越短，會得到較好的次要排序。
+
+對必須實際選出一個 identifier 的操作（class、field、method、enum），只有 fuzzy score 最佳且同分的候選會留下。若最佳分數只有一個候選，可以自動解析；若最佳分數同分，仍視為歧義並列出 `Similar:`。`inspect` 可以顯示多個合格 fuzzy 結果，但會依 match quality 排序。
+
+例如 `goem` → `Golem`、`potheal` → `PotionOfHealing`、`ringenergy` → `RingOfEnergy`、`atk` → `attack` 應保持可用；若 query 的字母只是零散分布在一個很長、無關的 identifier 中，會因 gap/span 門檻被排除。
+
+#### Class name 搜尋範圍
+
+未限定 package 的 class query，fuzzy **只能比對 simple class name**；package path 不得提供字母來湊 fuzzy match。
+
+只有當 query 本身明確包含 `.` 或 `$` 時，才視為 qualified query，允許完整 qualified/binary class name 參與 fuzzy 比對。
+
+因此 `etchain` 不應再因為 `com.shatteredpixel...items.scrolls.ScrollOfRecharging` 的 package path 可以湊出字母，就把 `ScrollOfRecharging` 列為 Similar。普通 `etchain` 查詢只會拿 `ScrollOfRecharging` 本身來比，而它不符合該 fuzzy match。
 
 以下仍刻意保持 exact：
 
