@@ -1,7 +1,7 @@
 # Shattered-Master-Mode
 **In-game Editor** (In-game sandbox tester and editor) for [Shattered Pixel Dungeon](https://github.com/00-Evan/shattered-pixel-dungeon).
 
-**Core Features**
+## Core Features
  * Designed for in-game sandbox testing, rapid editing, and easily creating meme images.
  * **Preserves Vanilla Mechanics:** This editor strictly does not alter any underlying logic of the official vanilla game.
 
