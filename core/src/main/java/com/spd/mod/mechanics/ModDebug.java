@@ -44,6 +44,12 @@ public final class ModDebug {
             "com.spd.mod"
     };
 
+    private static final String INTERLEVEL_SCENE =
+            "com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene";
+    private static final String LEVEL_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.levels.Level";
+    private static final String GAME_CLASS = "com.watabou.noosa.Game";
+
     private static final Object BAD_ARG = new Object();
     private static final List<String> CLASS_NAMES = new ArrayList<>();
     private static boolean indexed;
@@ -54,7 +60,7 @@ public final class ModDebug {
     public static void open() {
         GameScene.show(new WndTextInput(
                 "Debug command",
-                "help | give | spawn | affect | inspect | use | search | results | get | set | clear | save | load",
+                "help | give | spawn | affect | inspect | use | goto | where | search | results | get | set | clear | save | load",
                 "",
                 200,
                 false,
@@ -116,6 +122,12 @@ public final class ModDebug {
             case "use":
                 use(args);
                 break;
+            case "goto":
+                gotoLevel(args);
+                break;
+            case "where":
+                where(args);
+                break;
             case "search":
                 ModValueSearch.search(args);
                 break;
@@ -151,6 +163,8 @@ public final class ModDebug {
                 + "affect <Buff> [duration]  (applies to hero)\n"
                 + "inspect <Class|hero|level>\n"
                 + "use <Class|hero|level> <method> [args...]\n"
+                + "goto <depth> [branch]  (branch defaults to 0)\n"
+                + "where  (show current depth and branch)\n"
                 + "search <number|changed|unchanged|increased|decreased>\n"
                 + "results [#id] | get #id | set #id <number> | clear\n"
                 + "save  (Android: export app save files to Download/<package>)\n"
@@ -389,6 +403,103 @@ public final class ModDebug {
         throw new NoSuchMethodException(str(
                 "No compatible ", ref.type.getSimpleName(), ".", name,
                 " with ", rawArgs.size(), " argument(s)"));
+    }
+
+    private static void gotoLevel(List<String> args) throws Exception {
+        if (args.isEmpty() || args.size() > 2) {
+            throw new IllegalArgumentException("goto <depth> [branch]");
+        }
+        if (Dungeon.hero == null || Dungeon.level == null) {
+            throw new IllegalStateException("No active dungeon");
+        }
+
+        int depth = Integer.parseInt(args.get(0));
+        int branch = args.size() == 2 ? Integer.parseInt(args.get(1)) : 0;
+
+        ClassLoader loader = ModDebug.class.getClassLoader();
+        Class<?> interlevel = Class.forName(INTERLEVEL_SCENE, true, loader);
+        Class<?> modeType = Class.forName(str(INTERLEVEL_SCENE, "$Mode"), true, loader);
+
+        Object returnMode = null;
+        Object[] modes = modeType.getEnumConstants();
+        if (modes != null) {
+            for (Object mode : modes) {
+                if (mode instanceof Enum
+                        && "RETURN".equals(((Enum<?>) mode).name())) {
+                    returnMode = mode;
+                    break;
+                }
+            }
+        }
+        if (returnMode == null) {
+            throw new IllegalStateException("Target has no InterlevelScene RETURN mode");
+        }
+
+        Field returnBranch = findField(interlevel, "returnBranch");
+        if (returnBranch == null && branch != 0) {
+            throw new IllegalArgumentException(
+                    "Target does not support branch floor selection");
+        }
+
+        invokeBeforeTransition(loader);
+
+        requireField(interlevel, "mode").set(null, returnMode);
+        requireField(interlevel, "returnDepth").setInt(null, depth);
+        if (returnBranch != null) {
+            returnBranch.setInt(null, branch);
+        }
+        requireField(interlevel, "returnPos").setInt(null, -1);
+
+        Class<?> game = Class.forName(GAME_CLASS, true, loader);
+        Method switchScene = game.getMethod("switchScene", Class.class);
+        switchScene.invoke(null, interlevel);
+    }
+
+    private static void where(List<String> args) throws Exception {
+        if (!args.isEmpty()) {
+            throw new IllegalArgumentException("where");
+        }
+        if (Dungeon.level == null) {
+            throw new IllegalStateException("No active level");
+        }
+
+        int branch = 0;
+        Field branchField = findField(Dungeon.class, "branch");
+        if (branchField != null) {
+            branch = branchField.getInt(null);
+        }
+
+        GLog.i(str("Depth ", Dungeon.depth, ", branch ", branch));
+    }
+
+    private static void invokeBeforeTransition(ClassLoader loader) throws Exception {
+        Class<?> level = Class.forName(LEVEL_CLASS, false, loader);
+        try {
+            Method beforeTransition = level.getDeclaredMethod("beforeTransition");
+            beforeTransition.setAccessible(true);
+            beforeTransition.invoke(null);
+        } catch (NoSuchMethodException ignored) {
+            // Older SPD-derived targets may not have this transition hook.
+        }
+    }
+
+    private static Field findField(Class<?> type, String name) {
+        try {
+            Field field = type.getDeclaredField(name);
+            field.setAccessible(true);
+            return field;
+        } catch (NoSuchFieldException ignored) {
+            return null;
+        }
+    }
+
+    private static Field requireField(Class<?> type, String name)
+            throws NoSuchFieldException {
+        Field field = findField(type, name);
+        if (field == null) {
+            throw new NoSuchFieldException(str(type.getName(), ".", name));
+        }
+        return field;
     }
 
     private static void save(List<String> args) throws Exception {
