@@ -97,6 +97,22 @@ Without a query, `inspect` keeps its normal full-list behavior.
 
 Class names may be simple names such as `Rat` or `RingOfEnergy`, or fully qualified Java class names.
 
+### Fuzzy class-name assistance
+
+Interactive class operands in `give`, `spawn`, `affect`, `seed`, `trap`, `inspect`, and `use` also accept case-insensitive fuzzy names. Exact names are still preferred. If exact resolution fails, the console tries a unique prefix match, then a unique substring match, then a fuzzy subsequence match.
+
+For example:
+
+```text
+give potheal
+spawn goem
+inspect ringenergy
+```
+
+If one best match is unambiguous, the console uses it and reports the chosen class, for example `Using PotionOfHealing for potheal`. If the best match is ambiguous, the command is not executed and the console prints `Similar:` suggestions instead.
+
+Suggestions are type-aware. `give` searches only `Item` classes, `spawn` only `Mob`, `affect` only `Buff`, and `seed`/`trap` only their matching base types. `inspect` and `use` search the general class index.
+
 ## Reading and writing fields
 
 ### Read a field
