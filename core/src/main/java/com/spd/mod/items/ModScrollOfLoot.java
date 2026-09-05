@@ -76,10 +76,13 @@ public class ModScrollOfLoot extends Scroll {
         super.restoreFromBundle(bundle);
 
         Object restored = bundle.get(STORAGE);
-        if (!(restored instanceof ModLootStorage)) {
-            throw new IllegalStateException("Scroll of Loot bundle has no valid Loot storage");
+        if (restored instanceof ModLootStorage) {
+            storage = (ModLootStorage) restored;
+        } else {
+            // A missing/corrupt optional storage payload is recoverable. Keeping recovery local also
+            // avoids R8 outlining the exception throw into a donor-global synthetic helper.
+            storage = new ModLootStorage();
         }
-        storage = (ModLootStorage) restored;
 
         bindStorage();
         reset();
