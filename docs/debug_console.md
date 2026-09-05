@@ -283,7 +283,9 @@ After the command, select the character that should receive the buff. Duration i
 
 ## Blobs and traps
 
-### Seed a blob
+### Seed a blob: `seed`
+
+`seed` creates a `Blob` on a selected map cell, such as fire, toxic gas, paralysis gas, or another area effect that persists on map cells.
 
 ```text
 seed Fire
@@ -297,7 +299,14 @@ Syntax:
 seed <Blob> [amount]
 ```
 
-Select a tile after entering the command.
+Select a tile after entering the command. `amount` defaults to `1` and is passed to the target game's `Blob.seed(cell, amount, class)`. It commonly represents initial volume/intensity, but the exact meaning is defined by each Blob class and should not be assumed to mean duration. Blob class names support fuzzy matching as well; for example, `seed toxgas 100` uses the unique best compatible Blob match when one exists.
+
+A handle prefix stores the actual created Blob instance:
+
+```text
+@gas seed ToxicGas 100
+inspect @gas
+```
 
 ### Place a trap
 
@@ -462,10 +471,11 @@ macro test
 - `macro` lists saved macros.
 - `macro name` opens an editor for that macro.
 - Put one debug command per line.
+- Blank lines and lines beginning with `#` are ignored and can be used as comments.
 - `%1` through `%9` are positional arguments.
 - Saving an empty macro deletes it.
 
-Example macro body:
+For example, create a macro named `test` with this body:
 
 ```text
 give PotionOfHealing x%1
@@ -478,9 +488,52 @@ Then run:
 test 10 123
 ```
 
-Macros can call other macros, with a recursion limit. A command that opens an interactive selector must be the final command in a macro because selector completion is asynchronous.
+which executes:
+
+```text
+give PotionOfHealing x10
+warp 123
+```
+
+Macros can call other macros, up to 8 nested levels. A command that opens an interactive selector must be the final command in a macro because selector completion is asynchronous. For example, `terrain CHASM` opens a selector and must be last, while `terrain CHASM @cell` already has an explicit cell and may appear earlier.
 
 Macros are persisted separately from normal game saves.
+
+## Repeating commands: `repeat`
+
+To execute the same non-interactive command many times, you do not need to paste 100 lines into a macro:
+
+```text
+repeat 100 use @weapon upgrade
+repeat 100 give Gold
+```
+
+Syntax:
+
+```text
+repeat <count> <command...>
+```
+
+`count` may be from 1 to 1000. Nested `repeat` commands are rejected, and `repeat` will not execute a command that opens an interactive selector, preventing a large number of selectors from being opened at once. These are therefore rejected:
+
+```text
+repeat 100 terrain CHASM
+repeat 100 trap AlarmTrap
+```
+
+When a command supports an explicit cell/handle, supply it to avoid the selector:
+
+```text
+@cell cell
+repeat 100 terrain CHASM @cell
+```
+
+Some commands already have a direct quantity form, which is preferable to `repeat`:
+
+```text
+give PotionOfHealing x100
+spawn Rat x100
+```
 
 ## Repeat the previous command: `!!`
 

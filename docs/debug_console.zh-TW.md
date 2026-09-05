@@ -283,7 +283,9 @@ affect <Buff> [duration] [method [args...]]
 
 ## Blob 與 Trap
 
-### 產生 Blob
+### 產生 Blob：`seed`
+
+`seed` 用來在指定地圖 cell 建立一個 `Blob`，例如火焰、毒氣、麻痺氣體等持續存在於格子上的區域效果。
 
 ```text
 seed Fire
@@ -297,7 +299,14 @@ seed Fire 20
 seed <Blob> [amount]
 ```
 
-輸入後再選地圖 cell。
+輸入後再選地圖 cell。`amount` 預設為 `1`，會傳給目標遊戲的 `Blob.seed(cell, amount, class)`；它通常代表初始 volume／強度，但實際意義仍由各 Blob class 決定，不應一律當成持續回合數。Blob class 名稱也支援 fuzzy，例如 `seed toxgas 100` 在只有一個最佳相容匹配時會採用該 Blob class。
+
+若在前面加 handle，可以保留建立後的實際 Blob instance：
+
+```text
+@gas seed ToxicGas 100
+inspect @gas
+```
 
 ### 放置 Trap
 
@@ -462,10 +471,11 @@ macro test
 - `macro`：列出目前保存的 macro。
 - `macro name`：打開該 macro 的編輯器。
 - 一行放一條 debug command。
+- 空白行與 `#` 開頭的行會忽略，可拿來寫註解。
 - `%1` 到 `%9` 是位置參數。
 - 儲存空內容等於刪除 macro。
 
-例如 macro 內容：
+例如建立 `test` macro，內容填：
 
 ```text
 give PotionOfHealing x%1
@@ -478,9 +488,52 @@ warp %2
 test 10 123
 ```
 
-Macro 可以呼叫其他 macro，但有遞迴上限。會打開互動式 selector 的指令必須放在 macro 最後一行，因為 selector 的完成是非同步的。
+就等於依序執行：
+
+```text
+give PotionOfHealing x10
+warp 123
+```
+
+Macro 可以呼叫其他 macro，但最多只能巢狀 8 層。會打開互動式 selector 的指令必須放在 macro 最後一行，因為 selector 的完成是非同步的。例如 `terrain CHASM` 會開 selector，所以只能放最後；`terrain CHASM @cell` 已有明確 cell，不會開 selector，因此可以放在中間。
 
 Macro 會獨立持久化，不依賴一般遊戲存檔。
+
+## 重複執行：`repeat`
+
+若要把同一條非互動式指令執行很多次，不必在 macro 裡貼 100 行：
+
+```text
+repeat 100 use @weapon upgrade
+repeat 100 give Gold
+```
+
+語法：
+
+```text
+repeat <count> <command...>
+```
+
+`count` 可為 1 到 1000。`repeat` 不允許巢狀 `repeat`，也不會重複會開互動式 selector 的指令，避免一次打開大量 selector。例如以下會被拒絕：
+
+```text
+repeat 100 terrain CHASM
+repeat 100 trap AlarmTrap
+```
+
+若指令本身支援明確 cell／handle，就可以避免 selector，例如：
+
+```text
+@cell cell
+repeat 100 terrain CHASM @cell
+```
+
+部分指令本身已有更直接的數量語法，這時不必使用 `repeat`：
+
+```text
+give PotionOfHealing x100
+spawn Rat x100
+```
 
 ## 重複上一條指令：`!!`
 

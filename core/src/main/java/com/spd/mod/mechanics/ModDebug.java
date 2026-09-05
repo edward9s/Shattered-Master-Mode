@@ -114,7 +114,7 @@ public final class ModDebug {
     public static void open() {
         GameScene.show(new WndTextInput(
                 "Debug command",
-                "help | give | spawn | affect | seed | trap | terrain | warp | inspect | use | enchant | inscribe | goto | where | macro | @ | search | results | get | set | clear | save | load",
+                "help | give | spawn | affect | seed | trap | terrain | warp | inspect | use | enchant | inscribe | goto | where | macro | repeat | @ | search | results | get | set | clear | save | load",
                 "",
                 400,
                 false,
@@ -241,6 +241,10 @@ public final class ModDebug {
 
             case "macro":
                 macro(args);
+                return;
+
+            case "repeat":
+                repeat(args, macroDepth);
                 return;
 
             case "search":
@@ -401,6 +405,7 @@ public final class ModDebug {
                 + "goto <depth> [branch]  (branch defaults to 0)\n"
                 + "where  (show current depth and branch)\n"
                 + "macro [name]  (edit; empty body deletes; %1..%9 are arguments)\n"
+                + "repeat <count> <command...>  (1..1000; no interactive selectors)\n"
                 + "@  (list variables)\n"
                 + "@x inv|cell|char|obj|hero|level|clear\n"
                 + "@x use ...  (store a returned object; also works with give/spawn/affect/seed/trap)\n"
@@ -2336,6 +2341,52 @@ public final class ModDebug {
         });
     }
 
+    private static void repeat(
+            List<String> args, int macroDepth) throws Exception {
+
+        if (args.size() < 2) {
+            throw new IllegalArgumentException(
+                    "repeat <count> <command...>");
+        }
+
+        int count = integerArgument(args.get(0));
+        if (count < 1 || count > 1000) {
+            throw new IllegalArgumentException(
+                    "repeat count must be between 1 and 1000");
+        }
+
+        String command = joinCommandTokens(args, 1);
+        List<String> commandTokens = tokenize(command);
+        if (!commandTokens.isEmpty()
+                && "repeat".equalsIgnoreCase(commandTokens.get(0))) {
+            throw new IllegalArgumentException(
+                    "Nested repeat commands are not supported");
+        }
+
+        if (commandNeedsSelector(command)) {
+            throw new IllegalArgumentException(
+                    "repeat cannot run a command that opens an interactive selector; "
+                            + "supply an explicit cell/handle where the command supports one");
+        }
+
+        for (int i = 0; i < count; i++) {
+            executeExpanded(command, macroDepth);
+        }
+    }
+
+    private static String joinCommandTokens(
+            List<String> tokens, int start) {
+
+        StringBuilder out = new StringBuilder();
+        for (int i = start; i < tokens.size(); i++) {
+            if (out.length() > 0) {
+                out.append(' ');
+            }
+            out.append(quoteToken(tokens.get(i)));
+        }
+        return out.toString();
+    }
+
     private static boolean runMacro(
             String name,
             List<String> args,
@@ -2464,6 +2515,15 @@ public final class ModDebug {
                 || "trap".equals(command)
                 || "macro".equals(command)) {
             return true;
+        }
+
+        if ("terrain".equals(command)) {
+            return tokens.size() < 3;
+        }
+
+        if ("repeat".equals(command)) {
+            return tokens.size() >= 3
+                    && commandNeedsSelector(joinCommandTokens(tokens, 2));
         }
 
         if ("warp".equals(command)) {
@@ -4135,7 +4195,7 @@ public final class ModDebug {
                 "affect", "seed", "trap",
                 "terrain", "warp", "inspect", "use",
                 "enchant", "inscribe",
-                "goto", "where", "macro",
+                "goto", "where", "macro", "repeat",
                 "search", "results", "get",
                 "set", "clear", "save", "load"
         };
