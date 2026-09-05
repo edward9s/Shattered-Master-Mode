@@ -1410,15 +1410,14 @@ public final class ModDebug {
             throw new IllegalStateException("No active level");
         }
 
-        final Field terrainField = resolveTerrainField(args.get(0));
-        if (terrainField == null) {
+        final TerrainValue terrain = resolveTerrain(args.get(0));
+        if (terrain == null) {
             throw new IllegalArgumentException(str(
                     "Terrain not found or ambiguous: ", args.get(0)));
         }
 
-        terrainField.setAccessible(true);
-        final int terrainValue = terrainField.getInt(null);
-        final String terrainName = terrainField.getName();
+        final int terrainValue = terrain.value;
+        final String terrainName = terrain.name;
 
         if (args.size() == 2) {
             applyTerrain(
@@ -1448,55 +1447,117 @@ public final class ModDebug {
         });
     }
 
-    private static Field resolveTerrainField(String input) throws Exception {
-        Class<?> terrain = loadRequired(TERRAIN_CLASS);
+    private static TerrainValue resolveTerrain(String input) throws Exception {
+        Map<String, Integer> terrains = terrainConstants();
         String name = input.trim();
-        String lower = name.toLowerCase(Locale.ROOT);
+        String exact = name.toUpperCase(Locale.ROOT);
 
-        for (Field field : terrain.getDeclaredFields()) {
-            if (isTerrainConstant(field)
-                    && field.getName().equalsIgnoreCase(name)) {
-                field.setAccessible(true);
-                return field;
-            }
+        if (terrains.containsKey(exact)) {
+            return new TerrainValue(exact, terrains.get(exact));
         }
 
+        String lower = name.toLowerCase(Locale.ROOT);
         for (int rank = 0; rank < 3; rank++) {
-            ArrayList<Field> matches = new ArrayList<>();
+            ArrayList<String> matches = new ArrayList<>();
 
-            for (Field field : terrain.getDeclaredFields()) {
-                if (!isTerrainConstant(field)) {
-                    continue;
-                }
-
+            for (String candidate : terrains.keySet()) {
                 if (fuzzyMatchRank(
                         lower,
-                        field.getName().toLowerCase(Locale.ROOT)) == rank) {
-                    matches.add(field);
+                        candidate.toLowerCase(Locale.ROOT)) == rank) {
+                    matches.add(candidate);
                 }
             }
 
             if (matches.size() == 1) {
-                Field field = matches.get(0);
-                field.setAccessible(true);
+                String match = matches.get(0);
                 GLog.i(str(
-                        "Using Terrain.", field.getName(),
+                        "Using Terrain.", match,
                         " for ", input));
-                return field;
+                return new TerrainValue(match, terrains.get(match));
             }
 
             if (matches.size() > 1) {
-                ArrayList<String> names = new ArrayList<>();
-                for (Field field : matches) {
-                    names.add(field.getName());
-                }
-                Collections.sort(names);
-                logSimilar(names);
+                Collections.sort(matches);
+                logSimilar(matches);
                 return null;
             }
         }
 
         return null;
+    }
+
+    private static Map<String, Integer> terrainConstants() throws Exception {
+        Class<?> terrain = loadRequired(TERRAIN_CLASS);
+        HashMap<String, Integer> values = new HashMap<>();
+
+        for (Field field : terrain.getDeclaredFields()) {
+            if (!isTerrainConstant(field)) {
+                continue;
+            }
+
+            field.setAccessible(true);
+            values.put(
+                    field.getName().toUpperCase(Locale.ROOT),
+                    field.getInt(null));
+        }
+
+        addStandardTerrainFallbacks(values);
+        return values;
+    }
+
+    private static void addStandardTerrainFallbacks(
+            Map<String, Integer> values) {
+
+        // Android R8 may remove public static final int Terrain fields because
+        // their values are compile-time constants. Runtime reflection is still
+        // preferred; these canonical SPD values are only a fallback for names
+        // whose fields no longer exist in a minified target APK.
+        putTerrainFallback(values, "CHASM", 0);
+        putTerrainFallback(values, "EMPTY", 1);
+        putTerrainFallback(values, "GRASS", 2);
+        putTerrainFallback(values, "EMPTY_WELL", 3);
+        putTerrainFallback(values, "WALL", 4);
+        putTerrainFallback(values, "DOOR", 5);
+        putTerrainFallback(values, "OPEN_DOOR", 6);
+        putTerrainFallback(values, "ENTRANCE", 7);
+        putTerrainFallback(values, "EXIT", 8);
+        putTerrainFallback(values, "EMBERS", 9);
+        putTerrainFallback(values, "LOCKED_DOOR", 10);
+        putTerrainFallback(values, "PEDESTAL", 11);
+        putTerrainFallback(values, "WALL_DECO", 12);
+        putTerrainFallback(values, "BARRICADE", 13);
+        putTerrainFallback(values, "EMPTY_SP", 14);
+        putTerrainFallback(values, "HIGH_GRASS", 15);
+        putTerrainFallback(values, "SECRET_DOOR", 16);
+        putTerrainFallback(values, "SECRET_TRAP", 17);
+        putTerrainFallback(values, "TRAP", 18);
+        putTerrainFallback(values, "INACTIVE_TRAP", 19);
+        putTerrainFallback(values, "EMPTY_DECO", 20);
+        putTerrainFallback(values, "LOCKED_EXIT", 21);
+        putTerrainFallback(values, "UNLOCKED_EXIT", 22);
+        putTerrainFallback(values, "CUSTOM_DECO", 23);
+        putTerrainFallback(values, "WELL", 24);
+        putTerrainFallback(values, "STATUE", 25);
+        putTerrainFallback(values, "STATUE_SP", 26);
+        putTerrainFallback(values, "BOOKSHELF", 27);
+        putTerrainFallback(values, "ALCHEMY", 28);
+        putTerrainFallback(values, "WATER", 29);
+        putTerrainFallback(values, "FURROWED_GRASS", 30);
+        putTerrainFallback(values, "CRYSTAL_DOOR", 31);
+        putTerrainFallback(values, "CUSTOM_DECO_EMPTY", 32);
+        putTerrainFallback(values, "REGION_DECO", 33);
+        putTerrainFallback(values, "REGION_DECO_ALT", 34);
+        putTerrainFallback(values, "MINE_CRYSTAL", 35);
+        putTerrainFallback(values, "MINE_BOULDER", 36);
+        putTerrainFallback(values, "ENTRANCE_SP", 37);
+        putTerrainFallback(values, "HERO_LKD_DR", 38);
+    }
+
+    private static void putTerrainFallback(
+            Map<String, Integer> values, String name, int value) {
+        if (!values.containsKey(name)) {
+            values.put(name, value);
+        }
     }
 
     private static boolean isTerrainConstant(Field field) {
@@ -4278,6 +4339,16 @@ public final class ModDebug {
         }
 
         return false;
+    }
+
+    private static final class TerrainValue {
+        final String name;
+        final int value;
+
+        TerrainValue(String name, int value) {
+            this.name = name;
+            this.value = value;
+        }
     }
 
     private static final class StoredValue {

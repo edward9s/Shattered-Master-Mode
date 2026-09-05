@@ -360,6 +360,8 @@ terrain lockdoor
 
 `terrain` 內部會呼叫目標遊戲的 `Level.set(cell, terrain)`，因此 passable／solid／pit 等 terrain flags 會同步更新；之後還會刷新 map、重新 observe 與更新 fog。
 
+Android release 的 R8 可能把沒有被直接引用的 `Terrain` `public static final int` 常數欄位移除。ModDebug 會優先使用目標 APK 執行時仍存在的 Terrain 欄位；若標準 SPD terrain 欄位已被 shrink，則退回 SMM 所對應官方 Terrain 的 canonical ID，因此像 `terrain chasm` 在 minified／注入版 APK 也能解析。若某個 fork 自訂 terrain 的欄位名稱已被 R8 完全移除，APK 本身已沒有名稱可供反射還原，該自訂名稱仍可能無法解析。
+
 例如建立鎖上的門後，可直接產生目前樓層的鐵鑰匙測試：
 
 ```text

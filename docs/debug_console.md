@@ -360,6 +360,8 @@ terrain lockdoor
 
 Internally, `terrain` calls the target game's `Level.set(cell, terrain)`, so passable/solid/pit and related flags are updated. It then refreshes the map, recalculates observation, and updates fog.
 
+Android release R8 can remove `Terrain` `public static final int` fields that are only compile-time constants. ModDebug first uses Terrain fields that still exist in the target APK at runtime; if a standard SPD terrain field was shrunk away, it falls back to the canonical Terrain ID from SMM's upstream baseline. This keeps commands such as `terrain chasm` working in minified/injected APKs. A fork-specific custom terrain name whose field name was completely removed by R8 cannot be reconstructed from the APK and may still be unavailable by name.
+
 For a locked-door test:
 
 ```text
