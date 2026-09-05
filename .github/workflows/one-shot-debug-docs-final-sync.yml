@@ -1,0 +1,45 @@
+name: one-shot-debug-docs-final-sync
+
+on:
+  push:
+    paths:
+      - '.github/workflows/one-shot-debug-docs-final-sync.yml'
+
+permissions:
+  contents: write
+
+env:
+  GIT_AUTHOR_NAME: edward9s
+  GIT_AUTHOR_EMAIL: 277983297+edward9s@users.noreply.github.com
+  GIT_COMMITTER_NAME: edward9s
+  GIT_COMMITTER_EMAIL: 277983297+edward9s@users.noreply.github.com
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Sync final debug documentation details
+        run: |
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+          python .github/scripts/patch_debug_docs_final_sync.py
+          grep -F 'visible tile graphic should change immediately' docs/debug_console.md
+          grep -F '地圖上的 tile 圖像應立即改變' docs/debug_console.zh-TW.md
+          grep -F 'initializing Bee level, HP/HT' docs/debug_console.md
+          grep -F '替 Bee 補上等級、HP/HT' docs/debug_console.zh-TW.md
+          grep -F '`@` — list all handles.' docs/debug_console.md
+          grep -F '`macro` lists saved macros.' docs/debug_console.md
+          grep -F 'x1' docs/debug_console.md
+          grep -F '!! x10' docs/debug_console.md
+          grep -F 'filesDir/smm-debug-macros.properties' docs/debug_console.md
+          ! grep -F 'spawn Rat -p' docs/debug_console.md
+          ! grep -F 'spawn Rat -p' docs/debug_console.zh-TW.md
+          git diff --check
+          git add docs/debug_console.md docs/debug_console.zh-TW.md
+          git commit -m "Finish syncing debug console documentation"
+          git push origin main
