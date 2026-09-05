@@ -117,7 +117,7 @@ public class ModAssassinBuff extends Buff {
                 installPending = false;
                 if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
                         || Dungeon.hero == null
-                        || Dungeon.hero.buff(ModAssassinBuff.class) == null) {
+                        || Dungeon.hero.buffs(ModAssassinBuff.class).isEmpty()) {
                     return;
                 }
 
@@ -293,7 +293,7 @@ public class ModAssassinBuff extends Buff {
         private boolean activeForHero() {
             return ShatteredPixelDungeon.scene() instanceof GameScene
                     && Dungeon.hero != null
-                    && Dungeon.hero.buff(ModAssassinBuff.class) != null;
+                    && !Dungeon.hero.buffs(ModAssassinBuff.class).isEmpty();
         }
 
         private boolean movedTooFar() {
