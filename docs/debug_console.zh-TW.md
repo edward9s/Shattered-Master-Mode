@@ -166,14 +166,53 @@ use SomeClass staticMethod 10
 use <Class|hero|level|@handle> <method> [args...]
 ```
 
-參數會依 method 的 Java parameter type 自動轉換，也支援引號字串與 handle：
+參數會依 method 的 Java parameter type 自動轉換，也支援引號字串、handle，以及明確的 `new:<Class>` 物件建立語法：
 
 ```text
 use @object rename "test object"
 use @object setTarget @rat
+use @weapon enchant new:Grim
 ```
 
+`new:<Class>` 會先依 method 的實際參數型別限制 class 範圍，再建立相容的 instance。例如 `new:Grim` 只有在該參數可接受 `Grim` 時才會成功。
+
 找不到相容 method 時就會報錯。`use` 不會把 method 名稱當 field 名稱來處理。
+
+## 武器附魔與防具刻印
+
+先把背包裡的實際武器或防具存成 handle：
+
+```text
+@weapon inv
+@armor inv
+```
+
+指定武器附魔：
+
+```text
+enchant @weapon Grim
+enchant @weapon Vampiric
+enchant @weapon random
+enchant @weapon none
+```
+
+指定防具刻印：
+
+```text
+inscribe @armor Brimstone
+inscribe @armor Thorns
+inscribe @armor random
+inscribe @armor none
+```
+
+`random` 會呼叫目標遊戲自己的無參數 `enchant()` / `inscribe()`；`none`（或 `null`）會清除目前效果。指定 class 時，Console 只接受 `Weapon.Enchantment` 或 `Armor.Glyph` 的相容 subclass。
+
+相同操作也能用通用 `use` + `new:<Class>` 完成：
+
+```text
+use @weapon enchant new:Grim
+use @armor inscribe new:Brimstone
+```
 
 ## 建立物品：`give`
 
@@ -274,6 +313,38 @@ trap <Trap>
 ```
 
 輸入後再選地圖 cell。Debug 指令會建立並 reveal 該陷阱。
+
+## 修改地形
+
+目前可直接利用 `Terrain` 的 static 常數與 `Level.set(...)` 修改某一格地形。為了跨 SPD fork／版本，建議不要硬寫 terrain 數字，而是先讀取常數：
+
+```text
+@cell cell
+@terrain get Terrain LOCKED_DOOR
+use Level set @cell @terrain
+use GameScene updateMap @cell
+use Dungeon observe
+```
+
+上面會把選定 cell 改成鎖上的門。若要測試一般鐵鑰匙開門，再建立目前樓層的鑰匙：
+
+```text
+give IronKey
+```
+
+改成 chasm：
+
+```text
+@cell cell
+@terrain get Terrain CHASM
+use Level set @cell @terrain
+use GameScene updateMap @cell
+use Dungeon observe
+```
+
+`Level.set` 會同步該 cell 的 passable／solid／pit 等 terrain flags；`GameScene.updateMap` 立即刷新圖塊，`Dungeon.observe` 重新計算可視範圍。
+
+注意：並非所有「看起來像地形」的機制都只有一個 terrain 數值。陷阱還需要實際 `Trap` 物件，因此應優先使用 `trap`；樓梯／入口／出口通常還牽涉 `LevelTransition`；特殊房間、scripted gate 等也可能有額外狀態。
 
 ## 移動
 

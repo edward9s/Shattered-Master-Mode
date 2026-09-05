@@ -166,14 +166,53 @@ Syntax:
 use <Class|hero|level|@handle> <method> [args...]
 ```
 
-Arguments are converted to the method's Java parameter types. Quoted strings and handles are supported:
+Arguments are converted to the method's Java parameter types. Quoted strings, handles, and explicit `new:<Class>` construction are supported:
 
 ```text
 use @object rename "test object"
 use @object setTarget @rat
+use @weapon enchant new:Grim
 ```
 
+`new:<Class>` resolves the requested class against the method's actual parameter type before constructing an instance. For example, `new:Grim` succeeds only where that parameter can accept a `Grim` instance.
+
 If no compatible method exists, the command fails. `use` does **not** silently treat the name as a field.
+
+## Weapon enchantments and armor glyphs
+
+First store the live weapon or armor from the inventory:
+
+```text
+@weapon inv
+@armor inv
+```
+
+Apply or remove a weapon enchantment:
+
+```text
+enchant @weapon Grim
+enchant @weapon Vampiric
+enchant @weapon random
+enchant @weapon none
+```
+
+Apply or remove an armor glyph:
+
+```text
+inscribe @armor Brimstone
+inscribe @armor Thorns
+inscribe @armor random
+inscribe @armor none
+```
+
+`random` calls the target game's normal zero-argument `enchant()` / `inscribe()` method. `none` (or `null`) clears the current effect. Named classes are restricted to compatible `Weapon.Enchantment` or `Armor.Glyph` subclasses.
+
+The same operations can be expressed with generic `use` plus `new:<Class>`:
+
+```text
+use @weapon enchant new:Grim
+use @armor inscribe new:Brimstone
+```
 
 ## Creating items: `give`
 
@@ -274,6 +313,38 @@ trap <Trap>
 ```
 
 Select a tile after entering the command. The debug command creates and reveals the trap.
+
+## Editing terrain
+
+Terrain can already be edited through `Terrain` static constants and `Level.set(...)`. For cross-fork/version compatibility, prefer reading the constant instead of hard-coding terrain IDs:
+
+```text
+@cell cell
+@terrain get Terrain LOCKED_DOOR
+use Level set @cell @terrain
+use GameScene updateMap @cell
+use Dungeon observe
+```
+
+That turns the selected cell into a locked door. To test normal iron-key unlocking on the current floor:
+
+```text
+give IronKey
+```
+
+To create a chasm cell:
+
+```text
+@cell cell
+@terrain get Terrain CHASM
+use Level set @cell @terrain
+use GameScene updateMap @cell
+use Dungeon observe
+```
+
+`Level.set` updates the cell's passable/solid/pit and related terrain flags. `GameScene.updateMap` refreshes the rendered tile immediately, and `Dungeon.observe` recalculates visibility.
+
+Not every map feature is represented by terrain alone. Traps also require a live `Trap` object, so prefer the `trap` command for them. Entrances/exits normally involve `LevelTransition`, and scripted gates or special rooms may carry additional state.
 
 ## Movement
 
