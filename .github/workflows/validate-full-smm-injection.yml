@@ -51,6 +51,47 @@ jobs:
       - name: Verify complete Android keep rule was applied
         run: grep -F -- '-keep class com.spd.mod.** { *; }' spd_src/android/proguard-rules.pro
 
+      - name: Diagnose direct donor-only dependencies from full SMM roots
+        run: |
+          cat > /tmp/diagnose_full_payload.py <<'PY'
+          import importlib.util
+          import os
+          import pathlib
+          import sys
+          import tempfile
+
+          spec = importlib.util.spec_from_file_location('inj', 'mod/scripts/inject_apk.py')
+          inj = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = inj
+          spec.loader.exec_module(inj)
+          inj.MOD_ITEM_DESCRIPTOR_PREFIX = 'Lcom/spd/mod/'
+
+          tc = inj.Toolchain(pathlib.Path('/tmp/smm-inject-cache'))
+          apktool, java = tc.ensure_apktool()
+          with tempfile.TemporaryDirectory() as td:
+              dec = pathlib.Path(td) / 'donor'
+              inj.run([java.java, '-jar', apktool, 'd', '-f', '-r', '-o', dec, pathlib.Path(os.environ['DONOR_APK'])])
+              idx = inj.index_smali(dec)
+              offenders = 0
+              for desc, item in sorted(idx.items()):
+                  if not desc.startswith('Lcom/spd/mod/'):
+                      continue
+                  if desc == inj.MOD_ANKH or inj.is_modankh_store_root(desc):
+                      continue
+                  bad = sorted(
+                      dep for dep in inj.smali_dependencies(item)
+                      if not dep.startswith(inj.TARGET_API_PREFIXES)
+                      and not dep.startswith('Lcom/spd/mod/')
+                  )
+                  if bad:
+                      offenders += 1
+                      print(desc)
+                      for dep in bad:
+                          print('  -> ' + dep)
+              print('SMM roots with direct donor-only dependencies:', offenders)
+          PY
+          python /tmp/diagnose_full_payload.py
+
       - name: Download representative clean targets
         run: |
           mkdir -p targets
