@@ -293,7 +293,7 @@ spawn Rat x1
 spawn Rat x10
 ```
 
-Direct/manual Mob placement still follows normal placement safety rules. This is intentionally stricter than `warp`.
+Direct/manual Mob placement still follows normal placement safety rules. This is intentionally stricter than `warp`. `spawn` also applies required debug initialization for special Mob types that cannot be safely created with a bare constructor; this currently includes using the normal factory path for Mimics and initializing Bee level, HP/HT, and detached Honeypot state.
 
 ## Applying buffs: `affect`
 
@@ -397,7 +397,7 @@ terrain 123 @cell
 
 A purely numeric first argument is treated directly as a terrain ID and bypasses name/fuzzy resolution. The console validates it against the target `Terrain.flags` array length; standard SPD currently has 256 entries, so valid IDs are `0..255`. This lets fork-specific terrain remain usable when only its numeric value is known. Raw IDs are target/fork-specific and must not be assumed to have the same meaning across different forks.
 
-Internally, `terrain` calls the target game's `Level.set(cell, terrain)`, so passable/solid/pit and related flags are updated. It then refreshes the map, recalculates observation, and updates fog.
+Internally, `terrain` calls the target game's `Level.set(cell, terrain)`, so passable/solid/pit and related flags are updated. It then refreshes the map, recalculates observation, and updates fog. For ordinary terrain tiles, the visible tile graphic should change immediately after the cell is applied; changing floors or reloading the scene should not be necessary. Features backed by additional objects or state remain exceptions.
 
 Android release R8 can remove `Terrain` `public static final int` fields that are only compile-time constants. ModDebug first uses Terrain fields that still exist in the target APK at runtime; if a standard SPD terrain field was shrunk away, it falls back to the canonical Terrain ID from SMM's upstream baseline. This keeps commands such as `terrain chasm` working in minified/injected APKs. A fork-specific custom terrain name whose field name was completely removed by R8 cannot be reconstructed from the APK; if that fork's actual terrain ID is known, use the numeric form instead.
 

@@ -293,7 +293,7 @@ spawn Rat x1
 spawn Rat x10
 ```
 
-直接指定或手動選擇 Mob 落點時，仍遵守正常的落點安全條件，這部分刻意比 `warp` 嚴格。
+直接指定或手動選擇 Mob 落點時，仍遵守正常的落點安全條件，這部分刻意比 `warp` 嚴格。`spawn` 也會對不能只靠裸 constructor 正常建立的特殊 Mob 做必要的 debug 初始化；目前包含使用正常 factory 建立 Mimic，以及替 Bee 補上等級、HP/HT 與脫離 Honeypot 綁定所需的初始化。
 
 ## 套用 Buff：`affect`
 
@@ -397,7 +397,7 @@ terrain 123 @cell
 
 純數字第一參數會直接當成 terrain ID，不做名稱解析或 fuzzy matching。Console 會以目標 `Terrain.flags` 陣列長度檢查可用範圍；例如標準 SPD 的 `flags` 長度是 256，因此有效 ID 為 `0..255`。這使 fork 自訂 terrain 即使只剩數值、沒有可反射的常數名稱時，仍可用 ID 操作。raw ID 必須以目標 APK／fork 的實際定義為準，不能假設不同 fork 的同一數字具有相同意義。
 
-`terrain` 內部會呼叫目標遊戲的 `Level.set(cell, terrain)`，因此 passable／solid／pit 等 terrain flags 會同步更新；之後還會刷新 map、重新 observe 與更新 fog。
+`terrain` 內部會呼叫目標遊戲的 `Level.set(cell, terrain)`，因此 passable／solid／pit 等 terrain flags 會同步更新；之後還會刷新 map、重新 observe 與更新 fog。對一般 terrain tile 而言，選格或指定 cell 成功後，地圖上的 tile 圖像應立即改變，不需要換樓層或重新載入場景；需要額外物件或狀態的特殊機制仍屬例外。
 
 Android release 的 R8 可能把沒有被直接引用的 `Terrain` `public static final int` 常數欄位移除。ModDebug 會優先使用目標 APK 執行時仍存在的 Terrain 欄位；若標準 SPD terrain 欄位已被 shrink，則退回 SMM 所對應官方 Terrain 的 canonical ID，因此像 `terrain chasm` 在 minified／注入版 APK 也能解析。若某個 fork 自訂 terrain 的欄位名稱已被 R8 完全移除，APK 本身已沒有名稱可供反射還原；此時若知道該 fork 的實際 terrain ID，就可直接用數字形式操作。
 
