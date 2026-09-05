@@ -29,6 +29,7 @@ import com.watabou.utils.Callback;
 import com.watabou.utils.Random;
 import com.watabou.utils.Reflection;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 import com.spd.mod.tools.ModToolsWindow;
@@ -161,13 +162,32 @@ public class ModCellSelector extends CellSelector.Listener implements Callback {
         } else if (mob instanceof DriedRose.GhostHero) {
             mob.HT = 20 + Dungeon.scalingDepth() * 8;
         } else if (mob instanceof Sheep) {
-            ((Sheep) mob).initialize(8.0f);
+            initSheep((Sheep) mob, 8.0f);
         }
 
         if (mob.HT <= 0) {
             mob.HT = 100;
         }
         mob.HP = mob.HT;
+    }
+
+    private void initSheep(Sheep sheep, float lifespan) {
+        // Newer SPD exposes initialize(float), while older forks such as RKA
+        // keep a lifespan field and schedule it on the sheep's first act.
+        // Avoid linking the injectable payload to either fork-specific shape.
+        try {
+            Method initialize = sheep.getClass().getMethod("initialize", float.class);
+            initialize.invoke(sheep, lifespan);
+            return;
+        } catch (Exception ignored) {
+        }
+
+        try {
+            Field field = sheep.getClass().getDeclaredField("lifespan");
+            field.setAccessible(true);
+            field.setFloat(sheep, lifespan);
+        } catch (Exception ignored) {
+        }
     }
 
     private void initWandmaker() {
