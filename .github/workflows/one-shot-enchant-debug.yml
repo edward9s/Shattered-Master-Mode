@@ -1,0 +1,244 @@
+name: one-shot-enchant-debug
+
+on:
+  push:
+    paths:
+      - '.github/workflows/one-shot-enchant-debug.yml'
+
+permissions:
+  contents: write
+
+env:
+  GIT_AUTHOR_NAME: edward9s
+  GIT_AUTHOR_EMAIL: 277983297+edward9s@users.noreply.github.com
+  GIT_COMMITTER_NAME: edward9s
+  GIT_COMMITTER_EMAIL: 277983297+edward9s@users.noreply.github.com
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply ModDebug enchantment patch
+        run: |
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('core/src/main/java/com/spd/mod/mechanics/ModDebug.java')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(old, new):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one match, found {count}: {old[:120]!r}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+          '''    private static final String DWARF_TOKEN_CLASS =
+                  "com.shatteredpixel.shatteredpixeldungeon.items.quest.DwarfToken";
+          ''',
+          '''    private static final String DWARF_TOKEN_CLASS =
+                  "com.shatteredpixel.shatteredpixeldungeon.items.quest.DwarfToken";
+              private static final String WEAPON_CLASS =
+                  "com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon";
+              private static final String WEAPON_ENCHANTMENT_CLASS =
+                  "com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon$Enchantment";
+              private static final String ARMOR_CLASS =
+                  "com.shatteredpixel.shatteredpixeldungeon.items.armor.Armor";
+              private static final String ARMOR_GLYPH_CLASS =
+                  "com.shatteredpixel.shatteredpixeldungeon.items.armor.Armor$Glyph";
+          ''')
+
+          replace_once(
+          '''            case "use":
+                          InvocationResult result = use(args);
+                          if (result.invoked) {
+                              stored = result.result;
+                              hasStoredResult = result.result != null;
+                          }
+                          break;
+          ''',
+          '''            case "use":
+                          InvocationResult result = use(args);
+                          if (result.invoked) {
+                              stored = result.result;
+                              hasStoredResult = result.result != null;
+                          }
+                          break;
+
+                      case "enchant":
+                          stored = applyEquipmentEffect(args, true);
+                          hasStoredResult = stored != null;
+                          break;
+
+                      case "inscribe":
+                          stored = applyEquipmentEffect(args, false);
+                          hasStoredResult = stored != null;
+                          break;
+          ''')
+
+          replace_once(
+          '''                "help | give | spawn | affect | seed | trap | warp | inspect | use | goto | where | macro | @ | search | results | get | set | clear | save | load",
+          ''',
+          '''                "help | give | spawn | affect | seed | trap | warp | inspect | use | enchant | inscribe | goto | where | macro | @ | search | results | get | set | clear | save | load",
+          ''')
+
+          replace_once(
+          '''                + "use <Class|hero|level|@variable> <method> [args...]\\n"
+                          + "goto <depth> [branch]  (branch defaults to 0)\\n"
+          ''',
+          '''                + "use <Class|hero|level|@variable> <method> [args...]\\n"
+                          + "enchant @weapon <Enchantment|random|none>\\n"
+                          + "inscribe @armor <Glyph|random|none>\\n"
+                          + "goto <depth> [branch]  (branch defaults to 0)\\n"
+          ''')
+
+          replace_once(
+          '''                + "Quoted strings and @variables are supported as method arguments.\\n"
+                          + "Commands that open a selector should be the final line of a macro."
+          ''',
+          '''                + "Quoted strings, @variables, and new:<Class> are supported as method arguments.\\n"
+                          + "Commands that open a selector should be the final line of a macro."
+          ''')
+
+          marker = '''    private static void gotoLevel(List<String> args)
+                  throws Exception {
+          '''
+          insert = '''    private static Object applyEquipmentEffect(
+                  List<String> args, boolean weapon) throws Exception {
+
+              String usage = weapon
+                      ? "enchant @weapon <Enchantment|random|none>"
+                      : "inscribe @armor <Glyph|random|none>";
+
+              if (args.size() != 2 || !args.get(0).startsWith("@")) {
+                  throw new IllegalArgumentException(usage);
+              }
+
+              Object item = getVariable(args.get(0));
+              if (item == null) {
+                  throw new IllegalArgumentException(str(
+                          "Variable is undefined or inactive: ", args.get(0)));
+              }
+
+              String itemClassName = weapon ? WEAPON_CLASS : ARMOR_CLASS;
+              String effectClassName = weapon
+                      ? WEAPON_ENCHANTMENT_CLASS
+                      : ARMOR_GLYPH_CLASS;
+              String methodName = weapon ? "enchant" : "inscribe";
+              String fieldName = weapon ? "enchantment" : "glyph";
+
+              Class<?> itemBase = loadRequired(itemClassName);
+              if (!itemBase.isInstance(item)) {
+                  throw new IllegalArgumentException(str(
+                          args.get(0), " contains ", item.getClass().getSimpleName(),
+                          ", not a ", itemBase.getSimpleName()));
+              }
+
+              String effectToken = args.get(1);
+              InvocationResult applied;
+
+              if ("random".equalsIgnoreCase(effectToken)) {
+                  applied = invokeCompatibleObjects(
+                          item, item.getClass(), methodName,
+                          new Object[0], false, false);
+              } else {
+                  Object effect = null;
+
+                  if (!"none".equalsIgnoreCase(effectToken)
+                          && !"null".equalsIgnoreCase(effectToken)) {
+                      String className = effectToken;
+                      if (className.length() > 4
+                              && className.regionMatches(
+                                      true, 0, "new:", 0, 4)) {
+                          className = className.substring(4);
+                      }
+
+                      Class<?> effectBase = loadRequired(effectClassName);
+                      Class<?> effectType = resolveClass(className, effectBase);
+                      if (effectType == null) {
+                          throw new IllegalArgumentException(str(
+                                  weapon ? "Enchantment" : "Glyph",
+                                  " class not found: ", className));
+                      }
+                      effect = newInstance(effectType);
+                  }
+
+                  applied = invokeCompatibleObjects(
+                          item, item.getClass(), methodName,
+                          new Object[]{effect}, false, false);
+              }
+
+              if (!applied.invoked) {
+                  throw new NoSuchMethodException(str(
+                          "No compatible ", item.getClass().getSimpleName(),
+                          ".", methodName));
+              }
+
+              Field effectField = findField(item.getClass(), fieldName);
+              Object actual = effectField == null ? null : effectField.get(item);
+              GLog.p(str(
+                      item.getClass().getSimpleName(), ".", fieldName,
+                      " = ", actual == null
+                              ? "none"
+                              : actual.getClass().getSimpleName()));
+              return item;
+          }
+
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit(f'goto marker count: {text.count(marker)}')
+          text = text.replace(marker, insert + marker, 1)
+
+          replace_once(
+          '''        if (type == boolean.class
+                  || type == Boolean.class) {
+          ''',
+          '''        if (raw.length() > 4
+                  && raw.regionMatches(true, 0, "new:", 0, 4)) {
+
+              String className = raw.substring(4);
+              Class<?> cls = resolveClass(className, type);
+
+              if (cls == null || !type.isAssignableFrom(cls)) {
+                  return BAD_ARG;
+              }
+
+              try {
+                  return newInstance(cls);
+              } catch (Exception ignored) {
+                  return BAD_ARG;
+              }
+          }
+
+          if (type == boolean.class
+                  || type == Boolean.class) {
+          ''')
+
+          replace_once(
+          '''                "warp", "inspect", "use",
+                          "goto", "where", "macro",
+          ''',
+          '''                "warp", "inspect", "use",
+                          "enchant", "inscribe",
+                          "goto", "where", "macro",
+          ''')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          grep -F 'case "enchant"' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
+          grep -F 'case "inscribe"' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
+          grep -F 'new:<Class>' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
+          grep -F 'applyEquipmentEffect' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
+          git diff --check
+          git add core/src/main/java/com/spd/mod/mechanics/ModDebug.java
+          git commit -m "Add debug enchantment and glyph commands"
+          git push origin main
