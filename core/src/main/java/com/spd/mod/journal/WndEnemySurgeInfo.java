@@ -1,7 +1,9 @@
 package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
+import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModEnemySurge;
 
@@ -13,6 +15,11 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
 
     public WndEnemySurgeInfo(final ModEnemySurge buff) {
         super(buff);
+
+        final RenderedTextBlock currentMultiplier = PixelScene.renderTextBlock(currentText(buff), 10);
+        currentMultiplier.hardlight(TITLE_COLOR);
+        currentMultiplier.setPos((width - currentMultiplier.width()) / 2f, height + GAP);
+        add(currentMultiplier);
 
         float halfWidth = (width - GAP) / 2f;
 
@@ -28,7 +35,7 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
                 rebuild(buff);
             }
         };
-        downButton.setRect(0, height + GAP, halfWidth, BUTTON_HEIGHT);
+        downButton.setRect(0, currentMultiplier.bottom() + GAP, halfWidth, BUTTON_HEIGHT);
         add(downButton);
 
         final RedButton upButton = new RedButton(upText(buff), 8) {
@@ -68,6 +75,10 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
         ModEnemySurgeInfoOverlay.refreshIndicators();
         hide();
         GameScene.show(new WndEnemySurgeInfo(buff));
+    }
+
+    private static String currentText(ModEnemySurge buff) {
+        return "SPAWN MULTIPLIER: " + buff.spawnMultiplier() + "x";
     }
 
     private static String downText(ModEnemySurge buff) {
