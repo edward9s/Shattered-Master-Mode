@@ -1,0 +1,372 @@
+from pathlib import Path
+
+path = Path('core/src/main/java/com/spd/mod/mechanics/ModDebug.java')
+text = path.read_text(encoding='utf-8')
+
+
+def replace_once(old, new):
+    global text
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f'Expected exactly one match, found {count}: {old[:160]!r}')
+    text = text.replace(old, new, 1)
+
+
+replace_once(
+    '''    private static final String MIMIC_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mimic";
+''',
+    '''    private static final String MIMIC_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mimic";
+    private static final String GHOST_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Ghost";
+    private static final String WANDMAKER_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Wandmaker";
+    private static final String BLACKSMITH_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Blacksmith";
+    private static final String IMP_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Imp";
+    private static final String DEMON_SPAWNER_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.actors.mobs.DemonSpawner";
+    private static final String STATISTICS_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.Statistics";
+    private static final String GENERATOR_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.items.Generator";
+    private static final String GENERATOR_CATEGORY_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.items.Generator$Category";
+    private static final String EMBERS_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.items.quest.Embers";
+    private static final String DWARF_TOKEN_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.items.quest.DwarfToken";
+'''
+)
+
+replace_once(
+    '''                        Mob mob = newDebugMob(raw, cell, probe);
+                        addMob(mob);
+                        invokeGeneratedHook(
+                                mob, methodName, methodArgs);
+''',
+    '''                        Mob mob = newDebugMob(raw, cell, probe);
+                        addMob(mob);
+                        initializeSpecialMobForDebug(mob);
+                        invokeGeneratedHook(
+                                mob, methodName, methodArgs);
+'''
+)
+
+replace_once(
+    '''            Mob mob = newDebugMob(raw, cell, probe);
+            addMob(mob);
+            invokeGeneratedHook(mob, methodName, methodArgs);
+''',
+    '''            Mob mob = newDebugMob(raw, cell, probe);
+            addMob(mob);
+            initializeSpecialMobForDebug(mob);
+            invokeGeneratedHook(mob, methodName, methodArgs);
+'''
+)
+
+marker = '''    private static int randomRespawnCell(Mob mob) throws Exception {
+'''
+insert = '''    private static void initializeSpecialMobForDebug(Mob mob) {
+        if (mob == null) {
+            return;
+        }
+
+        try {
+            Class<?> type = mob.getClass();
+
+            if (findTypeInHierarchy(type, GHOST_CLASS) != null) {
+                initializeGhostQuestForDebug();
+            } else if (findTypeInHierarchy(type, WANDMAKER_CLASS) != null) {
+                initializeWandmakerQuestForDebug();
+            } else if (findTypeInHierarchy(type, BLACKSMITH_CLASS) != null) {
+                initializeBlacksmithQuestForDebug();
+            } else if (findTypeInHierarchy(type, IMP_CLASS) != null) {
+                initializeImpQuestForDebug();
+            } else if (findTypeInHierarchy(type, DEMON_SPAWNER_CLASS) != null) {
+                registerDebugDemonSpawner(mob);
+            }
+        } catch (Throwable error) {
+            GLog.w(str(
+                    "Special debug initialization failed for ",
+                    mob.getClass().getSimpleName(), ": ",
+                    error.getClass().getSimpleName(),
+                    error.getMessage() == null ? "" : str(": ", error.getMessage())));
+            error.printStackTrace();
+        }
+    }
+
+    private static void initializeGhostQuestForDebug() throws Exception {
+        Class<?> quest = loadRequired(str(GHOST_CLASS, "$Quest"));
+
+        boolean usable = staticBoolean(quest, "spawned")
+                && staticFieldValue(quest, "weapon") != null
+                && staticFieldValue(quest, "armor") != null;
+        if (usable) {
+            return;
+        }
+
+        invokeCompatibleObjects(
+                null, quest, "reset", new Object[0], false, false);
+
+        Item weapon = generateDebugItem("WEAPON");
+        Item armor = generateDebugItem("ARMOR");
+        prepareDebugGeneratedItem(weapon, 0, false);
+        prepareDebugGeneratedItem(armor, 0, false);
+
+        int type = Math.max(1, Math.min(3, Dungeon.depth - 1));
+        setStaticFieldValue(quest, "spawned", true);
+        setStaticFieldValue(quest, "type", type);
+        setStaticFieldValue(quest, "given", false);
+        setStaticFieldValue(quest, "processed", false);
+        setStaticFieldValue(quest, "depth", Dungeon.depth);
+        setStaticFieldValue(quest, "weapon", weapon);
+        setStaticFieldValue(quest, "armor", armor);
+        setStaticFieldValue(quest, "enchant", null);
+        setStaticFieldValue(quest, "glyph", null);
+
+        GLog.i(str("Initialized debug Ghost quest (type ", type, ")."));
+    }
+
+    private static void initializeWandmakerQuestForDebug() throws Exception {
+        Class<?> quest = loadRequired(str(WANDMAKER_CLASS, "$Quest"));
+
+        boolean usable = staticBoolean(quest, "spawned")
+                && staticFieldValue(quest, "wand1") != null
+                && staticFieldValue(quest, "wand2") != null;
+        if (usable) {
+            return;
+        }
+
+        invokeCompatibleObjects(
+                null, quest, "reset", new Object[0], false, false);
+
+        Item wand1 = generateDebugItem("WAND");
+        Item wand2 = generateDebugItem("WAND");
+        for (int tries = 0;
+                tries < 20 && wand2.getClass() == wand1.getClass();
+                tries++) {
+            wand2 = generateDebugItem("WAND");
+        }
+
+        prepareDebugGeneratedItem(wand1, 1, false);
+        prepareDebugGeneratedItem(wand2, 1, false);
+
+        setStaticFieldValue(quest, "type", 2);
+        setStaticFieldValue(quest, "spawned", true);
+        setStaticFieldValue(quest, "given", false);
+        setStaticFieldValue(quest, "wand1", wand1);
+        setStaticFieldValue(quest, "wand2", wand2);
+
+        giveDebugQuestItem(EMBERS_CLASS, 1);
+        GLog.i("Initialized debug Wandmaker quest with an Embers turn-in item.");
+    }
+
+    private static void initializeBlacksmithQuestForDebug() throws Exception {
+        Class<?> quest = loadRequired(str(BLACKSMITH_CLASS, "$Quest"));
+
+        boolean spawned = staticBoolean(quest, "spawned");
+        boolean completed = staticBoolean(quest, "completed");
+        InvocationResult available = invokeCompatibleObjects(
+                null, quest, "rewardsAvailable",
+                new Object[0], false, false);
+        boolean rewardsAvailable = available.invoked
+                && Boolean.TRUE.equals(available.result);
+
+        if (spawned && (!completed || rewardsAvailable)) {
+            return;
+        }
+
+        invokeCompatibleObjects(
+                null, quest, "reset", new Object[0], false, false);
+        InvocationResult generated = invokeCompatibleObjects(
+                null, quest, "generateRewards",
+                new Object[]{false}, false, false);
+        if (!generated.invoked) {
+            throw new NoSuchMethodException(
+                    "Blacksmith.Quest.generateRewards(boolean)");
+        }
+
+        setStaticFieldValue(quest, "type", 1);
+        setStaticFieldValue(quest, "spawned", true);
+        setStaticFieldValue(quest, "given", true);
+        setStaticFieldValue(quest, "started", true);
+        setStaticFieldValue(quest, "bossBeaten", true);
+        setStaticFieldValue(quest, "completed", true);
+        setStaticFieldValue(quest, "favor", 3000);
+        setStaticFieldValue(quest, "freePickaxe", true);
+        setStaticFieldValue(quest, "reforges", 0);
+        setStaticFieldValue(quest, "hardens", 0);
+        setStaticFieldValue(quest, "upgrades", 0);
+        setStaticFieldValue(quest, "smiths", 0);
+
+        GLog.i("Initialized debug Blacksmith rewards with 3000 favor.");
+    }
+
+    private static void initializeImpQuestForDebug() throws Exception {
+        Class<?> quest = loadRequired(str(IMP_CLASS, "$Quest"));
+
+        boolean usable = staticBoolean(quest, "spawned")
+                && !staticBoolean(quest, "completed")
+                && staticFieldValue(quest, "reward") != null;
+        if (usable) {
+            return;
+        }
+
+        invokeCompatibleObjects(
+                null, quest, "reset", new Object[0], false, false);
+
+        Item reward = generateDebugItem("RING");
+        prepareDebugGeneratedItem(reward, 2, true);
+
+        boolean alternative = Dungeon.depth <= 18;
+        setStaticFieldValue(quest, "alternative", alternative);
+        setStaticFieldValue(quest, "spawned", true);
+        setStaticFieldValue(quest, "given", false);
+        setStaticFieldValue(quest, "completed", false);
+        setStaticFieldValue(quest, "reward", reward);
+
+        giveDebugQuestItem(DWARF_TOKEN_CLASS, 5);
+        GLog.i("Initialized debug Imp quest with 5 dwarf tokens.");
+    }
+
+    private static void registerDebugDemonSpawner(Mob mob) throws Exception {
+        Field recorded = findField(mob.getClass(), "spawnRecorded");
+        if (recorded == null || recorded.getBoolean(mob)) {
+            return;
+        }
+
+        Class<?> statistics = loadRequired(STATISTICS_CLASS);
+        Field alive = requireField(statistics, "spawnersAlive");
+        alive.setInt(null, alive.getInt(null) + 1);
+        recorded.setBoolean(mob, true);
+        GLog.i("Registered debug DemonSpawner in Statistics.spawnersAlive.");
+    }
+
+    private static Item generateDebugItem(String categoryName) throws Exception {
+        Class<?> generator = loadRequired(GENERATOR_CLASS);
+        Class<?> categoryType = loadRequired(GENERATOR_CATEGORY_CLASS);
+        Object category = null;
+
+        Object[] constants = categoryType.getEnumConstants();
+        if (constants != null) {
+            for (Object constant : constants) {
+                if (((Enum<?>) constant).name().equals(categoryName)) {
+                    category = constant;
+                    break;
+                }
+            }
+        }
+        if (category == null) {
+            throw new IllegalArgumentException(
+                    str("Generator category not found: ", categoryName));
+        }
+
+        InvocationResult generated = invokeCompatibleObjects(
+                null, generator, "random",
+                new Object[]{category}, false, false);
+        if (!generated.invoked || !(generated.result instanceof Item)) {
+            generated = invokeCompatibleObjects(
+                    null, generator, "randomUsingDefaults",
+                    new Object[]{category}, false, false);
+        }
+        if (!generated.invoked || !(generated.result instanceof Item)) {
+            throw new NoSuchMethodException(str(
+                    "No compatible Generator item factory for ", categoryName));
+        }
+        return (Item) generated.result;
+    }
+
+    private static void prepareDebugGeneratedItem(
+            Item item, int upgrades, boolean cursed) throws Exception {
+        if (item == null) {
+            return;
+        }
+
+        if (upgrades > 0) {
+            InvocationResult upgraded = invokeCompatibleObjects(
+                    item, item.getClass(), "upgrade",
+                    new Object[]{upgrades}, false, false);
+            if (!upgraded.invoked) {
+                for (int i = 0; i < upgrades; i++) {
+                    InvocationResult one = invokeCompatibleObjects(
+                            item, item.getClass(), "upgrade",
+                            new Object[0], false, false);
+                    if (!one.invoked) {
+                        throw new NoSuchMethodException(
+                                "Target item has no compatible upgrade method");
+                    }
+                }
+            }
+        }
+
+        Field cursedField = findField(item.getClass(), "cursed");
+        if (cursedField != null) {
+            cursedField.setBoolean(item, cursed);
+        }
+    }
+
+    private static void giveDebugQuestItem(
+            String className, int quantity) throws Exception {
+        if (Dungeon.hero == null) {
+            return;
+        }
+
+        Class<?> type = loadRequired(className);
+        Object created = newInstance(type);
+        if (!(created instanceof Item)) {
+            throw new IllegalArgumentException(str(
+                    className, " is not an Item"));
+        }
+
+        Item item = (Item) created;
+        if (quantity > 1) {
+            InvocationResult quantitySet = invokeCompatibleObjects(
+                    item, item.getClass(), "quantity",
+                    new Object[]{quantity}, false, false);
+            if (!quantitySet.invoked) {
+                throw new NoSuchMethodException(
+                        "Target quest item has no quantity(int) setter");
+            }
+        }
+
+        if (!debugPickUp(item)) {
+            GLog.w(str(
+                    "Could not add debug quest item ",
+                    type.getSimpleName(), " to the hero."));
+        }
+    }
+
+    private static Object staticFieldValue(
+            Class<?> type, String name) throws Exception {
+        Field field = requireField(type, name);
+        if (!Modifier.isStatic(field.getModifiers())) {
+            throw new IllegalArgumentException(str(
+                    "Field is not static: ", type.getName(), ".", name));
+        }
+        return field.get(null);
+    }
+
+    private static boolean staticBoolean(
+            Class<?> type, String name) throws Exception {
+        Object value = staticFieldValue(type, name);
+        return value instanceof Boolean && (Boolean) value;
+    }
+
+    private static void setStaticFieldValue(
+            Class<?> type, String name, Object value) throws Exception {
+        Field field = requireField(type, name);
+        if (!Modifier.isStatic(field.getModifiers())) {
+            throw new IllegalArgumentException(str(
+                    "Field is not static: ", type.getName(), ".", name));
+        }
+        field.set(null, value);
+    }
+
+'''
+if marker not in text:
+    raise SystemExit('randomRespawnCell marker not found')
+text = text.replace(marker, insert + marker, 1)
+path.write_text(text, encoding='utf-8')
