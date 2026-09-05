@@ -8,6 +8,22 @@ Console 由 **ModAnkh** 提供。使用 ModAnkh，選擇 **Console**，然後一
 
 > 可用的 class、field 與 method 會隨目標 SPD fork 與版本不同。碰到目標版本沒有的 API 時，對應指令可能失敗。
 
+## 遊戲內 `help`
+
+只輸入 `help` 會顯示依用途分類的完整指令索引；要查看某一項時，用 `help <topic>`，只會顯示該主題的說明，不會把其他不相關指令一起列出。
+
+```text
+help
+help give
+help terrain
+help @
+help !!
+help search
+help fuzzy
+```
+
+`help @` 會集中說明 handle 建立、查看、清除與回傳值捕捉；`help !!` 說明 history replay 與 inline `!!`；`help search`／`help results`／`help clear` 會集中說明 Value Search。輸入不存在的 topic 時只會提示 topic 不存在，再請你使用 `help` 查看索引。
+
 ## 先理解這四件事
 
 最重要的四個操作是：

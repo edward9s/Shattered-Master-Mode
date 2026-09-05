@@ -8,6 +8,22 @@ The console is exposed through **ModAnkh**. Use the ModAnkh, choose **Console**,
 
 > The exact classes, fields, and methods available depend on the target SPD fork and version. Commands that refer to game internals can fail when a target uses a different API.
 
+## In-game `help`
+
+Bare `help` shows a complete command index grouped by purpose. Use `help <topic>` for focused help; only that command/topic is shown instead of mixing in unrelated commands.
+
+```text
+help
+help give
+help terrain
+help @
+help !!
+help search
+help fuzzy
+```
+
+`help @` covers handle creation, inspection, deletion, and result capture. `help !!` covers history replay and inline `!!`. `help search` / `help results` / `help clear` show the Value Search group. An unknown topic only reports that it is unknown and points back to the main `help` index.
+
 ## The basic model
 
 There are four ideas worth learning first:

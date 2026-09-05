@@ -46,7 +46,7 @@ public final class ModDebug$Console {
     public static void open() {
         GameScene.show(new WndTextInput(
                 "Debug command",
-                "help | give | spawn | affect | seed | trap | warp | inspect | use | goto | where | macro | @ | search | results | get | set | clear | save | load",
+                "help | give | spawn | affect | seed | trap | terrain | warp | inspect | use | enchant | inscribe | goto | where | macro | @ | search | results | get | set | clear | save | load",
                 "",
                 400,
                 false,
@@ -131,17 +131,6 @@ public final class ModDebug$Console {
                     new Object[]{command, macroDepth});
         }
 
-        if (topLevel
-                && commandIndex == 0
-                && tokens.size() == 1
-                && "help".equalsIgnoreCase(tokens.get(0))) {
-            GLog.i(
-                    "Class, field, method, Class-argument, and enum identifiers support "
-                    + "case-insensitive fuzzy matching. Exact matches win; compact "
-                    + "ordered fuzzy matches are ranked by gap and word boundaries; "
-                    + "ambiguous matches show Similar suggestions. Command names, "
-                    + "@handles, numbers, and ordinary strings remain exact.");
-        }
     }
 
     private static String preprocess(
@@ -920,9 +909,12 @@ public final class ModDebug$Console {
                 || "affect".equals(command)
                 || "seed".equals(command)
                 || "trap".equals(command)
+                || "terrain".equals(command)
                 || "warp".equals(command)
                 || "inspect".equals(command)
                 || "use".equals(command)
+                || "enchant".equals(command)
+                || "inscribe".equals(command)
                 || "goto".equals(command)
                 || "where".equals(command)
                 || "macro".equals(command)
