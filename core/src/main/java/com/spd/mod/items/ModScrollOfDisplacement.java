@@ -119,7 +119,9 @@ public class ModScrollOfDisplacement extends Scroll implements ModReusable {
                 return;
             }
 
-            Heap heap = Dungeon.level.heaps.get(cell);
+            // Force SparseArray's own overload. R8 can otherwise rebind the inherited
+            // one-argument IntMap.get(int) call to a donor-minified libGDX owner.
+            Heap heap = Dungeon.level.heaps.get(cell, null);
             if (heap != null) {
                 ShatteredPixelDungeon.runOnRenderThread(new DestSelector(heap));
                 return;
