@@ -34,6 +34,14 @@ jobs:
         run: |
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/scripts/patch_cross_package_inject.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("The injector must not use a generic rule such as 'copy every `com.spd.mod` class'.", "Do not assume that every donor class reachable from these classes is safe to copy into a target build.")
+          s = s.replace("Injector 不應採用「把所有 `com.spd.mod` class 都複製進去」這種泛化規則。", "不要假設只要某個 donor class 能從上述 class 觸及，就適合一起複製到 target。")
+          p.write_text(s, encoding='utf-8')
+          PY
           python .github/scripts/patch_cross_package_inject.py
           python -m py_compile scripts/inject_apk.py scripts/inject_jar.py
           grep -F 'detect_target_game_prefix' scripts/inject_apk.py
