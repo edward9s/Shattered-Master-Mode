@@ -1,0 +1,116 @@
+name: One-shot Mod item R8 diagnosis
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/one-shot-mod-items-r8-diagnose.yml'
+
+permissions:
+  contents: write
+
+env:
+  GIT_AUTHOR_NAME: edward9s
+  GIT_AUTHOR_EMAIL: 277983297+edward9s@users.noreply.github.com
+  GIT_COMMITTER_NAME: edward9s
+  GIT_COMMITTER_EMAIL: 277983297+edward9s@users.noreply.github.com
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mod
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v3
+
+      - name: Checkout current SPD
+        run: |
+          TAG=$(curl -fsSL https://api.github.com/repos/00-Evan/shattered-pixel-dungeon/releases/latest | python -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')
+          git clone --depth 1 --branch "$TAG" https://github.com/00-Evan/shattered-pixel-dungeon.git spd_src
+
+      - name: Build fresh release donor
+        run: |
+          python mod/scripts/patch_android.py
+          python mod/scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGame.java
+          cp -a mod/core spd_src/
+          cp -a mod/android spd_src/ 2>/dev/null || true
+          cp -a mod/assets spd_src/ 2>/dev/null || true
+          python mod/scripts/patch_depth.py 26
+          chmod +x spd_src/gradlew
+          (cd spd_src && ./gradlew android:assembleRelease)
+          DONOR=$(find spd_src/android/build/outputs/apk/release -name '*.apk' | head -1)
+          test -n "$DONOR"
+          echo "DONOR=$DONOR" >> "$GITHUB_ENV"
+
+      - name: Diagnose R8 dependency closure by Mod item root
+        run: |
+          cat > /tmp/diagnose.py <<'PY'
+          import importlib.util, pathlib, tempfile, collections, os, sys
+          spec = importlib.util.spec_from_file_location('inj', 'mod/scripts/inject_apk.py')
+          inj = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = inj
+          spec.loader.exec_module(inj)
+          tc = inj.Toolchain(pathlib.Path('/tmp/smm-inject-cache'))
+          apktool, java = tc.ensure_apktool()
+          with tempfile.TemporaryDirectory() as td:
+              dec = pathlib.Path(td)/'donor'
+              inj.run([java.java, '-jar', apktool, 'd', '-f', '-r', '-o', dec, pathlib.Path(os.environ['DONOR'])])
+              idx = inj.index_smali(dec)
+              roots = sorted(d for d in idx if ((inj.is_mod_item_payload(d) and '$' not in d) or d in {r for r,_ in inj.ITEM_HELPER_FAMILIES}))
+              allowed = inj.TARGET_API_PREFIXES
+              explicit = {d for d in idx if inj.is_debug_root(d)}
+
+              def trace(root):
+                  q=collections.deque([root]); prev={root:None}; first=[]
+                  while q:
+                      cur=q.popleft()
+                      for dep in sorted(inj.smali_dependencies(idx[cur])):
+                          if dep.startswith(allowed) or dep not in idx:
+                              continue
+                          if dep not in prev:
+                              prev[dep]=cur; q.append(dep)
+                              if dep not in explicit and not dep.startswith('Lcom/spd/mod/'):
+                                  first.append(dep)
+                  return prev, first
+
+              print('=== ROOTS ===')
+              for r in roots: print(r)
+              print('=== FIRST DONOR-ONLY DEPENDENCIES ===')
+              for root in roots:
+                  prev, first=trace(root)
+                  if not first:
+                      print(root + ': CLEAN')
+                      continue
+                  for dep in first[:20]:
+                      path=[dep]; x=prev[dep]
+                      while x is not None:
+                          path.append(x); x=prev.get(x)
+                      path.reverse()
+                      print('ROOT ' + root + ': ' + ' -> '.join(path))
+                      parent=prev[dep]
+                      for line in idx[parent].text.splitlines():
+                          if dep in line:
+                              print('    EDGE: ' + line.strip())
+
+              print('=== FULL CURRENT PAYLOAD HELPER COUNT ===')
+              payload, reloc = inj.build_debug_payload(idx, {})
+              print('payload classes', len(payload), 'relocated helpers', len(reloc))
+          PY
+          python /tmp/diagnose.py
+
+      - name: Remove one-shot workflow
+        if: always()
+        working-directory: mod
+        run: |
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+          git pull --ff-only origin main
+          git rm .github/workflows/one-shot-mod-items-r8-diagnose.yml
+          git commit -m "Remove temporary Mod item R8 diagnosis workflow"
+          git push origin main
