@@ -550,7 +550,19 @@ terrain CHASM @cell
 
 單次 `!!` / `!! 1` 仍可重跑一個會開 selector 的上一條指令。
 
-為了向後相容，若 `!!` 不是完整的一行 history 指令，而是出現在其他頂層命令文字中，仍保留原本的 inline 文字展開行為。Macro-local history 則只認獨立成行的 `!!` / `!! N`。
+為了向後相容，若 `!!` 不是完整的一行 history 指令，而是出現在其他頂層命令文字中，仍保留原本 ScrollOfDebug 的 inline 文字展開行為。Console 會先把 `!!` 替換成上一條頂層指令的完整文字，再解析展開後的命令。例如：
+
+```text
+give PotionOfHealing
+!! x10
+# 展開為：give PotionOfHealing x10
+
+give Longsword
+!! +10
+# 展開為：give Longsword +10
+```
+
+這和批次重跑刻意採用不同語意。`!! 10` 本身完整符合 history 指令，因此表示「把上一條指令額外執行 10 次」；`!! x10` 與 `!! +10` 不符合批次格式，所以會先做文字展開，等於在上一條命令後追加 `x10` 或 `+10`。Inline 展開只屬於頂層 Console；macro-local history 只認獨立成行的 `!!` / `!! N`。
 
 部分指令本身已有更直接的數量語法，仍應優先使用：
 

@@ -550,7 +550,19 @@ terrain CHASM @cell
 
 A single `!!` / `!! 1` may still rerun a previous command that opens a selector.
 
-For backward compatibility, when `!!` is not a complete history-command line and instead appears inside other top-level command text, the original inline textual expansion remains available. Macro-local history recognizes only standalone `!!` / `!! N` lines.
+For backward compatibility, when `!!` is not a complete history-command line and instead appears inside other top-level command text, the original ScrollOfDebug-style inline textual expansion remains available. The `!!` token is replaced by the previous top-level command text before the resulting command is parsed. For example:
+
+```text
+give PotionOfHealing
+!! x10
+# expands to: give PotionOfHealing x10
+
+give Longsword
+!! +10
+# expands to: give Longsword +10
+```
+
+This is deliberately different from batch replay. `!! 10` is a complete history command and means "execute the previous command 10 additional times"; `!! x10` and `!! +10` do not match the batch form, so they perform textual expansion and append `x10` / `+10` to the previous command. Inline expansion is only a top-level Console feature; macro-local history recognizes only standalone `!!` / `!! N` lines.
 
 Some commands already have a direct quantity form and should still prefer it:
 
