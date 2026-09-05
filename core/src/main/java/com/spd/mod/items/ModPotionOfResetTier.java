@@ -26,14 +26,6 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
         this.level(tier);
         reset();
     }
-
-    /**
-     * Keep dynamic tier strings inside this kept class. Java string-concat indy can otherwise be
-     * desugared/merged by R8 into a donor-global synthetic helper that is not a stable injection ABI.
-     */
-    private static String tierText(String prefix, int tier, String suffix) {
-        return new StringBuilder(prefix).append(tier).append(suffix).toString();
-    }
     
     @Override
     public boolean keptThroughLostInventory() {
@@ -45,17 +37,29 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
         this.keptThoughLostInvent = true;
         this.unique = true;
         // 防止初始化的極端情況
-        if (tier < 1) return; 
+        if (tier < 1) return;
 
-        this.icon = (tier % 2 != 0) ? 
-            ItemSpriteSheet.Icons.SCROLL_IDENTIFY : 
+        this.icon = (tier % 2 != 0) ?
+            ItemSpriteSheet.Icons.SCROLL_IDENTIFY :
             ItemSpriteSheet.Icons.SCROLL_DIVINATE;
 
         this.image = tier <= 2 ? ItemSpriteSheet.POTION_HOLDER : ItemSpriteSheet.ELIXIR_HOLDER;
-        if (tier <= 2) {
-            this.color = tierText("tier", tier, "_reset");
-        } else {
-            this.color = tierText("exotic_tier", tier, "");
+        switch (tier) {
+            case 1:
+                this.color = "tier1_reset";
+                break;
+            case 2:
+                this.color = "tier2_reset";
+                break;
+            case 3:
+                this.color = "exotic_tier3";
+                break;
+            case 4:
+                this.color = "exotic_tier4";
+                break;
+            default:
+                this.color = "tier_reset";
+                break;
         }
     }
 
@@ -80,22 +84,55 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
 
     @Override
     public String name() {
-        String prefix = (tier <= 2) ? "Potion of Tier " : "Exotic Potion of Tier ";
-        return tierText(prefix, tier, " Reset");
+        switch (tier) {
+            case 1: return "Potion of Tier 1 Reset";
+            case 2: return "Potion of Tier 2 Reset";
+            case 3: return "Exotic Potion of Tier 3 Reset";
+            case 4: return "Exotic Potion of Tier 4 Reset";
+            default: return "Potion of Tier Reset";
+        }
     }
 
     @Override
     public String desc() {
-        String prefix = (tier <= 2) ?
-            "Drinking this potion will reset all your Tier " :
-            "Drinking this exotic brew will magically reset all your Tier ";
-        return tierText(prefix, tier, " talents, returning the spent points.");
+        switch (tier) {
+            case 1:
+                return "Drinking this potion will reset all your Tier 1 talents, returning the spent points.";
+            case 2:
+                return "Drinking this potion will reset all your Tier 2 talents, returning the spent points.";
+            case 3:
+                return "Drinking this exotic brew will magically reset all your Tier 3 talents, returning the spent points.";
+            case 4:
+                return "Drinking this exotic brew will magically reset all your Tier 4 talents, returning the spent points.";
+            default:
+                return "Drinking this potion will reset talents, returning the spent points.";
+        }
+    }
+
+    private void logResetFailure() {
+        switch (tier) {
+            case 1: GLog.w("Reset Tier 1 failed!"); break;
+            case 2: GLog.w("Reset Tier 2 failed!"); break;
+            case 3: GLog.w("Reset Tier 3 failed!"); break;
+            case 4: GLog.w("Reset Tier 4 failed!"); break;
+            default: GLog.w("Reset Tier failed!"); break;
+        }
+    }
+
+    private void logResetSuccess() {
+        switch (tier) {
+            case 1: GLog.h("Tier 1 Reset!"); break;
+            case 2: GLog.h("Tier 2 Reset!"); break;
+            case 3: GLog.h("Tier 3 Reset!"); break;
+            case 4: GLog.h("Tier 4 Reset!"); break;
+            default: GLog.h("Tier Reset!"); break;
+        }
     }
 
     @Override
     public void apply(Hero hero) {
         identify();
-        Map<?, Integer> talentsMap = (Map<?, Integer>) hero.talents.get(tier - 1); 
+        Map<?, Integer> talentsMap = (Map<?, Integer>) hero.talents.get(tier - 1);
         for (Map.Entry<?, Integer> entry : talentsMap.entrySet()) {
             entry.setValue(0);
         }
@@ -103,9 +140,9 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
         try {
             Dungeon.saveAll();
         } catch (Exception e) {
-            GLog.w(tierText("Reset Tier ", tier, " failed!"));
+            logResetFailure();
         }
-        GLog.h(tierText("Tier ", tier, " Reset!"));
+        logResetSuccess();
     }
     
     @Override
