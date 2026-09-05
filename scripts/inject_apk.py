@@ -6,7 +6,7 @@ Usage:
 
 Scope is intentionally narrow:
   * copies ModAnkh and the dedicated ModAnkhStore payload;
-  * copies the controlled ModDebug payload plus the supported Assassin/Parry/Enemy Surge/Loot feature families;
+  * copies the controlled ModDebug payload, supported feature families, and all controlled Mod item families;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * adds the storage permissions required by ModDebug save/load;
   * otherwise leaves target resources and non-DEX APK entries untouched;
@@ -88,6 +88,12 @@ LOOT_PAYLOAD_FAMILIES = (
     ("Lcom/spd/mod/items/ModReusable;", "Lcom/spd/mod/items/ModReusable$"),
 )
 LOOT_REQUIRED_ROOTS = tuple(root for root, _ in LOOT_PAYLOAD_FAMILIES)
+MOD_ITEM_DESCRIPTOR_PREFIX = "Lcom/spd/mod/items/Mod"
+ITEM_HELPER_FAMILIES = (
+    ("Lcom/spd/mod/mechanics/ModBlast;", "Lcom/spd/mod/mechanics/ModBlast$"),
+    ("Lcom/spd/mod/mechanics/ModSight;", "Lcom/spd/mod/mechanics/ModSight$"),
+)
+ITEM_HELPER_REQUIRED_ROOTS = tuple(root for root, _ in ITEM_HELPER_FAMILIES)
 SOURCE_GAME_DESCRIPTOR_PREFIX = "Lcom/shatteredpixel/shatteredpixeldungeon/"
 SOURCE_GAME_DOTTED_PREFIX = "com.shatteredpixel.shatteredpixeldungeon"
 DUNGEON = SOURCE_GAME_DESCRIPTOR_PREFIX + "Dungeon;"
@@ -724,6 +730,14 @@ def modankh_compatibility_errors(
     return sorted(errors)
 
 
+def is_mod_item_payload(descriptor: str) -> bool:
+    if not descriptor.startswith(MOD_ITEM_DESCRIPTOR_PREFIX):
+        return False
+    if descriptor == MOD_ANKH:
+        return False
+    return not is_modankh_store_root(descriptor)
+
+
 def is_debug_root(descriptor: str) -> bool:
     return (
         descriptor == MOD_DEBUG
@@ -747,6 +761,8 @@ def is_debug_root(descriptor: str) -> bool:
         or descriptor == WND_ENEMY_SURGE_INFO
         or descriptor.startswith(WND_ENEMY_SURGE_INFO_INNER_PREFIX)
         or any(descriptor == root or descriptor.startswith(inner) for root, inner in LOOT_PAYLOAD_FAMILIES)
+        or is_mod_item_payload(descriptor)
+        or any(descriptor == root or descriptor.startswith(inner) for root, inner in ITEM_HELPER_FAMILIES)
     )
 
 
@@ -855,7 +871,18 @@ def build_debug_payload(
         MOD_ENEMY_SURGE_INFO_OVERLAY,
         WND_ENEMY_SURGE_INFO,
         *LOOT_REQUIRED_ROOTS,
+        *ITEM_HELPER_REQUIRED_ROOTS,
     )
+    mod_item_roots = sorted(
+        desc for desc in roots
+        if is_mod_item_payload(desc) and "$" not in desc
+    )
+    if not mod_item_roots:
+        raise InjectError(
+            "Donor APK contains no controlled Mod item classes. "
+            "Rebuild the SMM donor from current source before injecting."
+        )
+
     missing_roots = [desc for desc in required_roots if desc not in roots]
     if missing_roots:
         raise InjectError(
@@ -2156,7 +2183,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             overlay_class.parent.mkdir(parents=True, exist_ok=True)
             overlay_class.write_text(donor_class.text, encoding="utf-8")
         log(f"ModAnkhStore payload classes: {len(store_payload)}")
-        log(f"Debug/Assassin/Parry/Enemy Surge/Loot payload classes: {len(debug_payload)}")
+        log(f"Debug/features/Mod-items payload classes: {len(debug_payload)}")
 
         overlay_dex = work / "overlay.dex"
         compile_smali(
@@ -2215,7 +2242,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log(f"Output : {out}")
         log(f"SHA-256: {sha256(out)}")
         log("Package: unchanged from target (re-signed APK)")
-        log("Injected: ModAnkh + ModAnkhStore + debug/Assassin/Parry/Enemy Surge/Loot payload")
+        log("Injected: ModAnkh + ModAnkhStore + debug/features/Mod-items payload")
         if not args.keystore:
             log(
                 "Install note: uninstall the original target first "

@@ -305,3 +305,9 @@ Force-push or history rewriting is allowed when needed. The hard rule is public 
 When choosing between a clever implementation and a slightly more explicit one, prefer the implementation whose compiled dependency graph and build requirements are easier to audit.
 
 For ordinary SMM code, source-level correctness may be enough. For injectable ModAnkh payload code, the compiled APK/JAR dependency graph **and the donor build pipeline** are part of the compatibility contract.
+
+## Controlled Mod item payload surface
+
+The injectors treat compiled `com.spd.mod.items.Mod*` classes (including inner classes) as the controlled Mod-item surface. `ModAnkh` and `ModAnkhStore` remain on their dedicated injection path; non-`Mod*` helpers such as `WndModLoot`, and cross-package mechanics helpers such as `ModBlast` and `ModSight`, remain explicit payload families.
+
+This keeps future self-contained Mod items automatic without opening all of `com.spd.mod.items` or `com.spd.mod.mechanics` to injection. A new Mod item may still fail target-API validation if it introduces an incompatible game/fork dependency; the directory rule does not bypass compatibility checks.

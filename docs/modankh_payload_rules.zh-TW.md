@@ -307,3 +307,9 @@ Force-push 或 history rewrite 本身並不被禁止。真正的硬規則是公�
 當「較聰明、較簡短的寫法」與「較明確、編譯後 dependency graph 及 build requirements 更容易稽核的寫法」之間需要取捨時，injectable payload 應優先選後者。
 
 對一般 SMM 程式碼而言，source-level correctness 往往足夠；但對 ModAnkh injectable payload 而言，編譯後 APK/JAR 的 dependency graph **以及 donor build pipeline 本身**，都是相容性契約的一部分。
+
+## 受控的 Mod item payload 範圍
+
+injector 現在會把編譯後的 `com.spd.mod.items.Mod*` class（包含 inner class）視為受控的 Mod item 注入範圍。`ModAnkh` 與 `ModAnkhStore` 仍走原本的專用注入路徑；不是 `Mod*` 的 helper（例如 `WndModLoot`），以及跨 package 的 mechanics helper（例如 `ModBlast`、`ModSight`），仍維持 explicit payload family。
+
+這讓之後新增的 self-contained Mod item 通常不必再修改 injector，同時不會把整個 `com.spd.mod.items` 或 `com.spd.mod.mechanics` 無限制開放給 payload。若新 item 引入了與目標 fork 不相容的 API，target-API validator 仍會拒絕注入；目錄規則不會繞過相容性檢查。

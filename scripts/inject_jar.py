@@ -7,7 +7,7 @@ Usage:
 The source JAR is a compiled SMM desktop JAR containing ModAnkh.class.
 The target JAR remains the base. The injector:
   * copies ModAnkh, the dedicated ModAnkhStore payload, the controlled
-    ModDebug payload, and the supported Assassin/Parry/Enemy Surge/Loot feature families;
+    ModDebug payload, supported feature families, and all controlled Mod item families;
   * adapts Item.setCurrent(Hero) when the target exposes the older
     curUser/curItem fields instead;
   * validates ModAnkh's executable SPD API references against the target JAR
@@ -75,6 +75,12 @@ LOOT_PAYLOAD_PREFIXES = (
     "com/spd/mod/items/ModReusable",
 )
 LOOT_PAYLOAD_ENTRIES = tuple(prefix + ".class" for prefix in LOOT_PAYLOAD_PREFIXES)
+MOD_ITEM_CLASS_PREFIX = "com/spd/mod/items/Mod"
+ITEM_HELPER_PREFIXES = (
+    "com/spd/mod/mechanics/ModBlast",
+    "com/spd/mod/mechanics/ModSight",
+)
+ITEM_HELPER_ENTRIES = tuple(prefix + ".class" for prefix in ITEM_HELPER_PREFIXES)
 MOD_VALUE_SEARCH_PREFIX = "com/spd/mod/mechanics/ModValueSearch"
 MOD_VALUE_SEARCH_ENTRY = "com/spd/mod/mechanics/ModValueSearch.class"
 MOD_SAVE_TRANSFER_PREFIX = "com/spd/mod/mechanics/ModSaveTransfer"
@@ -417,6 +423,7 @@ def rebuild_jar(
         MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
         WND_ENEMY_SURGE_INFO_ENTRY,
         *LOOT_PAYLOAD_ENTRIES,
+        *ITEM_HELPER_ENTRIES,
     ):
         if required not in debug_payload:
             raise InjectError(f"Donor JAR is missing required debug payload class: {required}")
@@ -1038,6 +1045,17 @@ def is_payload_family(name: str, prefix: str) -> bool:
     )
 
 
+def is_mod_item_payload(name: str) -> bool:
+    if not (name.startswith(MOD_ITEM_CLASS_PREFIX) and name.endswith(".class")):
+        return False
+    if name == MOD_ANKH_ENTRY:
+        return False
+    return not (
+        name == MOD_ANKH_STORE_ENTRY
+        or name.startswith(MOD_ANKH_STORE_PREFIX + "$")
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Inject compiled SMM ModAnkh into an SPD-derived desktop JAR"
@@ -1101,6 +1119,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 name: rebase_class_bytes(zf.read(name), target_game_root)
                 for name in store_names
             }
+
+            mod_item_entries = sorted(
+                name for name in zf.namelist()
+                if is_mod_item_payload(name)
+                and "$" not in name.rsplit("/", 1)[-1]
+            )
+            if not mod_item_entries:
+                raise InjectError("Donor JAR contains no controlled Mod item classes")
 
             debug_names = sorted(
                 name for name in zf.namelist()
@@ -1166,6 +1192,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         and name.endswith(".class")
                     )
                     or any(is_payload_family(name, prefix) for prefix in LOOT_PAYLOAD_PREFIXES)
+                    or is_mod_item_payload(name)
+                    or any(is_payload_family(name, prefix) for prefix in ITEM_HELPER_PREFIXES)
                 )
             )
             if MOD_DEBUG_ENTRY not in debug_names:
@@ -1185,6 +1213,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
                 WND_ENEMY_SURGE_INFO_ENTRY,
                 *LOOT_PAYLOAD_ENTRIES,
+                *ITEM_HELPER_ENTRIES,
+                *mod_item_entries,
             ):
                 if required not in debug_names:
                     raise InjectError(f"Donor JAR is missing required debug payload class: {required}")
@@ -1237,6 +1267,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
                 WND_ENEMY_SURGE_INFO_ENTRY,
                 *LOOT_PAYLOAD_ENTRIES,
+                *ITEM_HELPER_ENTRIES,
+                *mod_item_entries,
             ],
         )
         shutil.copy2(unsigned_tmp, output)
@@ -1246,7 +1278,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log(f"SHA-256: {sha256(output)}")
         log(
             f"Injected: ModAnkh + ModAnkhStore "
-            f"({len(store_payload)} store classes) + debug/Assassin/Parry/Enemy Surge/Loot payload "
+            f"({len(store_payload)} store classes) + debug/features/Mod-items payload "
             f"({len(debug_payload)} classes)"
         )
         if args.keep_work:
