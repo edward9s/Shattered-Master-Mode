@@ -3,7 +3,6 @@ package com.spd.mod.mechanics;
 import com.shatteredpixel.shatteredpixeldungeon.items.Generator;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
-import com.watabou.utils.Reflection;
 
 import java.util.Collections;
 import java.util.Comparator;
@@ -134,19 +133,19 @@ public class ModItemOrder {
         String pkg = bagClass.substring(0, bagClass.lastIndexOf('.') + 1);
 
         Bag probe = null;
-        Class<?> cls = null;
         try {
-            // forNameUnhandled:找不到類別在這裡是預期中的正常結果(衍生版沒有這種袋子),
-            // 用 forName 會被 Game.reportException() 當成錯誤回報。
-            cls = Reflection.forNameUnhandled(pkg + simpleName);
-        } catch (Exception e) {
-            // 靜默略過,下面會快取 null
-        }
-        if (cls != null && Bag.class.isAssignableFrom(cls)) {
-            Object instance = Reflection.newInstance(cls);
-            if (instance instanceof Bag) {
-                probe = (Bag) instance;
+            // Use only JVM/Android framework reflection here. A target release APK may have
+            // stripped unused com.watabou.utils.Reflection wrapper methods even when they exist
+            // in that fork's source tree.
+            Class<?> cls = Class.forName(pkg + simpleName);
+            if (Bag.class.isAssignableFrom(cls)) {
+                Object instance = cls.getDeclaredConstructor().newInstance();
+                if (instance instanceof Bag) {
+                    probe = (Bag) instance;
+                }
             }
+        } catch (ReflectiveOperationException e) {
+            // 某個衍生版沒有這個袋子,或它沒有可用的空建構子,都只代表這個分組不存在。
         }
 
         PROBES.put(simpleName, probe);
