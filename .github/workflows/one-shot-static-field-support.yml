@@ -14,260 +14,65 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
-      - name: Patch static get/set support
+      - name: Patch static field support
+        shell: python
         run: |
-          python - <<'PY'
           from pathlib import Path
 
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              return text.replace(old, new, 1)
+
           debug_path = Path('core/src/main/java/com/spd/mod/mechanics/ModDebug.java')
-          text = debug_path.read_text()
+          text = debug_path.read_text(encoding='utf-8')
 
-          old = '''            case "get":
-                if (!args.isEmpty() && args.get(0).startsWith("@")) {
-                    stored = getObjectField(args);
-                    hasStoredResult = stored != null;
-                } else {
-                    ModValueSearch.get(args);
-                }
-                break;
+          text = replace_once(
+              text,
+              '''            case "get":\n                if (!args.isEmpty() && args.get(0).startsWith("@")) {\n                    stored = getObjectField(args);\n                    hasStoredResult = stored != null;\n                } else {\n                    ModValueSearch.get(args);\n                }\n                break;\n\n            case "set":\n                if (!args.isEmpty() && args.get(0).startsWith("@")) {\n                    setObjectField(args);\n                } else {\n                    ModValueSearch.set(args);\n                }\n                break;\n''',
+              '''            case "get":\n                if (!args.isEmpty() && args.get(0).startsWith("@")) {\n                    stored = getObjectField(args);\n                    hasStoredResult = stored != null;\n                } else if (!args.isEmpty() && args.get(0).startsWith("#")) {\n                    ModValueSearch.get(args);\n                } else {\n                    stored = getStaticField(args);\n                    hasStoredResult = stored != null;\n                }\n                break;\n\n            case "set":\n                if (!args.isEmpty() && args.get(0).startsWith("@")) {\n                    setObjectField(args);\n                } else if (!args.isEmpty() && args.get(0).startsWith("#")) {\n                    ModValueSearch.set(args);\n                } else {\n                    setStaticField(args);\n                }\n                break;\n''',
+              'ModDebug get/set switch')
 
-            case "set":
-                if (!args.isEmpty() && args.get(0).startsWith("@")) {
-                    setObjectField(args);
-                } else {
-                    ModValueSearch.set(args);
-                }
-                break;
-'''
-          new = '''            case "get":
-                if (!args.isEmpty() && args.get(0).startsWith("@")) {
-                    stored = getObjectField(args);
-                    hasStoredResult = stored != null;
-                } else if (!args.isEmpty() && args.get(0).startsWith("#")) {
-                    ModValueSearch.get(args);
-                } else {
-                    stored = getStaticField(args);
-                    hasStoredResult = stored != null;
-                }
-                break;
+          text = replace_once(
+              text,
+              '''                + "results [#id] | get #id | set #id <number> | clear\\n"\n                + "get @object <field> | set @object <field> <value>\\n"\n                + "@x get @object <field>  (store a non-null field value)\\n"\n''',
+              '''                + "results [#id] | get #id | set #id <number> | clear\\n"\n                + "get @object <field> | set @object <field> <value>\\n"\n                + "get <Class> <staticField> | set <Class> <staticField> <value>\\n"\n                + "@x get @object <field>  (store a non-null field value)\\n"\n                + "@x get <Class> <staticField>  (store a non-null static value)\\n"\n''',
+              'ModDebug help')
 
-            case "set":
-                if (!args.isEmpty() && args.get(0).startsWith("@")) {
-                    setObjectField(args);
-                } else if (!args.isEmpty() && args.get(0).startsWith("#")) {
-                    ModValueSearch.set(args);
-                } else {
-                    setStaticField(args);
-                }
-                break;
-'''
-          if old not in text:
-              raise SystemExit('ModDebug get/set switch block not found')
-          text = text.replace(old, new, 1)
+          text = replace_once(
+              text,
+              '''    private static void inspect(List<String> args)\n            throws Exception {\n''',
+              '''    private static Object getStaticField(List<String> args)\n            throws Exception {\n\n        if (args.size() != 2) {\n            throw new IllegalArgumentException(\n                    "get <Class> <staticField>");\n        }\n\n        Class<?> type = resolveClass(args.get(0), Object.class);\n        if (type == null) {\n            throw new ClassNotFoundException(args.get(0));\n        }\n\n        Field field = findField(type, args.get(1));\n        if (field == null) {\n            throw new NoSuchFieldException(str(\n                    type.getName(), ".", args.get(1)));\n        }\n        if (!Modifier.isStatic(field.getModifiers())) {\n            throw new IllegalArgumentException(str(\n                    "Field is not static: ",\n                    type.getName(), ".", field.getName()));\n        }\n\n        Object value = field.get(null);\n        GLog.p(str(\n                type.getSimpleName(), ".", field.getName(),\n                " -> ", valueString(value)));\n        return value;\n    }\n\n    private static void setStaticField(List<String> args)\n            throws Exception {\n\n        if (args.size() != 3) {\n            throw new IllegalArgumentException(\n                    "set <Class> <staticField> <value>");\n        }\n\n        Class<?> type = resolveClass(args.get(0), Object.class);\n        if (type == null) {\n            throw new ClassNotFoundException(args.get(0));\n        }\n\n        Field field = findField(type, args.get(1));\n        if (field == null) {\n            throw new NoSuchFieldException(str(\n                    type.getName(), ".", args.get(1)));\n        }\n        if (!Modifier.isStatic(field.getModifiers())) {\n            throw new IllegalArgumentException(str(\n                    "Field is not static: ",\n                    type.getName(), ".", field.getName()));\n        }\n        if (Modifier.isFinal(field.getModifiers())) {\n            throw new IllegalArgumentException(str(\n                    "Static final field is read-only: ",\n                    type.getName(), ".", field.getName()));\n        }\n\n        Object value = convertArg(field.getType(), args.get(2));\n        if (value == BAD_ARG) {\n            throw new IllegalArgumentException(str(\n                    "Cannot assign ", args.get(2),\n                    " to ", field.getType().getName(),\n                    " field ", field.getName()));\n        }\n\n        field.set(null, value);\n        GLog.p(str(\n                type.getSimpleName(), ".", field.getName(),\n                " = ", valueString(field.get(null))));\n    }\n\n    private static void inspect(List<String> args)\n            throws Exception {\n''',
+              'ModDebug static field methods')
 
-          old = '''                + "results [#id] | get #id | set #id <number> | clear\\n"
-                + "get @object <field> | set @object <field> <value>\\n"
-                + "@x get @object <field>  (store a non-null field value)\\n"
-'''
-          new = '''                + "results [#id] | get #id | set #id <number> | clear\\n"
-                + "get @object <field> | set @object <field> <value>\\n"
-                + "get <Class> <staticField> | set <Class> <staticField> <value>\\n"
-                + "@x get @object <field>  (store a non-null field value)\\n"
-                + "@x get <Class> <staticField>  (store a non-null static value)\\n"
-'''
-          if old not in text:
-              raise SystemExit('ModDebug help block not found')
-          text = text.replace(old, new, 1)
-
-          marker = '''    private static void inspect(List<String> args)
-            throws Exception {
-'''
-          insert = '''    private static Object getStaticField(List<String> args)
-            throws Exception {
-
-        if (args.size() != 2) {
-            throw new IllegalArgumentException(
-                    "get <Class> <staticField>");
-        }
-
-        Class<?> type = resolveClass(args.get(0), Object.class);
-        if (type == null) {
-            throw new ClassNotFoundException(args.get(0));
-        }
-
-        Field field = findField(type, args.get(1));
-        if (field == null) {
-            throw new NoSuchFieldException(str(
-                    type.getName(), ".", args.get(1)));
-        }
-        if (!Modifier.isStatic(field.getModifiers())) {
-            throw new IllegalArgumentException(str(
-                    "Field is not static: ",
-                    type.getName(), ".", field.getName()));
-        }
-
-        Object value = field.get(null);
-        GLog.p(str(
-                type.getSimpleName(), ".", field.getName(),
-                " -> ", valueString(value)));
-        return value;
-    }
-
-    private static void setStaticField(List<String> args)
-            throws Exception {
-
-        if (args.size() != 3) {
-            throw new IllegalArgumentException(
-                    "set <Class> <staticField> <value>");
-        }
-
-        Class<?> type = resolveClass(args.get(0), Object.class);
-        if (type == null) {
-            throw new ClassNotFoundException(args.get(0));
-        }
-
-        Field field = findField(type, args.get(1));
-        if (field == null) {
-            throw new NoSuchFieldException(str(
-                    type.getName(), ".", args.get(1)));
-        }
-        if (!Modifier.isStatic(field.getModifiers())) {
-            throw new IllegalArgumentException(str(
-                    "Field is not static: ",
-                    type.getName(), ".", field.getName()));
-        }
-        if (Modifier.isFinal(field.getModifiers())) {
-            throw new IllegalArgumentException(str(
-                    "Static final field is read-only: ",
-                    type.getName(), ".", field.getName()));
-        }
-
-        Object value = convertArg(field.getType(), args.get(2));
-        if (value == BAD_ARG) {
-            throw new IllegalArgumentException(str(
-                    "Cannot assign ", args.get(2),
-                    " to ", field.getType().getName(),
-                    " field ", field.getName()));
-        }
-
-        field.set(null, value);
-        GLog.p(str(
-                type.getSimpleName(), ".", field.getName(),
-                " = ", valueString(field.get(null))));
-    }
-
-'''
-          if marker not in text:
-              raise SystemExit('ModDebug inspect marker not found')
-          text = text.replace(marker, insert + marker, 1)
-          debug_path.write_text(text)
+          debug_path.write_text(text, encoding='utf-8')
 
           console_path = Path('core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java')
-          text = console_path.read_text()
+          text = console_path.read_text(encoding='utf-8')
 
-          old = '''        if (("get".equals(command) || "set".equals(command))
-                && tokens.size() > commandIndex + 2
-                && tokens.get(commandIndex + 1).startsWith("@")) {
-            TargetInfo target = targetInfo(tokens.get(commandIndex + 1));
-            int fieldIndex = commandIndex + 2;
-            Field field = resolveField(target.type, tokens.get(fieldIndex));
-            if (!field.getName().equals(tokens.get(fieldIndex))) {
-                announce("field", field.getName(), tokens.get(fieldIndex));
-                tokens.set(fieldIndex, field.getName());
-            }
+          text = replace_once(
+              text,
+              '''        if (("get".equals(command) || "set".equals(command))\n                && tokens.size() > commandIndex + 2\n                && tokens.get(commandIndex + 1).startsWith("@")) {\n            TargetInfo target = targetInfo(tokens.get(commandIndex + 1));\n            int fieldIndex = commandIndex + 2;\n            Field field = resolveField(target.type, tokens.get(fieldIndex));\n            if (!field.getName().equals(tokens.get(fieldIndex))) {\n                announce("field", field.getName(), tokens.get(fieldIndex));\n                tokens.set(fieldIndex, field.getName());\n            }\n\n            if ("set".equals(command) && tokens.size() > fieldIndex + 1) {\n                tokens.set(\n                        fieldIndex + 1,\n                        rewriteNamedValue(field.getType(), tokens.get(fieldIndex + 1)));\n            }\n        }\n''',
+              '''        if (("get".equals(command) || "set".equals(command))\n                && tokens.size() > commandIndex + 2) {\n            String targetToken = tokens.get(commandIndex + 1);\n            if (!targetToken.startsWith("#")) {\n                Class<?> fieldType = targetToken.startsWith("@")\n                        ? targetInfo(targetToken).type\n                        : commandClass;\n                if (fieldType != null) {\n                    int fieldIndex = commandIndex + 2;\n                    Field field = resolveField(fieldType, tokens.get(fieldIndex));\n                    if (!field.getName().equals(tokens.get(fieldIndex))) {\n                        announce("field", field.getName(), tokens.get(fieldIndex));\n                        tokens.set(fieldIndex, field.getName());\n                    }\n\n                    if ("set".equals(command) && tokens.size() > fieldIndex + 1) {\n                        tokens.set(\n                                fieldIndex + 1,\n                                rewriteNamedValue(\n                                        field.getType(), tokens.get(fieldIndex + 1)));\n                    }\n                }\n            }\n        }\n''',
+              'Console get/set preprocessing')
 
-            if ("set".equals(command) && tokens.size() > fieldIndex + 1) {
-                tokens.set(
-                        fieldIndex + 1,
-                        rewriteNamedValue(field.getType(), tokens.get(fieldIndex + 1)));
-            }
-        }
-'''
-          new = '''        if (("get".equals(command) || "set".equals(command))
-                && tokens.size() > commandIndex + 2) {
-            String targetToken = tokens.get(commandIndex + 1);
-            if (!targetToken.startsWith("#")) {
-                Class<?> fieldType = targetToken.startsWith("@")
-                        ? targetInfo(targetToken).type
-                        : commandClass;
-                if (fieldType != null) {
-                    int fieldIndex = commandIndex + 2;
-                    Field field = resolveField(fieldType, tokens.get(fieldIndex));
-                    if (!field.getName().equals(tokens.get(fieldIndex))) {
-                        announce("field", field.getName(), tokens.get(fieldIndex));
-                        tokens.set(fieldIndex, field.getName());
-                    }
+          text = replace_once(
+              text,
+              '''        } else if ("inspect".equals(command) || "use".equals(command)) {\n            String target = tokens.get(classIndex);\n            if (target.startsWith("@")\n                    || "hero".equalsIgnoreCase(target)\n                    || "level".equalsIgnoreCase(target)) {\n                return targetInfo(target).type;\n            }\n            label = "Class";\n            parent = Object.class;\n        } else {\n            return null;\n        }\n''',
+              '''        } else if ("get".equals(command) || "set".equals(command)) {\n            String target = tokens.get(classIndex);\n            if (target.startsWith("@")) {\n                return targetInfo(target).type;\n            }\n            if (target.startsWith("#")) {\n                return null;\n            }\n            label = "Class";\n            parent = Object.class;\n        } else if ("inspect".equals(command) || "use".equals(command)) {\n            String target = tokens.get(classIndex);\n            if (target.startsWith("@")\n                    || "hero".equalsIgnoreCase(target)\n                    || "level".equalsIgnoreCase(target)) {\n                return targetInfo(target).type;\n            }\n            label = "Class";\n            parent = Object.class;\n        } else {\n            return null;\n        }\n''',
+              'Console class resolution')
 
-                    if ("set".equals(command) && tokens.size() > fieldIndex + 1) {
-                        tokens.set(
-                                fieldIndex + 1,
-                                rewriteNamedValue(
-                                        field.getType(), tokens.get(fieldIndex + 1)));
-                    }
-                }
-            }
-        }
-'''
-          if old not in text:
-              raise SystemExit('Console get/set field preprocess block not found')
-          text = text.replace(old, new, 1)
-
-          old = '''        } else if ("inspect".equals(command) || "use".equals(command)) {
-            String target = tokens.get(classIndex);
-            if (target.startsWith("@")
-                    || "hero".equalsIgnoreCase(target)
-                    || "level".equalsIgnoreCase(target)) {
-                return targetInfo(target).type;
-            }
-            label = "Class";
-            parent = Object.class;
-        } else {
-            return null;
-        }
-'''
-          new = '''        } else if ("get".equals(command) || "set".equals(command)) {
-            String target = tokens.get(classIndex);
-            if (target.startsWith("@")) {
-                return targetInfo(target).type;
-            }
-            if (target.startsWith("#")) {
-                return null;
-            }
-            label = "Class";
-            parent = Object.class;
-        } else if ("inspect".equals(command) || "use".equals(command)) {
-            String target = tokens.get(classIndex);
-            if (target.startsWith("@")
-                    || "hero".equalsIgnoreCase(target)
-                    || "level".equalsIgnoreCase(target)) {
-                return targetInfo(target).type;
-            }
-            label = "Class";
-            parent = Object.class;
-        } else {
-            return null;
-        }
-'''
-          if old not in text:
-              raise SystemExit('Console resolveCommandClass block not found')
-          text = text.replace(old, new, 1)
-          console_path.write_text(text)
-          PY
-
-      - name: Sanity check patch
-        run: |
-          grep -F 'get <Class> <staticField>' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
-          grep -F 'Field is not static:' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
-          grep -F '"get".equals(command) || "set".equals(command)' 'core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java'
+          console_path.write_text(text, encoding='utf-8')
 
       - name: Commit patch
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add core/src/main/java/com/spd/mod/mechanics/ModDebug.java 'core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java'
-          git commit -m 'Support static field get and set in debug console'
-          git push
-
-# trigger
+          git diff --cached --check
+          git commit -m "Support static field get and set in debug console"
+          git push origin HEAD:main
