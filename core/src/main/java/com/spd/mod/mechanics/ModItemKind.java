@@ -1,7 +1,6 @@
 package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
-import com.watabou.utils.Reflection;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -38,11 +37,12 @@ public class ModItemKind {
 
         Class<?> cls = null;
         try {
-            // 用 forNameUnhandled 而非 forName:後者找不到類別時會 Game.reportException(),
-            // 但「這個衍生版沒有這個類別」在這裡是預期中的正常結果,不該被當成錯誤回報。
-            cls = Reflection.forNameUnhandled(pkg + relativeName);
-        } catch (Exception e) {
-            // 靜默略過,快取 null,之後不再重試
+            // Use the JVM/Android framework API directly. Target-side helper wrappers such as
+            // com.watabou.utils.Reflection.forNameUnhandled() may exist in source but be removed
+            // from a release APK by R8 when the target itself never calls them.
+            cls = Class.forName(pkg + relativeName);
+        } catch (ClassNotFoundException e) {
+            // 某個衍生版沒有這個類別是正常情況;快取 null,之後不再重試。
         }
 
         CACHE.put(relativeName, cls);
