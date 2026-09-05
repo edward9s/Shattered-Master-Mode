@@ -20,7 +20,7 @@ public class WndTotalBuffInfo extends WndInfoBuff {
         final RedButton riposteButton = new RedButton(buttonText(buff), 8) {
             @Override
             protected void onClick() {
-                if (buff.target == null || buff.target.buff(ModParryRiposte.class) != buff) {
+                if (buff.target == null || ModParryRiposte.find(buff.target) != buff) {
                     WndTotalBuffInfo.this.hide();
                     return;
                 }
