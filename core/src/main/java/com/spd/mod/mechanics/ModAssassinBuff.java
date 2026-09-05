@@ -179,6 +179,13 @@ public class ModAssassinBuff extends Buff {
                 && selector.listener == defaultListener;
     }
 
+    private static boolean isCancelEvent(PointerEvent event) {
+        // CANCEL does not exist in some older SPD-family PointerEvent.Type enums.
+        // Compare its runtime enum text instead of linking the payload against
+        // PointerEvent.Type.CANCEL as a mandatory target field.
+        return event != null && "CANCEL".equals(String.valueOf(event.type));
+    }
+
     private static class LongPressLayer extends Gizmo implements Signal.Listener<PointerEvent> {
 
         private final CellSelector selector;
@@ -232,8 +239,7 @@ public class ModAssassinBuff extends Buff {
             }
 
             if (press != null && event == press
-                    && (event.type == PointerEvent.Type.UP
-                    || event.type == PointerEvent.Type.CANCEL)) {
+                    && (event.type == PointerEvent.Type.UP || isCancelEvent(event))) {
                 clearPress();
             }
 
