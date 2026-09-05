@@ -234,38 +234,10 @@ jobs:
           DONOR_JAR=$(find spd_src/desktop/build/libs -name '*.jar' | head -1)
           test -n "$DONOR_APK" -a -f "$DONOR_APK"
           test -n "$DONOR_JAR" -a -f "$DONOR_JAR"
-
-          KIT_DIR="inject-kit"
-          rm -rf "$KIT_DIR"
-          mkdir -p "$KIT_DIR"
-
-          cp "$DONOR_APK" "$KIT_DIR/SMM-${UPSTREAM_TAG}-m${MOD_VER}-inject-donor.apk"
-          cp "$DONOR_JAR" "$KIT_DIR/SMM-${UPSTREAM_TAG}-m${MOD_VER}-inject-donor.jar"
-          cp mod/scripts/inject_smm_apk.py "$KIT_DIR/"
-          cp mod/scripts/inject_apk.py "$KIT_DIR/"
-          cp mod/scripts/inject_smm_jar.py "$KIT_DIR/"
-          cp mod/scripts/inject_jar.py "$KIT_DIR/"
-          cp mod/docs/modankh_payload_rules.md "$KIT_DIR/"
-
-          cat > "$KIT_DIR/README.txt" <<EOF
-          Shattered Master Mode full injection kit
-
-          APK:
-            python inject_smm_apk.py SMM-${UPSTREAM_TAG}-m${MOD_VER}-inject-donor.apk TARGET.apk --out TARGET-SMM.apk
-
-          Desktop JAR:
-            python inject_smm_jar.py SMM-${UPSTREAM_TAG}-m${MOD_VER}-inject-donor.jar TARGET.jar --out TARGET-SMM.jar
-
-          The APK donor is intentionally the non-minified GitHub Actions debug build.
-          Do not replace it with the release APK: release R8 optimization may create
-          donor-only obfuscated helper classes that are unsafe to transplant.
-
-          The target game remains the base. Full SMM injection patches the target
-          WndGame menu entry and injects com.spd.mod; it does not give the Hero a
-          startup ModAnkh.
-          EOF
-
-          (cd "$KIT_DIR" && zip -q -r "../out/SMM-${UPSTREAM_TAG}-m${MOD_VER}-InjectKit.zip" .)
+          python mod/scripts/package_inject_kit.py \
+            "$UPSTREAM_TAG" "$MOD_VER" "$DONOR_APK" "$DONOR_JAR" \
+            "out/SMM-${UPSTREAM_TAG}-m${MOD_VER}-InjectKit.zip" \
+            --repo-root mod
 
       - name: Upload Artifacts (Manual Only)
         if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
