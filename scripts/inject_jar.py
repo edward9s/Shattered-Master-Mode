@@ -7,7 +7,7 @@ Usage:
 The source JAR is a compiled SMM desktop JAR containing ModAnkh.class.
 The target JAR remains the base. The injector:
   * copies ModAnkh, the dedicated ModAnkhStore payload, the controlled
-    ModDebug payload, and the supported Assassin/Parry feature families;
+    ModDebug payload, and the supported Assassin/Parry/Enemy Surge feature families;
   * adapts Item.setCurrent(Hero) when the target exposes the older
     curUser/curItem fields instead;
   * validates ModAnkh's executable SPD API references against the target JAR
@@ -58,6 +58,12 @@ MOD_TOTAL_INFO_OVERLAY_PREFIX = "com/spd/mod/journal/ModTotalInfoOverlay"
 MOD_TOTAL_INFO_OVERLAY_ENTRY = "com/spd/mod/journal/ModTotalInfoOverlay.class"
 WND_TOTAL_BUFF_INFO_PREFIX = "com/spd/mod/journal/WndTotalBuffInfo"
 WND_TOTAL_BUFF_INFO_ENTRY = "com/spd/mod/journal/WndTotalBuffInfo.class"
+MOD_ENEMY_SURGE_PREFIX = "com/spd/mod/mechanics/ModEnemySurge"
+MOD_ENEMY_SURGE_ENTRY = "com/spd/mod/mechanics/ModEnemySurge.class"
+MOD_ENEMY_SURGE_INFO_OVERLAY_PREFIX = "com/spd/mod/journal/ModEnemySurgeInfoOverlay"
+MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY = "com/spd/mod/journal/ModEnemySurgeInfoOverlay.class"
+WND_ENEMY_SURGE_INFO_PREFIX = "com/spd/mod/journal/WndEnemySurgeInfo"
+WND_ENEMY_SURGE_INFO_ENTRY = "com/spd/mod/journal/WndEnemySurgeInfo.class"
 MOD_VALUE_SEARCH_PREFIX = "com/spd/mod/mechanics/ModValueSearch"
 MOD_VALUE_SEARCH_ENTRY = "com/spd/mod/mechanics/ModValueSearch.class"
 MOD_SAVE_TRANSFER_PREFIX = "com/spd/mod/mechanics/ModSaveTransfer"
@@ -396,6 +402,9 @@ def rebuild_jar(
         MOD_PARRY_RIPOSTE_ENTRY,
         MOD_TOTAL_INFO_OVERLAY_ENTRY,
         WND_TOTAL_BUFF_INFO_ENTRY,
+        MOD_ENEMY_SURGE_ENTRY,
+        MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
+        WND_ENEMY_SURGE_INFO_ENTRY,
     ):
         if required not in debug_payload:
             raise InjectError(f"Donor JAR is missing required debug payload class: {required}")
@@ -1123,6 +1132,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                         name.startswith(WND_TOTAL_BUFF_INFO_PREFIX + "$")
                         and name.endswith(".class")
                     )
+                    or name == MOD_ENEMY_SURGE_ENTRY
+                    or (
+                        name.startswith(MOD_ENEMY_SURGE_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
+                    or name == MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY
+                    or (
+                        name.startswith(MOD_ENEMY_SURGE_INFO_OVERLAY_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
+                    or name == WND_ENEMY_SURGE_INFO_ENTRY
+                    or (
+                        name.startswith(WND_ENEMY_SURGE_INFO_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
                 )
             )
             if MOD_DEBUG_ENTRY not in debug_names:
@@ -1138,6 +1162,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_PARRY_RIPOSTE_ENTRY,
                 MOD_TOTAL_INFO_OVERLAY_ENTRY,
                 WND_TOTAL_BUFF_INFO_ENTRY,
+                MOD_ENEMY_SURGE_ENTRY,
+                MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
+                WND_ENEMY_SURGE_INFO_ENTRY,
             ):
                 if required not in debug_names:
                     raise InjectError(f"Donor JAR is missing required debug payload class: {required}")
@@ -1186,6 +1213,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_PARRY_RIPOSTE_ENTRY,
                 MOD_TOTAL_INFO_OVERLAY_ENTRY,
                 WND_TOTAL_BUFF_INFO_ENTRY,
+                MOD_ENEMY_SURGE_ENTRY,
+                MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
+                WND_ENEMY_SURGE_INFO_ENTRY,
             ],
         )
         shutil.copy2(unsigned_tmp, output)
@@ -1195,7 +1225,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log(f"SHA-256: {sha256(output)}")
         log(
             f"Injected: ModAnkh + ModAnkhStore "
-            f"({len(store_payload)} store classes) + debug/Assassin/Parry payload "
+            f"({len(store_payload)} store classes) + debug/Assassin/Parry/Enemy Surge payload "
             f"({len(debug_payload)} classes)"
         )
         if args.keep_work:
