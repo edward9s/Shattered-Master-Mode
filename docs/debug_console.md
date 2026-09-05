@@ -44,7 +44,9 @@ use @x method args...
 
 ## Handles: `@name`
 
-A handle gives a temporary name to a live Java object or value. Handles exist only for the current game process; they are not stored in the save file.
+A handle gives a temporary name to a live Java object or value. Handles are **process-local only**: they live in an in-memory static map and are not written to a save file or another persistent store. Changing floors does not automatically clear them, but terminating/restarting the app process clears all handles. Simply putting the app in the background may leave them intact if Android keeps the process alive.
+
+Because object handles are strong references, a floor transition can leave a handle pointing at an object from the old floor (for example an old `Level` or Mob). The handle still exists, but that object may no longer belong to the active game state. Numeric handles such as a stored cell also remain in memory, although the same cell number can mean a different location on another floor.
 
 ### Create or inspect a handle
 
@@ -78,7 +80,7 @@ Handles can also capture objects returned by commands:
 
 ```text
 @item give PotionOfHealing
-@rat spawn Rat -p
+@rat spawn Rat
 @buff affect Haste
 @blob seed Fire 10
 @trap trap AlarmTrap
@@ -538,7 +540,7 @@ Macros can call other macros, up to 8 nested levels. A command that opens an int
 
 Macros also support standalone `!!` / `!! N` with macro-local history; see the next section for the exact rules.
 
-Macros are persisted separately from normal game saves.
+Macros are **persistent across game/process restarts** and are stored separately from normal game saves. On Android they are written to the app-private file `filesDir/smm-debug-macros.properties`; on desktop the fallback location is `~/.smm-debug-macros.properties`. They remain until the macro is deleted (save an empty body), or the corresponding app/private data is removed. Clearing app data or uninstalling the Android app removes the Android macro file.
 
 ## Repeat the previous command: `!!`
 

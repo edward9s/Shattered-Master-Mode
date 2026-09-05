@@ -577,6 +577,7 @@ public final class ModDebug {
                 GLog.i(
                         "macro [name]\n"
                         + "Lists macros, or opens the editor for one macro. %1..%9 are arguments.\n"
+                        + "Macros are persisted across app/process restarts, separately from normal game saves.\n"
                         + "Standalone !! inside a macro repeats that invocation's previous command.\n"
                         + "Commands that open a selector must be the final macro line."
                 );
@@ -595,7 +596,8 @@ public final class ModDebug {
                         + "@x hero|level     store current hero/level\n"
                         + "@x                show a handle\n"
                         + "@x clear          delete a handle\n"
-                        + "Prefix a returning command with @x to capture its result."
+                        + "Prefix a returning command with @x to capture its result.\n"
+                        + "Handles are process-local only: floor changes do not clear them, but a process restart does."
                 );
                 return;
 

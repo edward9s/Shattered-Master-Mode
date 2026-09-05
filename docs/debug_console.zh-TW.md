@@ -44,7 +44,9 @@ use @x method args...
 
 ## Handle：`@name`
 
-`@` handle 可以替目前遊戲中的實際 Java 物件或值取一個暫時名稱。Handle 只存在於目前程序記憶體，不會寫進遊戲存檔。
+`@` handle 可以替目前遊戲中的實際 Java 物件或值取一個暫時名稱。Handle **只存在於目前 app process 的記憶體**：實作上只是 static map，不會寫進遊戲存檔或其他持久化儲存。換樓層不會自動清除 handle；但 app process 被終止或遊戲真正重新啟動後，所有 handle 都會消失。單純把遊戲切到背景時，如果 Android 沒有殺掉 process，handle 可能仍然存在。
+
+Object handle 保存的是強引用，所以換樓層後，某些 handle 仍可能指向上一層已不屬於目前遊戲狀態的物件，例如舊 `Level` 或 Mob。Handle 本身還在，但該物件可能已不適合繼續操作。像 `@cell` 這種整數值也會保留，但換樓層後同一個 cell 編號當然可能代表完全不同的位置。
 
 ### 建立與查看 handle
 
@@ -78,7 +80,7 @@ Handle 最大的價值是能指定「遊戲裡那一個實際 instance」。例�
 
 ```text
 @item give PotionOfHealing
-@rat spawn Rat -p
+@rat spawn Rat
 @buff affect Haste
 @blob seed Fire 10
 @trap trap AlarmTrap
@@ -538,7 +540,7 @@ Macro 可以呼叫其他 macro，但最多只能巢狀 8 層。會打開互動�
 
 Macro 內也支援獨立成行的 `!!` / `!! N`，而且使用 macro-local history；完整規則見下一節。
 
-Macro 會獨立持久化，不依賴一般遊戲存檔。
+Macro **會跨遊戲／process 重啟持久保存**，而且與一般遊戲存檔分開。Android 會寫到 app 私有的 `filesDir/smm-debug-macros.properties`；desktop fallback 則是 `~/.smm-debug-macros.properties`。Macro 會一直保留，直到把該 macro 儲存成空內容來刪除，或對應的 app/private data 被移除。Android 清除應用程式資料或解除安裝時，也會刪除這個 macro 檔案。
 
 ## 重複上一條指令：`!!`
 
