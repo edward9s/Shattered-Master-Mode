@@ -46,6 +46,24 @@ public class ModLootBuff extends Buff {
         return true;
     }
 
+    /**
+     * Uses Char.buffs(Class) rather than Char.buff(Class), whose erased return
+     * descriptor differs between supported SPD forks.
+     */
+    public static ModLootBuff find(Char ch) {
+        if (ch == null) {
+            return null;
+        }
+        for (ModLootBuff buff : ch.buffs(ModLootBuff.class)) {
+            return buff;
+        }
+        return null;
+    }
+
+    public boolean isAttached() {
+        return target != null && find(target) == this;
+    }
+
     public ModLootStorage storage() {
         return storage;
     }
