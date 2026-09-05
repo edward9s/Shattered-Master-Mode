@@ -41,6 +41,25 @@ public class ModEnemySurge extends Buff {
         revivePersists = true;
     }
 
+    /**
+     * Uses Char.buffs(Class), whose erased return type is stable across the
+     * supported SPD forks. Older forks expose a different erased return type
+     * for Char.buff(Class), so injectable code must not rely on that method.
+     */
+    public static ModEnemySurge find(Char ch) {
+        if (ch == null) {
+            return null;
+        }
+        for (ModEnemySurge surge : ch.buffs(ModEnemySurge.class)) {
+            return surge;
+        }
+        return null;
+    }
+
+    public boolean isAttached() {
+        return target != null && find(target) == this;
+    }
+
     @Override
     public boolean attachTo(Char target) {
         if (!super.attachTo(target)) {
@@ -51,7 +70,7 @@ public class ModEnemySurge extends Buff {
         // stack ambiguously. Applying it to a new character transfers the buff.
         for (Char ch : Actor.chars().toArray(new Char[0])) {
             if (ch != target) {
-                ModEnemySurge other = ch.buff(ModEnemySurge.class);
+                ModEnemySurge other = find(ch);
                 if (other != null) {
                     other.detach();
                 }
