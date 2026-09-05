@@ -7,7 +7,7 @@ Usage:
 The source JAR is a compiled SMM desktop JAR containing ModAnkh.class.
 The target JAR remains the base. The injector:
   * copies ModAnkh, the dedicated ModAnkhStore payload, the controlled
-    ModDebug payload, and the supported Assassin/Parry/Enemy Surge feature families;
+    ModDebug payload, and the supported Assassin/Parry/Enemy Surge/Loot feature families;
   * adapts Item.setCurrent(Hero) when the target exposes the older
     curUser/curItem fields instead;
   * validates ModAnkh's executable SPD API references against the target JAR
@@ -64,6 +64,17 @@ MOD_ENEMY_SURGE_INFO_OVERLAY_PREFIX = "com/spd/mod/journal/ModEnemySurgeInfoOver
 MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY = "com/spd/mod/journal/ModEnemySurgeInfoOverlay.class"
 WND_ENEMY_SURGE_INFO_PREFIX = "com/spd/mod/journal/WndEnemySurgeInfo"
 WND_ENEMY_SURGE_INFO_ENTRY = "com/spd/mod/journal/WndEnemySurgeInfo.class"
+LOOT_PAYLOAD_PREFIXES = (
+    "com/spd/mod/mechanics/ModLootBuff",
+    "com/spd/mod/mechanics/ModLootStorage",
+    "com/spd/mod/mechanics/ModLoot",
+    "com/spd/mod/mechanics/ModItemKind",
+    "com/spd/mod/mechanics/ModItemOrder",
+    "com/spd/mod/journal/ModLootBuffOverlay",
+    "com/spd/mod/items/WndModLoot",
+    "com/spd/mod/items/ModReusable",
+)
+LOOT_PAYLOAD_ENTRIES = tuple(prefix + ".class" for prefix in LOOT_PAYLOAD_PREFIXES)
 MOD_VALUE_SEARCH_PREFIX = "com/spd/mod/mechanics/ModValueSearch"
 MOD_VALUE_SEARCH_ENTRY = "com/spd/mod/mechanics/ModValueSearch.class"
 MOD_SAVE_TRANSFER_PREFIX = "com/spd/mod/mechanics/ModSaveTransfer"
@@ -405,6 +416,7 @@ def rebuild_jar(
         MOD_ENEMY_SURGE_ENTRY,
         MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
         WND_ENEMY_SURGE_INFO_ENTRY,
+        *LOOT_PAYLOAD_ENTRIES,
     ):
         if required not in debug_payload:
             raise InjectError(f"Donor JAR is missing required debug payload class: {required}")
@@ -1020,6 +1032,12 @@ def output_path_for(target: Path) -> Path:
     return target.with_name(target.stem + "-ModAnkh" + (target.suffix or ".jar"))
 
 
+def is_payload_family(name: str, prefix: str) -> bool:
+    return name == prefix + ".class" or (
+        name.startswith(prefix + "$") and name.endswith(".class")
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Inject compiled SMM ModAnkh into an SPD-derived desktop JAR"
@@ -1147,6 +1165,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         name.startswith(WND_ENEMY_SURGE_INFO_PREFIX + "$")
                         and name.endswith(".class")
                     )
+                    or any(is_payload_family(name, prefix) for prefix in LOOT_PAYLOAD_PREFIXES)
                 )
             )
             if MOD_DEBUG_ENTRY not in debug_names:
@@ -1165,6 +1184,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_ENEMY_SURGE_ENTRY,
                 MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
                 WND_ENEMY_SURGE_INFO_ENTRY,
+                *LOOT_PAYLOAD_ENTRIES,
             ):
                 if required not in debug_names:
                     raise InjectError(f"Donor JAR is missing required debug payload class: {required}")
@@ -1216,6 +1236,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_ENEMY_SURGE_ENTRY,
                 MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
                 WND_ENEMY_SURGE_INFO_ENTRY,
+                *LOOT_PAYLOAD_ENTRIES,
             ],
         )
         shutil.copy2(unsigned_tmp, output)
@@ -1225,7 +1246,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log(f"SHA-256: {sha256(output)}")
         log(
             f"Injected: ModAnkh + ModAnkhStore "
-            f"({len(store_payload)} store classes) + debug/Assassin/Parry/Enemy Surge payload "
+            f"({len(store_payload)} store classes) + debug/Assassin/Parry/Enemy Surge/Loot payload "
             f"({len(debug_payload)} classes)"
         )
         if args.keep_work:
