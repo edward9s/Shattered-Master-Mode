@@ -124,7 +124,7 @@ public class ModTotalInfoOverlay extends Gizmo {
 
     private static boolean hasTotalUser() {
         for (Char ch : Actor.chars()) {
-            if (ch.buff(ModParryRiposte.class) != null) {
+            if (ModParryRiposte.find(ch) != null) {
                 return true;
             }
         }
@@ -213,7 +213,7 @@ public class ModTotalInfoOverlay extends Gizmo {
         public void update() {
             if (source.parent == null
                     || buff.target == null
-                    || buff.target.buff(ModParryRiposte.class) != buff) {
+                    || ModParryRiposte.find(buff.target) != buff) {
                 killAndErase();
                 return;
             }
