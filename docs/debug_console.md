@@ -497,51 +497,67 @@ warp 123
 
 Macros can call other macros, up to 8 nested levels. A command that opens an interactive selector must be the final command in a macro because selector completion is asynchronous. For example, `terrain CHASM` opens a selector and must be last, while `terrain CHASM @cell` already has an explicit cell and may appear earlier.
 
+Macros also support standalone `!!` / `!! N` with macro-local history; see the next section for the exact rules.
+
 Macros are persisted separately from normal game saves.
 
-## Repeating commands: `repeat`
+## Repeat the previous command: `!!`
 
-To execute the same non-interactive command many times, you do not need to paste 100 lines into a macro:
-
-```text
-repeat 100 use @weapon upgrade
-repeat 100 give Gold
-```
-
-Syntax:
+`!!` is history syntax; there is no separate `repeat` command:
 
 ```text
-repeat <count> <command...>
+use @weapon upgrade
+!!
+!! 100
 ```
 
-`count` may be from 1 to 1000. Nested `repeat` commands are rejected, and `repeat` will not execute a command that opens an interactive selector, preventing a large number of selectors from being opened at once. These are therefore rejected:
+- `!!` executes the previous command one additional time.
+- `!! N` executes the previous command N additional times; N may be from 1 to 1000, so `!! 1` is equivalent to `!!`.
+- `!! N` does not itself replace the previous-command entry. Consecutive `!! 100` and `!! 10` therefore still repeat the same real command.
+
+If the previous top-level command is a macro, for example:
 
 ```text
-repeat 100 terrain CHASM
-repeat 100 trap AlarmTrap
+prepareBoss
+!! 10
 ```
 
-When a command supports an explicit cell/handle, supply it to avoid the selector:
+then the whole `prepareBoss` macro is executed 10 additional times, not merely its final line.
+
+Inside a macro, a standalone `!!` / `!! N` uses **that macro invocation's own previous effective command**, never the Console's outer history. For example, this macro body:
+
+```text
+use @weapon upgrade
+!! 100
+```
+
+executes `use @weapon upgrade` 100 additional times. Blank lines and `#` comments do not affect macro-local history. A macro whose first effective line is `!!` fails because it has no local previous command. If the previous macro line invokes another macro, the whole nested macro is repeated.
+
+Batch history replay will not open a large number of interactive selectors. When N > 1, `!! N` rejects a previous command (or macro) that opens a selector. For example:
+
+```text
+terrain CHASM
+!! 100
+```
+
+is rejected, while an explicit-cell form can be replayed in a batch:
 
 ```text
 @cell cell
-repeat 100 terrain CHASM @cell
+terrain CHASM @cell
+!! 100
 ```
 
-Some commands already have a direct quantity form, which is preferable to `repeat`:
+A single `!!` / `!! 1` may still rerun a previous command that opens a selector.
+
+For backward compatibility, when `!!` is not a complete history-command line and instead appears inside other top-level command text, the original inline textual expansion remains available. Macro-local history recognizes only standalone `!!` / `!! N` lines.
+
+Some commands already have a direct quantity form and should still prefer it:
 
 ```text
 give PotionOfHealing x100
 spawn Rat x100
 ```
-
-## Repeat the previous command: `!!`
-
-```text
-!!
-```
-
-`!!` expands to the previous debug command. It can also appear inside a command line where repeating the previous text makes sense.
 
 ## Save transfer
 

@@ -497,51 +497,67 @@ warp 123
 
 Macro 可以呼叫其他 macro，但最多只能巢狀 8 層。會打開互動式 selector 的指令必須放在 macro 最後一行，因為 selector 的完成是非同步的。例如 `terrain CHASM` 會開 selector，所以只能放最後；`terrain CHASM @cell` 已有明確 cell，不會開 selector，因此可以放在中間。
 
+Macro 內也支援獨立成行的 `!!` / `!! N`，而且使用 macro-local history；完整規則見下一節。
+
 Macro 會獨立持久化，不依賴一般遊戲存檔。
 
-## 重複執行：`repeat`
+## 重複上一條指令：`!!`
 
-若要把同一條非互動式指令執行很多次，不必在 macro 裡貼 100 行：
-
-```text
-repeat 100 use @weapon upgrade
-repeat 100 give Gold
-```
-
-語法：
+`!!` 是 history 語法，不另外引入 `repeat` command：
 
 ```text
-repeat <count> <command...>
+use @weapon upgrade
+!!
+!! 100
 ```
 
-`count` 可為 1 到 1000。`repeat` 不允許巢狀 `repeat`，也不會重複會開互動式 selector 的指令，避免一次打開大量 selector。例如以下會被拒絕：
+- `!!`：把上一條指令再執行 1 次。
+- `!! N`：把上一條指令額外再執行 N 次；N 可為 1 到 1000，因此 `!! 1` 與 `!!` 等價。
+- `!! N` 本身不會取代「上一條指令」，所以連續輸入 `!! 100`、`!! 10` 仍然都是重複同一條實際指令。
+
+若上一條頂層指令是一個 macro，例如：
 
 ```text
-repeat 100 terrain CHASM
-repeat 100 trap AlarmTrap
+prepareBoss
+!! 10
 ```
 
-若指令本身支援明確 cell／handle，就可以避免 selector，例如：
+則會把整個 `prepareBoss` macro 再執行 10 次，而不是只重複 macro 內最後一行。
+
+在 macro 裡，獨立成行的 `!!` / `!! N` 使用的是**該次 macro 執行自己的上一條有效指令**，不會引用 Console 外層 history。例如 macro 內容：
+
+```text
+use @weapon upgrade
+!! 100
+```
+
+會把 `use @weapon upgrade` 額外執行 100 次。空白行與 `#` 註解不影響這個 macro-local history；若 `!!` 是 macro 第一條有效指令，會直接報錯。若上一條是另一個 macro，則重複的是那整個子 macro。
+
+批次重複不會一次開出大量互動式 selector。因此 `!! N` 在 N > 1 時，如果上一條指令（或整個 macro）會打開 selector，就會拒絕執行。例如：
+
+```text
+terrain CHASM
+!! 100
+```
+
+不允許；但已指定 cell 的版本可以批次重複：
 
 ```text
 @cell cell
-repeat 100 terrain CHASM @cell
+terrain CHASM @cell
+!! 100
 ```
 
-部分指令本身已有更直接的數量語法，這時不必使用 `repeat`：
+單次 `!!` / `!! 1` 仍可重跑一個會開 selector 的上一條指令。
+
+為了向後相容，若 `!!` 不是完整的一行 history 指令，而是出現在其他頂層命令文字中，仍保留原本的 inline 文字展開行為。Macro-local history 則只認獨立成行的 `!!` / `!! N`。
+
+部分指令本身已有更直接的數量語法，仍應優先使用：
 
 ```text
 give PotionOfHealing x100
 spawn Rat x100
 ```
-
-## 重複上一條指令：`!!`
-
-```text
-!!
-```
-
-`!!` 會展開成上一條 Debug command。它也可以出現在一行指令中，只要展開後的內容語法合理即可。
 
 ## 存檔傳輸
 
