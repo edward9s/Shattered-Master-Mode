@@ -24,6 +24,7 @@ Payload 應盡可能小，而且其邊界必須是刻意設計的。
 - `com.spd.mod.mechanics.ModDebug` 及其 `$*` class
 - 明確支援的 helper，例如 `ModValueSearch`、`ModSaveTransfer`
 - `com.spd.mod.mechanics.ModAssassinBuff`，以及 Debug Console `affect` 所需的 `ModAssassin`／`ModFlash` class family
+- `com.spd.mod.mechanics.ModParryRiposte`，以及其 `ModTotalInfoOverlay`／`WndTotalBuffInfo` UI 支援 family，供 Debug Console `affect` 使用
 
 不要假設只要某個 donor class 能從上述 class 觸及，就適合一起複製到 target。
 
@@ -52,6 +53,16 @@ Binary donor 對最佳化後 bytecode 的形狀很敏感。R8/D8 可能重新命
 - 不能只因為新版出錯，就直接認定 lambda、method reference 或 Java 8 collection method 是根因；
 - 這些寫法只能視為 R8/desugar 相關的風險訊號；
 - 第一優先應比較「最後一個可運作 donor」與「失敗 donor」的完整 build pipeline 與 R8 規則是否真的一致。
+
+### ModAssassin APK-only 閃退的經驗
+
+`ModFlash.isDangerous()` 原本呼叫 `level.traps.get(pos)`。`SparseArray` 的單參數 `get(int)` 其實繼承自 LibGDX `IntMap`，因此 R8 在 release DEX 中把 method owner rebind 成 donor 才有意義的混淆短名（`Lw4;`）。JAR 沒有這層改寫，所以只有 injected APK 在真正走到該路徑時閃退。改成 `level.traps.get(pos, null)` 後，bytecode 會直接呼叫保留穩定名稱的 `SparseArray.get(int, T)`。
+
+因此：
+
+- source/JAR 能跑，不代表 APK payload 一定安全；
+- payload 呼叫 inherited method 時，若 R8 可能重綁 owner，應檢查 release smali / mapping；
+- 有等價 API 時，優先呼叫穩定 kept class 自己宣告的方法，不要只為了 closure 通過就搬入混淆後的 library owner。
 
 ### 優先選擇容易預測的 payload 寫法
 
