@@ -66,6 +66,10 @@ public final class ModDebug {
     private static final String TRAP_CLASS =
             "com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap";
     private static final String GAME_CLASS = "com.watabou.noosa.Game";
+    private static final String KEY_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.items.keys.Key";
+    private static final String MIMIC_CLASS =
+            "com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mimic";
 
     private static final Object BAD_ARG = new Object();
     private static final List<String> CLASS_NAMES = new ArrayList<>();
@@ -407,7 +411,7 @@ public final class ModDebug {
         Item firstCreated = null;
 
         for (int i = 0; i < quantity; i++) {
-            Item item = (Item) newInstance(raw);
+            Item item = newDebugItem(raw);
 
             invokeCompatibleObjects(
                     item, item.getClass(), "identify",
@@ -455,6 +459,20 @@ public final class ModDebug {
         }
 
         return firstCreated;
+    }
+
+    private static Item newDebugItem(Class<?> raw) throws Exception {
+        if (findTypeInHierarchy(raw, KEY_CLASS) != null) {
+            try {
+                Constructor<?> constructor =
+                        raw.getDeclaredConstructor(int.class);
+                constructor.setAccessible(true);
+                return (Item) constructor.newInstance(Dungeon.depth);
+            } catch (NoSuchMethodException ignored) {
+            }
+        }
+
+        return (Item) newInstance(raw);
     }
 
     private static void setItemLevel(Item item, int level) throws Exception {
@@ -577,13 +595,13 @@ public final class ModDebug {
         }
 
         if (manualPlace) {
-            final Mob mob = (Mob) newInstance(raw);
+            final Mob probe = (Mob) newInstance(raw);
 
             GameScene.selectCell(new CellSelector.Listener() {
                 @Override
                 public String prompt() {
                     return str(
-                            "Select a tile to place ", mob.name());
+                            "Select a tile to place ", probe.name());
                 }
 
                 @Override
@@ -593,14 +611,14 @@ public final class ModDebug {
                     }
 
                     try {
-                        if (!validMobCell(mob, cell)) {
+                        if (!validMobCell(probe, cell)) {
                             GLog.w(str(
                                     "You cannot place ",
-                                    mob.name(), " here."));
+                                    probe.name(), " here."));
                             return;
                         }
 
-                        mob.pos = cell;
+                        Mob mob = newDebugMob(raw, cell, probe);
                         addMob(mob);
                         invokeGeneratedHook(
                                 mob, methodName, methodArgs);
@@ -623,13 +641,13 @@ public final class ModDebug {
         Mob first = null;
 
         for (int i = 0; i < quantity; i++) {
-            Mob mob = (Mob) newInstance(raw);
-            int cell = randomRespawnCell(mob);
+            Mob probe = (Mob) newInstance(raw);
+            int cell = randomRespawnCell(probe);
             if (cell < 0) {
                 break;
             }
 
-            mob.pos = cell;
+            Mob mob = newDebugMob(raw, cell, probe);
             addMob(mob);
             invokeGeneratedHook(mob, methodName, methodArgs);
 
@@ -645,6 +663,40 @@ public final class ModDebug {
 
         GLog.p(str(
                 "Spawned ", made, " x ", raw.getSimpleName()));
+    }
+
+    private static Mob newDebugMob(
+            Class<?> raw, int cell, Mob fallback) throws Exception {
+
+        Class<?> mimicBase = findTypeInHierarchy(raw, MIMIC_CLASS);
+        if (mimicBase != null) {
+            Object emptyItems = Array.newInstance(Item.class, 0);
+
+            InvocationResult spawned = invokeCompatibleObjects(
+                    null, mimicBase, "spawnAt",
+                    new Object[]{cell, raw, emptyItems},
+                    false, false);
+
+            if (!spawned.invoked) {
+                spawned = invokeCompatibleObjects(
+                        null, mimicBase, "spawnAt",
+                        new Object[]{cell, raw, true, emptyItems},
+                        false, false);
+            }
+
+            if (spawned.invoked && spawned.result instanceof Mob) {
+                return (Mob) spawned.result;
+            }
+
+            throw new NoSuchMethodException(
+                    "Target Mimic has no compatible spawnAt factory");
+        }
+
+        Mob mob = fallback != null
+                ? fallback
+                : (Mob) newInstance(raw);
+        mob.pos = cell;
+        return mob;
     }
 
     private static int randomRespawnCell(Mob mob) throws Exception {
@@ -3013,6 +3065,21 @@ public final class ModDebug {
 
         return key.append(')')
                 .toString();
+    }
+
+    private static Class<?> findTypeInHierarchy(
+            Class<?> type, String className) {
+
+        for (Class<?> current = type;
+                current != null;
+                current = current.getSuperclass()) {
+
+            if (className.equals(current.getName())) {
+                return current;
+            }
+        }
+
+        return null;
     }
 
     private static Field findField(
