@@ -206,38 +206,18 @@ mod.write_text(s, encoding="utf-8")
 
 console = Path("core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java")
 c = console.read_text(encoding="utf-8")
-old = '''        } else if ("spawn".equals(command) && commandClass != null) {
-            int methodIndex = commandIndex + 2;
-            if (methodIndex < tokens.size()) {
-                String token = tokens.get(methodIndex);
-                if (token.matches("(?i)x\\d+")
+old = '''                if (token.matches("(?i)x\\d+")
                         || "-p".equalsIgnoreCase(token)
                         || "--place".equalsIgnoreCase(token)) {
-                    methodIndex++;
-                }
-            }
-            if (methodIndex < tokens.size()) {
-                resolveMethodAt(tokens, methodIndex, commandClass);
-            }
 '''
-new = '''        } else if ("spawn".equals(command) && commandClass != null) {
-            int methodIndex = commandIndex + 2;
-            if (methodIndex < tokens.size()) {
-                String token = tokens.get(methodIndex);
-                if (token.matches("(?i)x\\d+")
+new = '''                if (token.matches("(?i)x\\d+")
                         || token.matches("\\d+")
                         || token.startsWith("@")
                         || "-p".equalsIgnoreCase(token)
                         || "--place".equalsIgnoreCase(token)) {
-                    methodIndex++;
-                }
-            }
-            if (methodIndex < tokens.size()) {
-                resolveMethodAt(tokens, methodIndex, commandClass);
-            }
 '''
 if c.count(old) != 1:
-    raise SystemExit(f"console spawn preprocess anchor count: {c.count(old)}")
+    raise SystemExit(f"console spawn option anchor count: {c.count(old)}")
 c = c.replace(old, new, 1)
 console.write_text(c, encoding="utf-8")
 
