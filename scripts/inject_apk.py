@@ -6,7 +6,7 @@ Usage:
 
 Scope is intentionally narrow:
   * copies ModAnkh and the dedicated ModAnkhStore payload;
-  * copies the controlled ModDebug payload plus the ModAssassinBuff support family;
+  * copies the controlled ModDebug payload plus the supported Assassin/Parry feature families;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * adds the storage permissions required by ModDebug save/load;
   * otherwise leaves target resources and non-DEX APK entries untouched;
@@ -65,6 +65,12 @@ MOD_ASSASSIN = "Lcom/spd/mod/mechanics/ModAssassin;"
 MOD_ASSASSIN_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModAssassin$"
 MOD_FLASH = "Lcom/spd/mod/mechanics/ModFlash;"
 MOD_FLASH_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModFlash$"
+MOD_PARRY_RIPOSTE = "Lcom/spd/mod/mechanics/ModParryRiposte;"
+MOD_PARRY_RIPOSTE_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModParryRiposte$"
+MOD_TOTAL_INFO_OVERLAY = "Lcom/spd/mod/journal/ModTotalInfoOverlay;"
+MOD_TOTAL_INFO_OVERLAY_INNER_PREFIX = "Lcom/spd/mod/journal/ModTotalInfoOverlay$"
+WND_TOTAL_BUFF_INFO = "Lcom/spd/mod/journal/WndTotalBuffInfo;"
+WND_TOTAL_BUFF_INFO_INNER_PREFIX = "Lcom/spd/mod/journal/WndTotalBuffInfo$"
 SOURCE_GAME_DESCRIPTOR_PREFIX = "Lcom/shatteredpixel/shatteredpixeldungeon/"
 SOURCE_GAME_DOTTED_PREFIX = "com.shatteredpixel.shatteredpixeldungeon"
 DUNGEON = SOURCE_GAME_DESCRIPTOR_PREFIX + "Dungeon;"
@@ -711,6 +717,12 @@ def is_debug_root(descriptor: str) -> bool:
         or descriptor.startswith(MOD_ASSASSIN_INNER_PREFIX)
         or descriptor == MOD_FLASH
         or descriptor.startswith(MOD_FLASH_INNER_PREFIX)
+        or descriptor == MOD_PARRY_RIPOSTE
+        or descriptor.startswith(MOD_PARRY_RIPOSTE_INNER_PREFIX)
+        or descriptor == MOD_TOTAL_INFO_OVERLAY
+        or descriptor.startswith(MOD_TOTAL_INFO_OVERLAY_INNER_PREFIX)
+        or descriptor == WND_TOTAL_BUFF_INFO
+        or descriptor.startswith(WND_TOTAL_BUFF_INFO_INNER_PREFIX)
     )
 
 
@@ -808,7 +820,13 @@ def build_debug_payload(
         if is_debug_root(desc)
     }
     required_roots = (
-        MOD_DEBUG, MOD_ASSASSIN_BUFF, MOD_ASSASSIN, MOD_FLASH,
+        MOD_DEBUG,
+        MOD_ASSASSIN_BUFF,
+        MOD_ASSASSIN,
+        MOD_FLASH,
+        MOD_PARRY_RIPOSTE,
+        MOD_TOTAL_INFO_OVERLAY,
+        WND_TOTAL_BUFF_INFO,
     )
     missing_roots = [desc for desc in required_roots if desc not in roots]
     if missing_roots:
@@ -2110,7 +2128,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             overlay_class.parent.mkdir(parents=True, exist_ok=True)
             overlay_class.write_text(donor_class.text, encoding="utf-8")
         log(f"ModAnkhStore payload classes: {len(store_payload)}")
-        log(f"Debug/Assassin payload classes: {len(debug_payload)}")
+        log(f"Debug/Assassin/Parry payload classes: {len(debug_payload)}")
 
         overlay_dex = work / "overlay.dex"
         compile_smali(
@@ -2169,7 +2187,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log(f"Output : {out}")
         log(f"SHA-256: {sha256(out)}")
         log("Package: unchanged from target (re-signed APK)")
-        log("Injected: ModAnkh + ModAnkhStore + debug/Assassin payload")
+        log("Injected: ModAnkh + ModAnkhStore + debug/Assassin/Parry payload")
         if not args.keystore:
             log(
                 "Install note: uninstall the original target first "
