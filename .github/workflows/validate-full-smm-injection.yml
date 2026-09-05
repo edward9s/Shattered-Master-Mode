@@ -58,9 +58,11 @@ jobs:
 
       - name: Package and verify distributable injection kit
         run: |
+          KIT_ZIP=/tmp/SMM-v3.3.8-mtest-InjectKit.zip
+          KIT_DIR=/tmp/smm-inject-kit
           python mod/scripts/package_inject_kit.py \
             v3.3.8 test "$DONOR_APK" "$DONOR_JAR" \
-            /tmp/SMM-v3.3.8-mtest-InjectKit.zip --repo-root mod
+            "$KIT_ZIP" --repo-root mod
           python - <<'PY'
           import zipfile
           path = '/tmp/SMM-v3.3.8-mtest-InjectKit.zip'
@@ -83,6 +85,14 @@ jobs:
                   raise SystemExit('Injection kit ZIP is corrupt')
           print('Injection kit packaging: OK')
           PY
+          rm -rf "$KIT_DIR"
+          mkdir -p "$KIT_DIR"
+          python -m zipfile -e "$KIT_ZIP" "$KIT_DIR"
+          test -f "$KIT_DIR/inject_smm_apk.py"
+          test -f "$KIT_DIR/inject_smm_jar.py"
+          echo "KIT_DIR=$KIT_DIR" >> "$GITHUB_ENV"
+          echo "KIT_DONOR_APK=$KIT_DIR/SMM-v3.3.8-mtest-inject-donor.apk" >> "$GITHUB_ENV"
+          echo "KIT_DONOR_JAR=$KIT_DIR/SMM-v3.3.8-mtest-inject-donor.jar" >> "$GITHUB_ENV"
 
       - name: Diagnose direct donor-only dependencies from full SMM roots
         run: |
@@ -103,7 +113,7 @@ jobs:
           apktool, java = tc.ensure_apktool()
           with tempfile.TemporaryDirectory() as td:
               dec = pathlib.Path(td) / 'donor'
-              inj.run([java.java, '-jar', apktool, 'd', '-f', '-r', '-o', dec, pathlib.Path(os.environ['DONOR_APK'])])
+              inj.run([java.java, '-jar', apktool, 'd', '-f', '-r', '-o', dec, pathlib.Path(os.environ['KIT_DONOR_APK'])])
               idx = inj.index_smali(dec)
               offenders = 0
               for desc, item in sorted(idx.items()):
@@ -135,25 +145,25 @@ jobs:
           curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/android-release.apk -o targets/rka.apk
           curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/desktop-2.3.3.jar -o targets/rka.jar
 
-      - name: Validate official SPD APK full injection
+      - name: Validate official SPD APK full injection from packaged kit
         id: spd_apk
         continue-on-error: true
-        run: python mod/scripts/inject_smm_apk.py "$DONOR_APK" targets/spd.apk --out /tmp/spd-SMM.apk
+        run: python "$KIT_DIR/inject_smm_apk.py" "$KIT_DONOR_APK" targets/spd.apk --out /tmp/spd-SMM.apk
 
-      - name: Validate RKA APK full injection
+      - name: Validate RKA APK full injection from packaged kit
         id: rka_apk
         continue-on-error: true
-        run: python mod/scripts/inject_smm_apk.py "$DONOR_APK" targets/rka.apk --out /tmp/rka-SMM.apk
+        run: python "$KIT_DIR/inject_smm_apk.py" "$KIT_DONOR_APK" targets/rka.apk --out /tmp/rka-SMM.apk
 
-      - name: Validate official SPD JAR full injection
+      - name: Validate official SPD JAR full injection from packaged kit
         id: spd_jar
         continue-on-error: true
-        run: python mod/scripts/inject_smm_jar.py "$DONOR_JAR" targets/spd.jar --out /tmp/spd-SMM.jar
+        run: python "$KIT_DIR/inject_smm_jar.py" "$KIT_DONOR_JAR" targets/spd.jar --out /tmp/spd-SMM.jar
 
-      - name: Validate RKA JAR full injection
+      - name: Validate RKA JAR full injection from packaged kit
         id: rka_jar
         continue-on-error: true
-        run: python mod/scripts/inject_smm_jar.py "$DONOR_JAR" targets/rka.jar --out /tmp/rka-SMM.jar
+        run: python "$KIT_DIR/inject_smm_jar.py" "$KIT_DONOR_JAR" targets/rka.jar --out /tmp/rka-SMM.jar
 
       - name: Fail if any full injection target failed
         if: always()
