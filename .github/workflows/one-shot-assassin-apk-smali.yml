@@ -39,20 +39,36 @@ jobs:
           chmod +x spd_src/gradlew
           (cd spd_src && ./gradlew android:assembleRelease)
           DONOR_APK=$(find spd_src/android/build/outputs/apk/release -name '*.apk' | head -n1)
-          MAPPING=$(find spd_src/android/build/outputs/mapping/release -name mapping.txt | head -n1)
-          test -f "$DONOR_APK" && test -f "$MAPPING"
+          test -f "$DONOR_APK"
           echo "DONOR_APK=$DONOR_APK" >> "$GITHUB_ENV"
-          echo "MAPPING=$MAPPING" >> "$GITHUB_ENV"
-      - name: Identify R8 aliases used by Assassin payload
+      - name: Verify release Assassin bytecode is injection-safe
         run: |
-          echo '===== SparseArray mapping ====='
-          grep -F 'com.watabou.utils.SparseArray -> ' "$MAPPING" || true
-          echo '===== Relevant short-name mappings ====='
-          grep -E ' -> (w4|[a-z][a-z0-9]{0,2}):$' "$MAPPING" | head -n 200 || true
           curl -fL https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar -o /tmp/apktool.jar
           java -jar /tmp/apktool.jar d -f -r -o /tmp/donor "$DONOR_APK"
-          echo '===== Opaque executable owners in Assassin family ====='
+          FLASH=$(find /tmp/donor -path '*/com/spd/mod/mechanics/ModFlash.smali' -print -quit)
+          test -n "$FLASH"
+          grep -F 'Lcom/watabou/utils/SparseArray;->get(ILjava/lang/Object;)Ljava/lang/Object;' "$FLASH"
+          ! grep -E 'invoke-[^ ]+ .*}, L[a-z][a-z0-9]{0,3};->' "$FLASH"
           for path in $(find /tmp/donor -path '*/com/spd/mod/mechanics/ModAssassin*.smali' -o -path '*/com/spd/mod/mechanics/ModFlash*.smali' | sort); do
-            echo "--- ${path##*/} ---"
-            grep -Eo 'L[a-z][a-z0-9]{0,3};->[A-Za-z0-9_$<>]+[^ ]*' "$path" | sort -u || true
+            if grep -E 'invoke-[^ ]+ .*}, L[a-z][a-z0-9]{0,3};->' "$path"; then
+              echo "Opaque R8 method owner remains in ${path##*/}" >&2
+              exit 1
+            fi
           done
+      - name: Download clean APK targets
+        run: |
+          curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/v3.3.8/ShatteredPD-v3.3.8-Android.apk -o /tmp/spd.apk
+          curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/android-release.apk -o /tmp/rka.apk
+          unzip -t /tmp/spd.apk >/dev/null
+          unzip -t /tmp/rka.apk >/dev/null
+      - name: Validate official SPD injection
+        run: |
+          python scripts/inject_apk.py "$DONOR_APK" /tmp/spd.apk --out /tmp/spd-injected.apk | tee /tmp/spd.log
+          grep -F 'Debug payload target API check: OK' /tmp/spd.log
+          grep -F 'Injected: ModAnkh + ModAnkhStore + debug/Assassin payload' /tmp/spd.log
+      - name: Validate Rat King injection
+        run: |
+          python scripts/inject_apk.py "$DONOR_APK" /tmp/rka.apk --out /tmp/rka-injected.apk | tee /tmp/rka.log
+          grep -F 'Target SPD-family package: com.zrp200.rkpd2' /tmp/rka.log
+          grep -F 'Debug payload target API check: OK' /tmp/rka.log
+          grep -F 'Injected: ModAnkh + ModAnkhStore + debug/Assassin payload' /tmp/rka.log
