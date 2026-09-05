@@ -24,6 +24,7 @@ Important payload families currently include:
 - `com.spd.mod.mechanics.ModDebug` and its `$*` classes
 - explicitly supported helpers such as `ModValueSearch` and `ModSaveTransfer`
 - `com.spd.mod.mechanics.ModAssassinBuff` plus its required `ModAssassin` / `ModFlash` class families, for Debug Console `affect` support
+- `com.spd.mod.mechanics.ModParryRiposte` plus its `ModTotalInfoOverlay` / `WndTotalBuffInfo` UI support families, for Debug Console `affect` support
 
 Do not assume that every donor class reachable from these classes is safe to copy into a target build.
 
@@ -52,6 +53,16 @@ In particular, an earlier working version of `ModDebug$Console` already used con
 - do not conclude that a lambda, method reference, or Java 8 collection method is automatically the cause merely because a later build fails;
 - treat those constructs as risk indicators only;
 - first compare the complete donor build pipeline and R8 rules between the last working build and the failing build.
+
+### Lesson from the ModAssassin APK-only crash
+
+`ModFlash.isDangerous()` once called `level.traps.get(pos)`. `SparseArray` inherits that one-argument overload from LibGDX `IntMap`, so R8 rebound the release invoke owner to a donor-minified class (`Lw4;`). The JAR remained correct, but an injected APK could crash only when that path executed. Changing the call to `level.traps.get(pos, null)` forced the stable, kept `SparseArray.get(int, T)` overload.
+
+Therefore:
+
+- source/JAR success does not prove APK injection safety;
+- when payload code calls an inherited method, inspect release smali/mapping if R8 may rebind the owner;
+- prefer an equivalent method declared on a stable kept class when available; do not copy or relocate an obfuscated library owner merely to satisfy dependency closure.
 
 ### Prefer predictable payload code
 
