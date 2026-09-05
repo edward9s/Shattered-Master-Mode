@@ -119,7 +119,7 @@ public class ModEnemySurgeInfoOverlay extends Gizmo {
 
     private static boolean hasSurgeUser() {
         for (Char ch : Actor.chars()) {
-            if (ch.buff(ModEnemySurge.class) != null) {
+            if (ModEnemySurge.find(ch) != null) {
                 return true;
             }
         }
@@ -206,9 +206,7 @@ public class ModEnemySurgeInfoOverlay extends Gizmo {
 
         @Override
         public void update() {
-            if (source.parent == null
-                    || buff.target == null
-                    || buff.target.buff(ModEnemySurge.class) != buff) {
+            if (source.parent == null || !buff.isAttached()) {
                 killAndErase();
                 return;
             }
