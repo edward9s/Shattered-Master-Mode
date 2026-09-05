@@ -25,6 +25,7 @@ Payload 應盡可能小，而且其邊界必須是刻意設計的。
 - 明確支援的 helper，例如 `ModValueSearch`、`ModSaveTransfer`
 - `com.spd.mod.mechanics.ModAssassinBuff`，以及 Debug Console `affect` 所需的 `ModAssassin`／`ModFlash` class family
 - `com.spd.mod.mechanics.ModParryRiposte`，以及其 `ModTotalInfoOverlay`／`WndTotalBuffInfo` UI 支援 family，供 Debug Console `affect` 使用
+- `com.spd.mod.mechanics.ModEnemySurge`，以及其 `ModEnemySurgeInfoOverlay`／`WndEnemySurgeInfo` UI 支援 family，供 Debug Console `affect` 使用
 
 不要假設只要某個 donor class 能從上述 class 觸及，就適合一起複製到 target。
 
@@ -37,6 +38,18 @@ APK／JAR injector 也會利用 `Dungeon`／`Hero`／`HeroClass`／`Item`／`Lev
 - Payload 不得依賴無關的 donor-only application class。
 - 不得假設 donor 中經過混淆的 class name 在 target 中具有相同意義。
 - 不得只是為了讓 compatibility check 通過，就無限制擴大 payload。
+
+### Enemy Surge 成功注入的經驗
+
+`WndEnemySurgeInfo` 原本依賴 `ModLevelSlider`，會因此把 `ModGame` 以及無關的 application/settings 程式碼一起拖進一個本來很小的 injectable feature。改成 self-contained 的 Up/Down 控制後，payload 可以維持在 `ModEnemySurge` 與兩個 UI family，實際 injected build 也已驗證成功。
+
+Enemy Surge 也避免直接呼叫 `Char.buff(Class)`，因為不同 SPD fork 編譯後的 erased return descriptor 可能不同（`Buff` 與 `Object`）。改用以較穩定的 `buffs(Class)` 為基礎的小型 helper 後，compiled call shape 可以保持相容。
+
+因此：
+
+- 若小型 payload UI 的某個方便依賴會拖入大型且無關的 dependency chain，應優先重新設計該 UI；
+- 優先維持能完整保留功能的最小 explicit payload boundary；
+- generic API 在不同 fork 間看似 source signature 相同時，仍應比較實際 compiled descriptor。
 
 ## 2. R8 / desugaring 安全規則
 
