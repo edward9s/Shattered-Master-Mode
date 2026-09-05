@@ -1,5 +1,9 @@
 package com.spd.mod.mechanics;
 
+import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
+import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTextInput;
@@ -152,6 +156,22 @@ public final class ModDebug$Console {
         int commandIndex = commandIndex(tokens);
         if (commandIndex >= 0
                 && commandIndex < tokens.size()
+                && "help".equalsIgnoreCase(tokens.get(commandIndex))
+                && tokens.size() == commandIndex + 2
+                && "affect".equalsIgnoreCase(tokens.get(commandIndex + 1))) {
+            showAffectHelp();
+            return;
+        }
+
+        if (commandIndex >= 0
+                && commandIndex < tokens.size()
+                && "affect".equalsIgnoreCase(tokens.get(commandIndex))) {
+            toggleAffect(tokens, commandIndex);
+            return;
+        }
+
+        if (commandIndex >= 0
+                && commandIndex < tokens.size()
                 && "inspect".equalsIgnoreCase(tokens.get(commandIndex))
                 && tokens.size() == commandIndex + 3) {
             inspect(tokens.get(commandIndex + 1), tokens.get(commandIndex + 2));
@@ -167,6 +187,88 @@ public final class ModDebug$Console {
                     new Object[]{command, macroDepth});
         }
 
+    }
+
+    private static void showAffectHelp() {
+        GLog.i(
+                "affect <Buff> [duration] [method [args...]]\n"
+                        + "Select a character and toggle the exact Buff class. If it is already present, it is removed; otherwise it is applied.\n"
+                        + "Duration/method options are used only when applying.\n"
+                        + "Examples: affect Haste | @buff affect ModEnemySurge");
+    }
+
+    private static void toggleAffect(
+            List<String> tokens, int commandIndex) throws Exception {
+
+        if (tokens.size() <= commandIndex + 1) {
+            throw new IllegalArgumentException(
+                    "affect <Buff> [duration] [method [args...]]");
+        }
+
+        final Class<?> buffType = resolveClass(
+                tokens.get(commandIndex + 1), Buff.class);
+        if (buffType == null) {
+            throw new IllegalArgumentException(
+                    "Buff class not found: " + tokens.get(commandIndex + 1));
+        }
+
+        final String storeVariable = commandIndex == 1 ? tokens.get(0) : null;
+        final List<String> options = new ArrayList<String>(
+                tokens.subList(commandIndex + 2, tokens.size()));
+
+        GameScene.selectCell(new CellSelector.Listener() {
+            @Override
+            public String prompt() {
+                return "Select the character to toggle the buff on:";
+            }
+
+            @Override
+            public void onSelect(Integer cell) {
+                if (cell == null || cell < 0) {
+                    return;
+                }
+
+                Char target = Actor.findChar(cell);
+                if (target == null) {
+                    GLog.w("No character on that cell.");
+                    return;
+                }
+
+                try {
+                    int removed = removeExactBuffs(target, buffType);
+                    if (removed > 0) {
+                        GLog.i(
+                                "Removed " + buffType.getSimpleName()
+                                        + " from " + target.getClass().getSimpleName());
+                        return;
+                    }
+
+                    Buff buff = (Buff) invokePrivate(
+                            "applyAffect",
+                            new Class<?>[]{Char.class, Class.class, List.class},
+                            new Object[]{target, buffType, options});
+                    if (storeVariable != null && buff != null) {
+                        invokePrivate(
+                                "putVariable",
+                                new Class<?>[]{String.class, Object.class},
+                                new Object[]{storeVariable, buff});
+                    }
+                } catch (Exception error) {
+                    reportCommandError("Affect failed", error);
+                }
+            }
+        });
+    }
+
+    private static int removeExactBuffs(Char target, Class<?> buffType) {
+        int removed = 0;
+        for (Object candidate : target.buffs((Class) buffType)) {
+            if (candidate instanceof Buff && candidate.getClass() == buffType) {
+                ((Buff) candidate).detach();
+                removed++;
+            }
+        }
+        return removed;
     }
 
     private static String preprocess(
