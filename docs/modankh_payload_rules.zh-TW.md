@@ -27,6 +27,8 @@ Payload 應盡可能小，而且其邊界必須是刻意設計的。
 
 不要假設只要某個 donor class 能從上述 class 觸及，就適合一起複製到 target。
 
+APK／JAR injector 也會利用 `Dungeon`／`Hero`／`HeroClass`／`Item`／`Level`／`GameScene` 的 class 結構辨識 target 的 SPD-family package root。若 fork 改過 upstream package 名稱（例如 Rat King Adventure），donor 對遊戲 class 的引用與 reflection 字串會在 compatibility validation 前 rebase 到 target root；`com.spd.mod.*` payload 自己的名稱則永遠不改。
+
 ### 規則
 
 - 優先把 helper 保持在既有 payload family 內並使其 self-contained。

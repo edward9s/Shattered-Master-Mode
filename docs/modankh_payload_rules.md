@@ -27,6 +27,8 @@ Important payload families currently include:
 
 Do not assume that every donor class reachable from these classes is safe to copy into a target build.
 
+The APK and JAR injectors also detect the target SPD-family package root from the `Dungeon` / `Hero` / `HeroClass` / `Item` / `Level` / `GameScene` class structure. If a fork has renamed the upstream package (for example Rat King Adventure), donor references and reflection strings are rebased to that target root before compatibility validation. `com.spd.mod.*` payload names themselves are never renamed.
+
 ### Rules
 
 - Prefer self-contained helpers under an existing payload family.

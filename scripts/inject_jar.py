@@ -56,7 +56,9 @@ MOD_VALUE_SEARCH_PREFIX = "com/spd/mod/mechanics/ModValueSearch"
 MOD_VALUE_SEARCH_ENTRY = "com/spd/mod/mechanics/ModValueSearch.class"
 MOD_SAVE_TRANSFER_PREFIX = "com/spd/mod/mechanics/ModSaveTransfer"
 MOD_SAVE_TRANSFER_ENTRY = "com/spd/mod/mechanics/ModSaveTransfer.class"
-DUNGEON_ENTRY = "com/shatteredpixel/shatteredpixeldungeon/Dungeon.class"
+SOURCE_GAME_INTERNAL_ROOT = "com/shatteredpixel/shatteredpixeldungeon"
+SOURCE_GAME_DOTTED_ROOT = "com.shatteredpixel.shatteredpixeldungeon"
+DUNGEON_ENTRY = SOURCE_GAME_INTERNAL_ROOT + "/Dungeon.class"
 CLASS_MAGIC = b"\xca\xfe\xba\xbe"
 
 
@@ -238,6 +240,106 @@ def validate_jar(path: Path, required: Sequence[str] = ()) -> None:
                 raise InjectError(f"Invalid class file: {entry}")
 
 
+def detect_target_game_root(names: Sequence[str]) -> str:
+    name_set = set(names)
+    candidates: list[str] = []
+    required = (
+        "actors/hero/Hero.class",
+        "actors/hero/HeroClass.class",
+        "items/Item.class",
+        "levels/Level.class",
+        "scenes/GameScene.class",
+    )
+    suffix = "/Dungeon.class"
+    for name in name_set:
+        if not name.endswith(suffix):
+            continue
+        root = name[:-len(suffix)]
+        if all(root + "/" + relative in name_set for relative in required):
+            candidates.append(root)
+    candidates = sorted(set(candidates))
+    if len(candidates) != 1:
+        raise InjectError(
+            "Expected exactly one SPD-family game package root, found "
+            + str(len(candidates))
+            + (": " + ", ".join(candidates) if candidates else "")
+        )
+    return candidates[0]
+
+
+def rebase_class_bytes(data: bytes, target_game_root: str) -> bytes:
+    """Rebase package names in CONSTANT_Utf8 entries without decompiling the class."""
+
+    if target_game_root == SOURCE_GAME_INTERNAL_ROOT:
+        return data
+    if not data.startswith(CLASS_MAGIC) or len(data) < 10:
+        raise InjectError("Invalid class file while rebasing target package")
+
+    source_internal = SOURCE_GAME_INTERNAL_ROOT.encode("ascii")
+    target_internal = target_game_root.encode("ascii")
+    source_dotted = SOURCE_GAME_DOTTED_ROOT.encode("ascii")
+    target_dotted = target_game_root.replace("/", ".").encode("ascii")
+
+    cp_count = int.from_bytes(data[8:10], "big")
+    out = bytearray(data[:10])
+    offset = 10
+    index = 1
+
+    fixed_sizes = {
+        3: 4, 4: 4,
+        7: 2, 8: 2, 16: 2, 19: 2, 20: 2,
+        9: 4, 10: 4, 11: 4, 12: 4, 17: 4, 18: 4,
+        15: 3,
+    }
+
+    while index < cp_count:
+        if offset >= len(data):
+            raise InjectError("Truncated class constant pool")
+        tag = data[offset]
+        out.append(tag)
+        offset += 1
+
+        if tag == 1:
+            if offset + 2 > len(data):
+                raise InjectError("Truncated CONSTANT_Utf8 length")
+            length = int.from_bytes(data[offset:offset + 2], "big")
+            offset += 2
+            raw = data[offset:offset + length]
+            if len(raw) != length:
+                raise InjectError("Truncated CONSTANT_Utf8 value")
+            offset += length
+            rewritten = (
+                raw.replace(source_internal, target_internal)
+                .replace(source_dotted, target_dotted)
+            )
+            if len(rewritten) > 0xFFFF:
+                raise InjectError("Rebased class UTF-8 constant is too long")
+            out.extend(len(rewritten).to_bytes(2, "big"))
+            out.extend(rewritten)
+        elif tag in (5, 6):
+            size = 8
+            out.extend(data[offset:offset + size])
+            offset += size
+            index += 1
+        else:
+            size = fixed_sizes.get(tag)
+            if size is None:
+                raise InjectError(f"Unsupported class constant-pool tag: {tag}")
+            out.extend(data[offset:offset + size])
+            offset += size
+
+        index += 1
+
+    out.extend(data[offset:])
+    return bytes(out)
+
+
+def write_helper_payload_jar(path: Path, payload: dict[str, bytes]) -> None:
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+        for name in sorted(payload):
+            zf.writestr(name, payload[name])
+
+
 def clone_zipinfo(info: zipfile.ZipInfo, name: str | None = None) -> zipfile.ZipInfo:
     out = zipfile.ZipInfo(name or info.filename, date_time=info.date_time)
     out.compress_type = info.compress_type
@@ -267,6 +369,7 @@ def rebuild_jar(
     store_payload: dict[str, bytes],
     debug_payload: dict[str, bytes],
     output: Path,
+    dungeon_entry: str = DUNGEON_ENTRY,
 ) -> None:
     dungeon_bytes = patched_dungeon.read_bytes()
     modankh_bytes = patched_modankh.read_bytes()
@@ -292,8 +395,8 @@ def rebuild_jar(
 
     with zipfile.ZipFile(target, "r") as zin:
         names = zin.namelist()
-        if DUNGEON_ENTRY not in names:
-            raise InjectError(f"Target JAR has no {DUNGEON_ENTRY}")
+        if dungeon_entry not in names:
+            raise InjectError(f"Target JAR has no {dungeon_entry}")
         if MOD_ANKH_ENTRY in names:
             raise InjectError("Target JAR already contains ModAnkh; refusing a second injection")
 
@@ -306,13 +409,13 @@ def rebuild_jar(
                 + ", ".join(collisions)
             )
 
-        dungeon_count = sum(1 for name in names if name == DUNGEON_ENTRY)
+        dungeon_count = sum(1 for name in names if name == dungeon_entry)
         if dungeon_count != 1:
             raise InjectError(f"Expected one Dungeon.class entry, found {dungeon_count}")
 
         dungeon_info = next(
             info for info in zin.infolist()
-            if info.filename == DUNGEON_ENTRY
+            if info.filename == dungeon_entry
         )
 
         with zipfile.ZipFile(output, "w", allowZip64=True) as zout:
@@ -320,7 +423,7 @@ def rebuild_jar(
                 name = info.filename
                 if stale_meta_entry(name):
                     continue
-                data = dungeon_bytes if name == DUNGEON_ENTRY else zin.read(name)
+                data = dungeon_bytes if name == dungeon_entry else zin.read(name)
                 zout.writestr(clone_zipinfo(info), data)
 
             zout.writestr(
@@ -863,12 +966,17 @@ public class JarInjectorHelper {
 def patch_classes(
     java: Path,
     target: Path,
-    source: Path,
+    helper_payload: Path,
     donor_modankh: Path,
     work: Path,
+    target_game_root: str = SOURCE_GAME_INTERNAL_ROOT,
 ) -> tuple[Path, Path]:
     helper = work / "JarInjectorHelper.java"
-    helper.write_text(JAVA_HELPER, encoding="utf-8")
+    helper_source = JAVA_HELPER.replace(
+        SOURCE_GAME_INTERNAL_ROOT,
+        target_game_root,
+    )
+    helper.write_text(helper_source, encoding="utf-8")
     out_modankh = work / "ModAnkh.class"
     out_dungeon = work / "Dungeon.class"
     run([
@@ -876,7 +984,7 @@ def patch_classes(
         "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
         helper,
         target,
-        source,
+        helper_payload,
         donor_modankh,
         out_modankh,
         out_dungeon,
@@ -914,7 +1022,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise InjectError("Refusing to overwrite an input JAR")
 
     validate_jar(source, [MOD_ANKH_ENTRY, MOD_ANKH_STORE_ENTRY])
-    validate_jar(target, [DUNGEON_ENTRY])
+    validate_jar(target)
+    with zipfile.ZipFile(target) as target_zip:
+        target_game_root = detect_target_game_root(target_zip.namelist())
+    dungeon_entry = target_game_root + "/Dungeon.class"
+    log("Target SPD-family package: " + target_game_root.replace("/", "."))
     java = ensure_java()
 
     if args.keep_work:
@@ -929,7 +1041,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         donor_modankh = work / "donor-ModAnkh.class"
         with zipfile.ZipFile(source) as zf:
-            donor_modankh.write_bytes(zf.read(MOD_ANKH_ENTRY))
+            donor_modankh.write_bytes(
+                rebase_class_bytes(zf.read(MOD_ANKH_ENTRY), target_game_root)
+            )
 
             store_names = sorted(
                 name for name in zf.namelist()
@@ -944,7 +1058,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             if MOD_ANKH_STORE_ENTRY not in store_names:
                 raise InjectError("Donor JAR is missing com.spd.mod.items.ModAnkhStore")
             store_payload = {
-                name: zf.read(name) for name in store_names
+                name: rebase_class_bytes(zf.read(name), target_game_root)
+                for name in store_names
             }
 
             debug_names = sorted(
@@ -992,16 +1107,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if required not in debug_names:
                     raise InjectError(f"Donor JAR is missing required debug payload class: {required}")
             debug_payload = {
-                name: zf.read(name) for name in debug_names
+                name: rebase_class_bytes(zf.read(name), target_game_root)
+                for name in debug_names
             }
+
+        helper_payload = work / "rebased-helper-payload.jar"
+        write_helper_payload_jar(helper_payload, store_payload)
 
         step("Adapting and validating donor ModAnkh against target JAR")
         patched_modankh, patched_dungeon = patch_classes(
             java,
             target,
-            source,
+            helper_payload,
             donor_modankh,
             work,
+            target_game_root,
         )
 
         step("Repacking target JAR")
@@ -1014,11 +1134,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             store_payload,
             debug_payload,
             unsigned_tmp,
+            dungeon_entry,
         )
         validate_jar(
             unsigned_tmp,
             [
-                DUNGEON_ENTRY,
+                dungeon_entry,
                 MOD_ANKH_ENTRY,
                 MOD_ANKH_STORE_ENTRY,
                 MOD_DEBUG_ENTRY,

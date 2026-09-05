@@ -65,10 +65,12 @@ MOD_ASSASSIN = "Lcom/spd/mod/mechanics/ModAssassin;"
 MOD_ASSASSIN_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModAssassin$"
 MOD_FLASH = "Lcom/spd/mod/mechanics/ModFlash;"
 MOD_FLASH_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModFlash$"
-DUNGEON = "Lcom/shatteredpixel/shatteredpixeldungeon/Dungeon;"
-HERO_CLASS = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/HeroClass;"
-HERO = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/Hero;"
-ITEM = "Lcom/shatteredpixel/shatteredpixeldungeon/items/Item;"
+SOURCE_GAME_DESCRIPTOR_PREFIX = "Lcom/shatteredpixel/shatteredpixeldungeon/"
+SOURCE_GAME_DOTTED_PREFIX = "com.shatteredpixel.shatteredpixeldungeon"
+DUNGEON = SOURCE_GAME_DESCRIPTOR_PREFIX + "Dungeon;"
+HERO_CLASS = SOURCE_GAME_DESCRIPTOR_PREFIX + "actors/hero/HeroClass;"
+HERO = SOURCE_GAME_DESCRIPTOR_PREFIX + "actors/hero/Hero;"
+ITEM = SOURCE_GAME_DESCRIPTOR_PREFIX + "items/Item;"
 JAVA_FRAMEWORK_PREFIXES = (
     "Landroid/", "Landroidx/", "Ldalvik/", "Ljava/", "Ljavax/", "Ljdk/", "Lsun/",
 )
@@ -511,6 +513,77 @@ def min_sdk(decoded: Path) -> int:
     return int(m.group(1)) if m else 21
 
 
+def detect_target_game_prefix(index: dict[str, SmaliClass]) -> str:
+    """Locate an SPD-family package root without assuming the upstream package name."""
+
+    candidates: list[str] = []
+    required = (
+        "actors/hero/Hero;",
+        "actors/hero/HeroClass;",
+        "items/Item;",
+        "levels/Level;",
+        "scenes/GameScene;",
+    )
+    for descriptor in index:
+        if not descriptor.endswith("/Dungeon;"):
+            continue
+        prefix = descriptor[:-len("Dungeon;")]
+        if all(prefix + suffix in index for suffix in required):
+            candidates.append(prefix)
+
+    candidates = sorted(set(candidates))
+    if len(candidates) != 1:
+        raise InjectError(
+            "Expected exactly one SPD-family game package root, found "
+            + str(len(candidates))
+            + (": " + ", ".join(candidates) if candidates else "")
+        )
+    return candidates[0]
+
+
+def dotted_game_prefix(descriptor_prefix: str) -> str:
+    if not descriptor_prefix.startswith("L") or not descriptor_prefix.endswith("/"):
+        raise InjectError(f"Invalid game descriptor prefix: {descriptor_prefix}")
+    return descriptor_prefix[1:-1].replace("/", ".")
+
+
+def game_descriptor(prefix: str, relative: str) -> str:
+    return prefix + relative + ";"
+
+
+def target_api_prefixes(game_prefix: str) -> tuple[str, ...]:
+    return (
+        game_prefix, "Lcom/watabou/", "Lcom/badlogic/",
+    ) + JAVA_FRAMEWORK_PREFIXES
+
+
+def rebase_smali_text(text: str, target_game_prefix: str) -> str:
+    if target_game_prefix == SOURCE_GAME_DESCRIPTOR_PREFIX:
+        return text
+    target_dotted = dotted_game_prefix(target_game_prefix)
+    return (
+        text.replace(SOURCE_GAME_DESCRIPTOR_PREFIX, target_game_prefix)
+        .replace(SOURCE_GAME_DOTTED_PREFIX, target_dotted)
+    )
+
+
+def rebase_smali_payload(
+    payload: dict[str, SmaliClass],
+    target_game_prefix: str,
+) -> dict[str, SmaliClass]:
+    rebased: dict[str, SmaliClass] = {}
+    for item in payload.values():
+        text = rebase_smali_text(item.text, target_game_prefix)
+        rewritten = SmaliClass.from_text(item.path, text)
+        if rewritten.descriptor in rebased:
+            raise InjectError(
+                "Duplicate injected payload class after package rebase: "
+                + rewritten.descriptor
+            )
+        rebased[rewritten.descriptor] = rewritten
+    return rebased
+
+
 def resolve_member(
     index: dict[str, SmaliClass],
     owner: str,
@@ -546,17 +619,19 @@ def resolve_member(
 def adapt_modankh(
     text: str,
     target_index: dict[str, SmaliClass],
+    item_descriptor: str = ITEM,
+    hero_descriptor: str = HERO,
 ) -> tuple[str, list[str]]:
     notes: list[str] = []
-    key = ("setCurrent", f"({HERO})V")
-    if resolve_member(target_index, ITEM, key, method=True):
+    key = ("setCurrent", f"({hero_descriptor})V")
+    if resolve_member(target_index, item_descriptor, key, method=True):
         return text, notes
 
-    item = target_index.get(ITEM)
+    item = target_index.get(item_descriptor)
     if item is None:
         raise InjectError("Target has no Item class")
-    cur_user = ("curUser", HERO)
-    cur_item = ("curItem", ITEM)
+    cur_user = ("curUser", hero_descriptor)
+    cur_item = ("curItem", item_descriptor)
     if cur_user not in item.fields or cur_item not in item.fields:
         raise InjectError(
             "Target lacks Item.setCurrent(Hero) and compatible curUser/curItem fields"
@@ -565,9 +640,9 @@ def adapt_modankh(
     pattern = re.compile(
         r"(?m)^(?P<indent>\s*)invoke-virtual(?:/range)?\s+"
         r"\{(?P<args>[^}]*)\},\s*"
-        + re.escape(ITEM)
+        + re.escape(item_descriptor)
         + r"->setCurrent\("
-        + re.escape(HERO)
+        + re.escape(hero_descriptor)
         + r"\)V\s*$"
     )
 
@@ -578,8 +653,8 @@ def adapt_modankh(
         this_reg, hero_reg = args
         ind = m.group("indent")
         return (
-            f"{ind}sput-object {hero_reg}, {ITEM}->curUser:{HERO}\n"
-            f"{ind}sput-object {this_reg}, {ITEM}->curItem:{ITEM}"
+            f"{ind}sput-object {hero_reg}, {item_descriptor}->curUser:{hero_descriptor}\n"
+            f"{ind}sput-object {this_reg}, {item_descriptor}->curItem:{item_descriptor}"
         )
 
     text2, count = pattern.subn(repl, text)
@@ -805,6 +880,7 @@ def build_debug_payload(
 def payload_compatibility_errors(
     payload: dict[str, SmaliClass],
     target_index: dict[str, SmaliClass],
+    allowed_target_prefixes: tuple[str, ...] = TARGET_API_PREFIXES,
 ) -> list[str]:
     """Validate a self-contained injected payload against the target API."""
 
@@ -822,7 +898,7 @@ def payload_compatibility_errors(
         for dep in deps:
             if dep in payload or dep.startswith(JAVA_FRAMEWORK_PREFIXES):
                 continue
-            if not dep.startswith(TARGET_API_PREFIXES):
+            if not dep.startswith(allowed_target_prefixes):
                 errors.add(
                     f"{descriptor}: unexpected external type {dep}"
                 )
@@ -834,7 +910,7 @@ def payload_compatibility_errors(
         for _, owner, name, proto in METHOD_INSN_RE.findall(item.text):
             if owner in payload or owner.startswith(JAVA_FRAMEWORK_PREFIXES):
                 continue
-            if not owner.startswith(TARGET_API_PREFIXES):
+            if not owner.startswith(allowed_target_prefixes):
                 errors.add(
                     f"{descriptor}: unexpected external method "
                     f"{owner}->{name}{proto}"
@@ -860,7 +936,7 @@ def payload_compatibility_errors(
         for _, owner, name, typ in FIELD_INSN_RE.findall(item.text):
             if owner in payload or owner.startswith(JAVA_FRAMEWORK_PREFIXES):
                 continue
-            if not owner.startswith(TARGET_API_PREFIXES):
+            if not owner.startswith(allowed_target_prefixes):
                 errors.add(
                     f"{descriptor}: unexpected external field "
                     f"{owner}->{name}:{typ}"
@@ -941,7 +1017,11 @@ def allocate_local(block: str) -> tuple[str, str]:
     raise InjectError("Dungeon.init() has neither .locals nor .registers")
 
 
-def patch_dungeon(text: str) -> str:
+def patch_dungeon(
+    text: str,
+    hero_class_descriptor: str = HERO_CLASS,
+    hero_descriptor: str = HERO,
+) -> str:
     start, end, block = method_block(text, "init", "()V", require_static=True)
     if MOD_ANKH in block:
         raise InjectError("Dungeon.init() already contains ModAnkh injection")
@@ -949,9 +1029,9 @@ def patch_dungeon(text: str) -> str:
     block, reg = allocate_local(block)
     anchor_re = re.compile(
         r"(?m)^(?P<line>\s*invoke-virtual(?:/range)?\s+\{[^}]*\},\s*"
-        + re.escape(HERO_CLASS)
+        + re.escape(hero_class_descriptor)
         + r"->initHero\("
-        + re.escape(HERO)
+        + re.escape(hero_descriptor)
         + r"\)V\s*)$"
     )
     matches = list(anchor_re.finditer(block))
@@ -1892,10 +1972,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         donor_index = index_smali(donor)
         _, donor_ankh = find_class(donor, MOD_ANKH)
 
-        store_payload = build_modankh_store_payload(donor_index)
+        target_game_prefix = detect_target_game_prefix(target_index)
+        target_game_dotted = dotted_game_prefix(target_game_prefix)
+        log(f"Target SPD-family package: {target_game_dotted}")
+        target_dungeon = game_descriptor(target_game_prefix, "Dungeon")
+        target_hero_class = game_descriptor(
+            target_game_prefix, "actors/hero/HeroClass"
+        )
+        target_hero = game_descriptor(target_game_prefix, "actors/hero/Hero")
+        target_item = game_descriptor(target_game_prefix, "items/Item")
+        allowed_target_prefixes = target_api_prefixes(target_game_prefix)
+
+        store_payload = rebase_smali_payload(
+            build_modankh_store_payload(donor_index),
+            target_game_prefix,
+        )
         debug_payload, helper_relocations = build_debug_payload(
             donor_index,
             target_index,
+        )
+        debug_payload = rebase_smali_payload(
+            debug_payload,
+            target_game_prefix,
         )
         if helper_relocations:
             log("Relocated donor R8 helpers:")
@@ -1917,7 +2015,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 + ", ".join(collisions)
             )
 
-        dungeon_dir, dungeon_path = find_class(tgt, DUNGEON)
+        dungeon_dir, dungeon_path = find_class(tgt, target_dungeon)
         log(f"Dungeon source dex: {smali_dir_dex_name(dungeon_dir)}")
 
         step("Adapting and validating ModAnkh against target API")
@@ -1925,13 +2023,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             encoding="utf-8",
             errors="replace",
         )
-        mod_text, notes = adapt_modankh(mod_text, target_index)
+        mod_text = rebase_smali_text(mod_text, target_game_prefix)
+        mod_text, notes = adapt_modankh(
+            mod_text,
+            target_index,
+            target_item,
+            target_hero,
+        )
         for note in notes:
             log("  " + note)
 
         debug_errors = payload_compatibility_errors(
             debug_payload,
             target_index,
+            allowed_target_prefixes,
         )
         if debug_errors:
             log("Debug payload compatibility errors:")
@@ -1946,6 +2051,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         store_errors = payload_compatibility_errors(
             store_payload,
             target_index,
+            allowed_target_prefixes,
         )
         if store_errors:
             log("ModAnkhStore payload compatibility errors:")
@@ -1977,11 +2083,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             encoding="utf-8",
             errors="replace",
         )
-        patched_dungeon = patch_dungeon(original_dungeon)
+        patched_dungeon = patch_dungeon(
+            original_dungeon,
+            target_hero_class,
+            target_hero,
+        )
 
         overlay_root = work / "overlay-smali"
 
-        overlay_dungeon = overlay_root / Path(DUNGEON[1:-1] + ".smali")
+        overlay_dungeon = overlay_root / Path(target_dungeon[1:-1] + ".smali")
         overlay_dungeon.parent.mkdir(parents=True, exist_ok=True)
         overlay_dungeon.write_text(
             patched_dungeon,
@@ -2059,7 +2169,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log(f"Output : {out}")
         log(f"SHA-256: {sha256(out)}")
         log("Package: unchanged from target (re-signed APK)")
-        log("Injected: ModAnkh + ModAnkhStore + debug console")
+        log("Injected: ModAnkh + ModAnkhStore + debug/Assassin payload")
         if not args.keystore:
             log(
                 "Install note: uninstall the original target first "
