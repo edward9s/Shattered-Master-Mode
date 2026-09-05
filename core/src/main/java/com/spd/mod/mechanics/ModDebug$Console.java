@@ -46,7 +46,7 @@ public final class ModDebug$Console {
     public static void open() {
         GameScene.show(new WndTextInput(
                 "Debug command",
-                "help | give | spawn | affect | seed | trap | terrain | warp | inspect | use | enchant | inscribe | goto | where | macro | @ | search | results | get | set | clear | save | load",
+                "help | give | spawn | affect | seed | trap | terrain | warp | inspect | use | enchant | inscribe | goto | where | macro | @ | !! | search | results | get | set | clear | save | load",
                 "",
                 400,
                 false,
@@ -73,6 +73,15 @@ public final class ModDebug$Console {
     }
 
     private static void execute(String command) throws Exception {
+        Integer historyCount = historyRepeatCount(command);
+        if (historyCount != null) {
+            if (lastCommand.isEmpty()) {
+                throw new IllegalStateException("No previous debug command");
+            }
+            runHistoryCommand(lastCommand, historyCount, 0, true);
+            return;
+        }
+
         if (command.contains("!!")) {
             if (lastCommand.isEmpty()) {
                 throw new IllegalStateException("No previous debug command");
@@ -83,6 +92,33 @@ public final class ModDebug$Console {
 
         lastCommand = command;
         executeLine(command, 0, true);
+    }
+
+    private static Integer historyRepeatCount(String command) throws Exception {
+        return (Integer) invokePrivate(
+                "historyRepeatCount",
+                new Class<?>[]{String.class},
+                new Object[]{command});
+    }
+
+    private static void runHistoryCommand(
+            String command, int count, int macroDepth, boolean topLevel)
+            throws Exception {
+
+        if (count > 1
+                && commandOrMacroNeedsSelector(command, macroDepth)) {
+            throw new IllegalArgumentException(
+                    "Cannot repeat a command that opens an interactive selector more than once; "
+                            + "supply an explicit cell/handle where the command supports one");
+        }
+
+        GLog.i(
+                "> " + command
+                        + (count == 1 ? "" : "  [" + count + " times]"));
+
+        for (int i = 0; i < count; i++) {
+            executeLine(command, macroDepth, topLevel);
+        }
     }
 
     private static void executeLine(
@@ -866,14 +902,31 @@ public final class ModDebug$Console {
             expanded.add(expandMacroLine(trimmed, args));
         }
 
+        String previousCommand = null;
         for (int i = 0; i < expanded.size(); i++) {
             String line = expanded.get(i);
-            if (i + 1 < expanded.size() && commandNeedsSelector(line)) {
+            Integer historyCount = historyRepeatCount(line);
+
+            if (historyCount != null) {
+                if (previousCommand == null) {
+                    throw new IllegalStateException(
+                            "No previous command in this macro invocation");
+                }
+                GLog.i("> " + line);
+                runHistoryCommand(
+                        previousCommand, historyCount, depth + 1, false);
+                continue;
+            }
+
+            if (i + 1 < expanded.size()
+                    && commandOrMacroNeedsSelector(line, depth + 1)) {
                 throw new IllegalArgumentException(
                         "Selector command must be the final macro line: " + line);
             }
+
             GLog.i("> " + line);
             executeLine(line, depth + 1, false);
+            previousCommand = line;
         }
         return true;
     }
@@ -894,11 +947,12 @@ public final class ModDebug$Console {
         return expanded;
     }
 
-    private static boolean commandNeedsSelector(String line) throws Exception {
+    private static boolean commandOrMacroNeedsSelector(
+            String line, int macroDepth) throws Exception {
         Object result = invokePrivate(
-                "commandNeedsSelector",
-                new Class<?>[]{String.class},
-                new Object[]{line});
+                "commandOrMacroNeedsSelector",
+                new Class<?>[]{String.class, int.class},
+                new Object[]{line, macroDepth});
         return Boolean.TRUE.equals(result);
     }
 
