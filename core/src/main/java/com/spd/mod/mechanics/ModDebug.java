@@ -481,9 +481,10 @@ public final class ModDebug {
 
             case "spawn":
                 GLog.i(
-                        "spawn <Mob> [xquantity|-p|--place] [method [args...]]\n"
-                        + "Spawns mobs; -p/--place lets you choose one cell manually.\n"
-                        + "Example: @rat spawn Rat -p"
+                        "spawn <Mob> [cell|@variable|xquantity] [method [args...]]\n"
+                        + "A single Mob opens the cell selector by default. Supply a cell/handle to place it directly.\n"
+                        + "xquantity keeps automatic placement for batch spawning.\n"
+                        + "Examples: spawn Rat | spawn Rat 123 | spawn Rat @cell | spawn Rat x10"
                 );
                 return;
 
@@ -854,7 +855,7 @@ public final class ModDebug {
 
         if (args.isEmpty()) {
             throw new IllegalArgumentException(
-                    "spawn <Mob> [xquantity|-p|--place] [method [args...]]");
+                    "spawn <Mob> [cell|@variable|xquantity] [method [args...]]");
         }
         if (Dungeon.level == null) {
             throw new IllegalStateException("No active level");
@@ -867,21 +868,33 @@ public final class ModDebug {
         }
 
         int quantity = 1;
+        boolean quantitySpecified = false;
         boolean manualPlace = false;
+        Integer explicitCell = null;
         int index = 1;
 
         if (index < args.size()) {
             String token = args.get(index);
-            if (token.matches("(?i)x\\d+")) {
+            if (token.matches("(?i)x[0-9]+")) {
                 quantity = boundedCount(
                         Integer.parseInt(token.substring(1)));
+                quantitySpecified = true;
                 index++;
 
             } else if ("-p".equalsIgnoreCase(token)
                     || "--place".equalsIgnoreCase(token)) {
+                // Legacy compatibility: single spawning is now manual by default.
                 manualPlace = true;
                 index++;
+
+            } else if (token.matches("[0-9]+") || token.startsWith("@")) {
+                explicitCell = integerArgument(token);
+                index++;
             }
+        }
+
+        if (!quantitySpecified && explicitCell == null) {
+            manualPlace = true;
         }
 
         final String methodName =
@@ -892,9 +905,26 @@ public final class ModDebug {
                                 args.subList(index + 1, args.size()))
                         : Collections.<String>emptyList();
 
-        if (manualPlace && quantity != 1) {
-            throw new IllegalArgumentException(
-                    "Manual placement cannot be combined with quantity");
+        if (explicitCell != null) {
+            Mob probe = (Mob) newInstance(raw);
+            int cell = explicitCell;
+            if (!validMobCell(probe, cell)) {
+                throw new IllegalArgumentException(str(
+                        "You cannot place ", probe.name(),
+                        " at cell ", cell, "."));
+            }
+
+            Mob mob = newDebugMob(raw, cell, probe);
+            addMob(mob);
+            initializeSpecialMobForDebug(mob);
+            invokeGeneratedHook(mob, methodName, methodArgs);
+
+            if (storeVariable != null) {
+                putVariable(storeVariable, mob);
+            }
+
+            GLog.p(str("Spawned ", mob.name(), " at cell ", cell));
+            return;
         }
 
         if (manualPlace) {
@@ -2877,12 +2907,14 @@ public final class ModDebug {
         }
 
         if ("spawn".equals(command)) {
-            for (String token : tokens) {
-                if ("-p".equalsIgnoreCase(token)
-                        || "--place".equalsIgnoreCase(token)) {
-                    return true;
-                }
+            if (tokens.size() < 3) {
+                return true;
             }
+
+            String placement = tokens.get(2);
+            return !placement.matches("(?i)x[0-9]+")
+                    && !placement.matches("[0-9]+")
+                    && !placement.startsWith("@");
         }
 
         return false;

@@ -264,22 +264,33 @@ set @item quantity 2
 
 ```text
 spawn Rat
+spawn Rat 123
+spawn Rat @cell
 spawn Rat x5
-spawn Rat -p
-@rat spawn Rat -p
+@rat spawn Rat
 ```
 
 語法：
 
 ```text
-spawn <Mob> [xquantity|-p|--place] [method [args...]]
+spawn <Mob> [cell|@variable|xquantity] [method [args...]]
 ```
 
-- 不加 `-p` 時，由遊戲自己找正常 respawn cell。
-- `-p` 可手動選一個合法的 Mob 落點。
-- 可在生成完成後額外呼叫指定 method。
+- 單隻 Mob 預設直接打開地圖選格器；這是一般互動操作的主要形式。
+- 指定 cell 編號或數字型 `@handle` 時，會直接在該格生成，不再打開選格器。
+- `xN` 是批量形式，才會由遊戲為每隻 Mob 自動尋找合法的正常 respawn cell。
+- 可在正常 debug 初始化完成後，再額外呼叫指定 method。
 
-手動生成 Mob 仍遵守正常的落點安全條件，這部分刻意比 `warp` 嚴格。
+例如：
+
+```text
+@cell cell
+spawn Rat @cell
+@bee spawn Bee 123
+spawn Rat x10
+```
+
+直接指定或手動選擇 Mob 落點時，仍遵守正常的落點安全條件，這部分刻意比 `warp` 嚴格。舊的 `-p` / `--place` 為了既有 macro 相容性仍可使用，但已不再需要，也不再是建議語法。
 
 ## 套用 Buff：`affect`
 

@@ -264,22 +264,33 @@ For an existing stack, selecting it with `@item inv` and then using `set @item q
 
 ```text
 spawn Rat
+spawn Rat 123
+spawn Rat @cell
 spawn Rat x5
-spawn Rat -p
-@rat spawn Rat -p
+@rat spawn Rat
 ```
 
 Syntax:
 
 ```text
-spawn <Mob> [xquantity|-p|--place] [method [args...]]
+spawn <Mob> [cell|@variable|xquantity] [method [args...]]
 ```
 
-- Without `-p`, the game chooses normal respawn cells.
-- `-p` lets you manually choose one valid mob placement cell.
-- An optional method can be called on the newly spawned Mob.
+- A single Mob opens the map selector by default; this is the normal interactive form.
+- A cell number or numeric `@handle` places the Mob there immediately without opening the selector.
+- `xN` is the batch form and automatically chooses normal valid respawn cells for each Mob.
+- An optional method can be called on the newly spawned Mob after its normal debug initialization.
 
-Manual Mob placement still follows normal placement safety rules. This is intentionally stricter than `warp`.
+Examples:
+
+```text
+@cell cell
+spawn Rat @cell
+@bee spawn Bee 123
+spawn Rat x10
+```
+
+Direct/manual Mob placement still follows normal placement safety rules. This is intentionally stricter than `warp`. The old `-p` / `--place` form remains accepted for compatibility with existing macros, but it is no longer needed or recommended.
 
 ## Applying buffs: `affect`
 

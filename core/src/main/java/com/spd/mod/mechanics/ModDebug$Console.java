@@ -238,6 +238,8 @@ public final class ModDebug$Console {
             if (methodIndex < tokens.size()) {
                 String token = tokens.get(methodIndex);
                 if (token.matches("(?i)x\\d+")
+                        || token.matches("[0-9]+")
+                        || token.startsWith("@")
                         || "-p".equalsIgnoreCase(token)
                         || "--place".equalsIgnoreCase(token)) {
                     methodIndex++;
