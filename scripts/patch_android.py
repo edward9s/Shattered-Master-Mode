@@ -47,9 +47,6 @@ def patch_play_games_version(build_file, android_build_file):
         raise RuntimeError('Unable to determine appAndroidMinSDK')
     app_min_sdk = int(match.group(1))
 
-    with urlopen(f'{PLAY_GAMES_MAVEN}/maven-metadata.xml', timeout=30) as response:
-        metadata = ET.fromstring(response.read())
-
     compatible_version = None
     for version_node in reversed(metadata.findall('./versioning/versions/version')):
         version = version_node.text
@@ -91,6 +88,7 @@ def patch_proguard(file_path):
         '-keep class com.spd.mod.items.ModAnkh { *; }',
         '-keep class com.spd.mod.items.ModAnkhStore { *; }',
         '-keep class com.spd.mod.items.ModAnkhStore$* { *; }',
+        '-keepclassmembers class com.shatteredpixel.shatteredpixeldungeon.levels.Terrain { public static final int *; }',
     )
     missing = [rule for rule in rules if rule not in data]
     if missing:
