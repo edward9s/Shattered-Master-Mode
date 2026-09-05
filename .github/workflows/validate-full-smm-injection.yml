@@ -4,12 +4,14 @@ on:
   push:
     branches: [ main ]
     paths:
+      - '.github/workflows/build.yml'
       - '.github/workflows/validate-full-smm-injection.yml'
       - 'core/src/main/java/com/spd/mod/**'
       - 'scripts/inject_smm_apk.py'
       - 'scripts/inject_smm_jar.py'
       - 'scripts/inject_apk.py'
       - 'scripts/inject_jar.py'
+      - 'scripts/package_inject_kit.py'
       - 'scripts/patch_android.py'
 
 permissions:
@@ -53,6 +55,34 @@ jobs:
 
       - name: Verify normal release payload preservation rule remains present
         run: grep -F -- '-keep class com.spd.mod.** { *; }' spd_src/android/proguard-rules.pro
+
+      - name: Package and verify distributable injection kit
+        run: |
+          python mod/scripts/package_inject_kit.py \
+            v3.3.8 test "$DONOR_APK" "$DONOR_JAR" \
+            /tmp/SMM-v3.3.8-mtest-InjectKit.zip --repo-root mod
+          python - <<'PY'
+          import zipfile
+          path = '/tmp/SMM-v3.3.8-mtest-InjectKit.zip'
+          required = {
+              'SMM-v3.3.8-mtest-inject-donor.apk',
+              'SMM-v3.3.8-mtest-inject-donor.jar',
+              'inject_smm_apk.py',
+              'inject_apk.py',
+              'inject_smm_jar.py',
+              'inject_jar.py',
+              'modankh_payload_rules.md',
+              'README.txt',
+          }
+          with zipfile.ZipFile(path) as zf:
+              names = set(zf.namelist())
+              missing = sorted(required - names)
+              if missing:
+                  raise SystemExit('Injection kit is missing: ' + ', '.join(missing))
+              if zf.testzip() is not None:
+                  raise SystemExit('Injection kit ZIP is corrupt')
+          print('Injection kit packaging: OK')
+          PY
 
       - name: Diagnose direct donor-only dependencies from full SMM roots
         run: |
