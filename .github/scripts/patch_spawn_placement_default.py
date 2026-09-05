@@ -51,7 +51,7 @@ new_spawn = '''    private static void spawn(
 
         if (index < args.size()) {
             String token = args.get(index);
-            if (token.matches("(?i)x\\d+")) {
+            if (token.matches("(?i)x[0-9]+")) {
                 quantity = boundedCount(
                         Integer.parseInt(token.substring(1)));
                 quantitySpecified = true;
@@ -63,7 +63,7 @@ new_spawn = '''    private static void spawn(
                 manualPlace = true;
                 index++;
 
-            } else if (token.matches("\\d+") || token.startsWith("@")) {
+            } else if (token.matches("[0-9]+") || token.startsWith("@")) {
                 explicitCell = integerArgument(token);
                 index++;
             }
@@ -194,8 +194,8 @@ new = '''        if ("spawn".equals(command)) {
             }
 
             String placement = tokens.get(2);
-            return !placement.matches("(?i)x\\d+")
-                    && !placement.matches("\\d+")
+            return !placement.matches("(?i)x[0-9]+")
+                    && !placement.matches("[0-9]+")
                     && !placement.startsWith("@");
         }
 '''
@@ -206,12 +206,10 @@ mod.write_text(s, encoding="utf-8")
 
 console = Path("core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java")
 c = console.read_text(encoding="utf-8")
-old = '''                if (token.matches("(?i)x\\d+")
-                        || "-p".equalsIgnoreCase(token)
+old = '''                        || "-p".equalsIgnoreCase(token)
                         || "--place".equalsIgnoreCase(token)) {
 '''
-new = '''                if (token.matches("(?i)x\\d+")
-                        || token.matches("\\d+")
+new = '''                        || token.matches("[0-9]+")
                         || token.startsWith("@")
                         || "-p".equalsIgnoreCase(token)
                         || "--place".equalsIgnoreCase(token)) {
