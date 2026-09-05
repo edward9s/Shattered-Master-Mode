@@ -87,7 +87,7 @@ public class ModLootBuffOverlay extends Gizmo {
     }
 
     private static boolean hasLootBuff() {
-        return Dungeon.hero != null && Dungeon.hero.buff(ModLootBuff.class) != null;
+        return ModLootBuff.find(Dungeon.hero) != null;
     }
 
     private void cleanupDeadOverlays() {
@@ -169,9 +169,7 @@ public class ModLootBuffOverlay extends Gizmo {
 
         @Override
         public void update() {
-            if (source.parent == null
-                    || buff.target == null
-                    || buff.target.buff(ModLootBuff.class) != buff) {
+            if (source.parent == null || !buff.isAttached()) {
                 killAndErase();
                 return;
             }
