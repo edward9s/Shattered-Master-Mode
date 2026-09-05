@@ -25,6 +25,7 @@ jobs:
 
       - name: Sync final debug documentation details
         run: |
+          # retry after matching the current zh-TW terrain wording
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
           python .github/scripts/patch_debug_docs_final_sync.py
