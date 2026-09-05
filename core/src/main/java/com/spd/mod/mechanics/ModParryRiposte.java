@@ -36,6 +36,17 @@ public class ModParryRiposte extends ChampionEnemy {
         color = 0xFFFFFF;
     }
 
+    /** Stable across supported SPD forks; avoids Char.buff(Class) ABI variance. */
+    public static ModParryRiposte find(Char ch) {
+        if (ch == null) {
+            return null;
+        }
+        for (ModParryRiposte buff : ch.buffs(ModParryRiposte.class)) {
+            return buff;
+        }
+        return null;
+    }
+
     public boolean riposteEnabled() {
         return riposteEnabled;
     }
@@ -176,7 +187,7 @@ public class ModParryRiposte extends ChampionEnemy {
     }
 
     private static void performRiposte(Char riposter, Char attacker) {
-        ModParryRiposte buff = riposter.buff(ModParryRiposte.class);
+        ModParryRiposte buff = find(riposter);
         if (buff != null
                 && buff.riposteEnabled
                 && riposter.isAlive()
@@ -240,7 +251,7 @@ public class ModParryRiposte extends ChampionEnemy {
 
         @Override
         protected boolean act() {
-            ModParryRiposte buff = riposter.buff(ModParryRiposte.class);
+            ModParryRiposte buff = find(riposter);
             if (buff == null
                     || !buff.riposteEnabled
                     || !riposter.isAlive()
