@@ -338,7 +338,7 @@ terrain WALL
 Syntax:
 
 ```text
-terrain <Terrain> [cell|@variable]
+terrain <Terrain|id> [cell|@variable]
 ```
 
 Omit the cell to open the map selector, or provide a cell number / saved handle directly:
@@ -356,11 +356,20 @@ terrain chsm
 terrain lockdoor
 ```
 
-`chsm` can resolve to `CHASM`, while `lockdoor` can resolve to `LOCKED_DOOR`. If the best match is ambiguous, the console prints `Similar:` candidates and leaves the map unchanged. Prefer names over hard-coded numeric terrain IDs for cross-fork/version compatibility.
+`chsm` can resolve to `CHASM`, while `lockdoor` can resolve to `LOCKED_DOOR`. If the best match is ambiguous, the console prints `Similar:` candidates and leaves the map unchanged. Names should normally be preferred because they are easier to read and maintain across versions.
+
+If a name does not exist in the target fork, or R8 has removed the field name completely, the target fork's raw terrain ID can be supplied directly:
+
+```text
+terrain 0
+terrain 123 @cell
+```
+
+A purely numeric first argument is treated directly as a terrain ID and bypasses name/fuzzy resolution. The console validates it against the target `Terrain.flags` array length; standard SPD currently has 256 entries, so valid IDs are `0..255`. This lets fork-specific terrain remain usable when only its numeric value is known. Raw IDs are target/fork-specific and must not be assumed to have the same meaning across different forks.
 
 Internally, `terrain` calls the target game's `Level.set(cell, terrain)`, so passable/solid/pit and related flags are updated. It then refreshes the map, recalculates observation, and updates fog.
 
-Android release R8 can remove `Terrain` `public static final int` fields that are only compile-time constants. ModDebug first uses Terrain fields that still exist in the target APK at runtime; if a standard SPD terrain field was shrunk away, it falls back to the canonical Terrain ID from SMM's upstream baseline. This keeps commands such as `terrain chasm` working in minified/injected APKs. A fork-specific custom terrain name whose field name was completely removed by R8 cannot be reconstructed from the APK and may still be unavailable by name.
+Android release R8 can remove `Terrain` `public static final int` fields that are only compile-time constants. ModDebug first uses Terrain fields that still exist in the target APK at runtime; if a standard SPD terrain field was shrunk away, it falls back to the canonical Terrain ID from SMM's upstream baseline. This keeps commands such as `terrain chasm` working in minified/injected APKs. A fork-specific custom terrain name whose field name was completely removed by R8 cannot be reconstructed from the APK; if that fork's actual terrain ID is known, use the numeric form instead.
 
 For a locked-door test:
 

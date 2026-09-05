@@ -440,7 +440,7 @@ public final class ModDebug {
                 + "affect <Buff> [duration] [method [args...]]  (select a character)\n"
                 + "seed <Blob> [amount]  (select a tile)\n"
                 + "trap <Trap>  (select a tile; trap is revealed)\n"
-                + "terrain <Terrain> [cell|@variable]  (select a tile if omitted)\n"
+                + "terrain <Terrain|id> [cell|@variable]  (select a tile if omitted)\n"
                 + "warp [cell|@variable]  (same-floor teleport)\n"
                 + "inspect <Class|hero|level|@variable>\n"
                 + "use <Class|hero|level|@variable> <method> [args...]\n"
@@ -1404,7 +1404,7 @@ public final class ModDebug {
     private static void terrain(List<String> args) throws Exception {
         if (args.isEmpty() || args.size() > 2) {
             throw new IllegalArgumentException(
-                    "terrain <Terrain> [cell|@variable]");
+                    "terrain <Terrain|id> [cell|@variable]");
         }
         if (Dungeon.level == null) {
             throw new IllegalStateException("No active level");
@@ -1448,8 +1448,31 @@ public final class ModDebug {
     }
 
     private static TerrainValue resolveTerrain(String input) throws Exception {
-        Map<String, Integer> terrains = terrainConstants();
         String name = input.trim();
+
+        if (name.matches("\\d+")) {
+            final int value;
+            try {
+                value = Integer.parseInt(name);
+            } catch (NumberFormatException error) {
+                throw new IllegalArgumentException(
+                        str("Terrain ID is outside the integer range: ", name));
+            }
+
+            int limit = terrainIdLimit();
+            if (value < 0 || (limit > 0 && value >= limit)) {
+                throw new IllegalArgumentException(
+                        limit > 0
+                                ? str("Terrain ID must be between 0 and ",
+                                        limit - 1, ": ", value)
+                                : str("Terrain ID must be non-negative: ", value));
+            }
+
+            GLog.i(str("Using raw terrain ID ", value));
+            return new TerrainValue(Integer.toString(value), value);
+        }
+
+        Map<String, Integer> terrains = terrainConstants();
         String exact = name.toUpperCase(Locale.ROOT);
 
         if (terrains.containsKey(exact)) {
@@ -1484,6 +1507,22 @@ public final class ModDebug {
         }
 
         return null;
+    }
+
+    private static int terrainIdLimit() throws Exception {
+        Class<?> terrain = loadRequired(TERRAIN_CLASS);
+        Field flags = findField(terrain, "flags");
+        if (flags == null || !Modifier.isStatic(flags.getModifiers())) {
+            return -1;
+        }
+
+        flags.setAccessible(true);
+        Object value = flags.get(null);
+        if (value == null || !value.getClass().isArray()) {
+            return -1;
+        }
+
+        return Array.getLength(value);
     }
 
     private static Map<String, Integer> terrainConstants() throws Exception {

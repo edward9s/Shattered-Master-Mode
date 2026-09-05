@@ -338,7 +338,7 @@ terrain WALL
 語法：
 
 ```text
-terrain <Terrain> [cell|@variable]
+terrain <Terrain|id> [cell|@variable]
 ```
 
 省略 cell 時會打開地圖選擇器；也可以直接指定 cell 或先保存的 handle：
@@ -356,11 +356,20 @@ terrain chsm
 terrain lockdoor
 ```
 
-其中 `chsm` 可匹配 `CHASM`，`lockdoor` 可匹配 `LOCKED_DOOR`。若最佳匹配不唯一，Console 會列出 `Similar:` 候選而不修改地圖。不要硬寫 terrain 數字，名稱在不同 SPD fork／版本間較安全。
+其中 `chsm` 可匹配 `CHASM`，`lockdoor` 可匹配 `LOCKED_DOOR`。若最佳匹配不唯一，Console 會列出 `Similar:` 候選而不修改地圖。一般仍應優先使用名稱，因為名稱比數字 ID 更容易跨版本閱讀與維護。
+
+若名稱在目標 fork 中不存在、或已被 R8 完全移除，也可以直接輸入該 fork 的 raw terrain ID：
+
+```text
+terrain 0
+terrain 123 @cell
+```
+
+純數字第一參數會直接當成 terrain ID，不做名稱解析或 fuzzy matching。Console 會以目標 `Terrain.flags` 陣列長度檢查可用範圍；例如標準 SPD 的 `flags` 長度是 256，因此有效 ID 為 `0..255`。這使 fork 自訂 terrain 即使只剩數值、沒有可反射的常數名稱時，仍可用 ID 操作。raw ID 必須以目標 APK／fork 的實際定義為準，不能假設不同 fork 的同一數字具有相同意義。
 
 `terrain` 內部會呼叫目標遊戲的 `Level.set(cell, terrain)`，因此 passable／solid／pit 等 terrain flags 會同步更新；之後還會刷新 map、重新 observe 與更新 fog。
 
-Android release 的 R8 可能把沒有被直接引用的 `Terrain` `public static final int` 常數欄位移除。ModDebug 會優先使用目標 APK 執行時仍存在的 Terrain 欄位；若標準 SPD terrain 欄位已被 shrink，則退回 SMM 所對應官方 Terrain 的 canonical ID，因此像 `terrain chasm` 在 minified／注入版 APK 也能解析。若某個 fork 自訂 terrain 的欄位名稱已被 R8 完全移除，APK 本身已沒有名稱可供反射還原，該自訂名稱仍可能無法解析。
+Android release 的 R8 可能把沒有被直接引用的 `Terrain` `public static final int` 常數欄位移除。ModDebug 會優先使用目標 APK 執行時仍存在的 Terrain 欄位；若標準 SPD terrain 欄位已被 shrink，則退回 SMM 所對應官方 Terrain 的 canonical ID，因此像 `terrain chasm` 在 minified／注入版 APK 也能解析。若某個 fork 自訂 terrain 的欄位名稱已被 R8 完全移除，APK 本身已沒有名稱可供反射還原；此時若知道該 fork 的實際 terrain ID，就可直接用數字形式操作。
 
 例如建立鎖上的門後，可直接產生目前樓層的鐵鑰匙測試：
 
