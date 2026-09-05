@@ -14,12 +14,12 @@ old = '''            case "spawn":
 new = '''            case "spawn":
                 GLog.i(
                         "spawn <Mob> [cell|@variable|xquantity] [method [args...]]\\n"
-                        + "A single Mob opens the cell selector by default. Supply a cell/handle to place it directly.\\nn"
+                        + "A single Mob opens the cell selector by default. Supply a cell/handle to place it directly.\\n"
                         + "xquantity keeps automatic placement for batch spawning.\\n"
                         + "Examples: spawn Rat | spawn Rat 123 | spawn Rat @cell | spawn Rat x10"
                 );
                 return;
-'''.replace('\\n"\\n                        + "xquantity', '\\n"\n                        + "xquantity')
+'''
 if s.count(old) != 1:
     raise SystemExit(f"spawn help anchor count: {s.count(old)}")
 s = s.replace(old, new, 1)
@@ -51,7 +51,7 @@ new_spawn = '''    private static void spawn(
 
         if (index < args.size()) {
             String token = args.get(index);
-            if (token.matches("(?i)x\\\\d+")) {
+            if (token.matches("(?i)x\\d+")) {
                 quantity = boundedCount(
                         Integer.parseInt(token.substring(1)));
                 quantitySpecified = true;
@@ -63,7 +63,7 @@ new_spawn = '''    private static void spawn(
                 manualPlace = true;
                 index++;
 
-            } else if (token.matches("\\\\d+") || token.startsWith("@")) {
+            } else if (token.matches("\\d+") || token.startsWith("@")) {
                 explicitCell = integerArgument(token);
                 index++;
             }
@@ -194,8 +194,8 @@ new = '''        if ("spawn".equals(command)) {
             }
 
             String placement = tokens.get(2);
-            return !placement.matches("(?i)x\\\\d+")
-                    && !placement.matches("\\\\d+")
+            return !placement.matches("(?i)x\\d+")
+                    && !placement.matches("\\d+")
                     && !placement.startsWith("@");
         }
 '''
@@ -210,7 +210,7 @@ old = '''        } else if ("spawn".equals(command) && commandClass != null) {
             int methodIndex = commandIndex + 2;
             if (methodIndex < tokens.size()) {
                 String token = tokens.get(methodIndex);
-                if (token.matches("(?i)x\\\\d+")
+                if (token.matches("(?i)x\\d+")
                         || "-p".equalsIgnoreCase(token)
                         || "--place".equalsIgnoreCase(token)) {
                     methodIndex++;
@@ -224,8 +224,8 @@ new = '''        } else if ("spawn".equals(command) && commandClass != null) {
             int methodIndex = commandIndex + 2;
             if (methodIndex < tokens.size()) {
                 String token = tokens.get(methodIndex);
-                if (token.matches("(?i)x\\\\d+")
-                        || token.matches("\\\\d+")
+                if (token.matches("(?i)x\\d+")
+                        || token.matches("\\d+")
                         || token.startsWith("@")
                         || "-p".equalsIgnoreCase(token)
                         || "--place".equalsIgnoreCase(token)) {
