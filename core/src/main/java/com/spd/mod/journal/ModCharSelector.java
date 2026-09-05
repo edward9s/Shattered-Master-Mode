@@ -58,6 +58,16 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
         GameScene.selectCell(new ModCharSelector(buffClass, heroOnly));
     }
 
+    private static Buff findBuff(Char target, Class<? extends Buff> buffClass) {
+        if (target == null) {
+            return null;
+        }
+        for (Buff buff : target.buffs(buffClass)) {
+            return buff;
+        }
+        return null;
+    }
+
     @Override
     public String prompt() {
         String name;
@@ -102,7 +112,7 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
             return;
         }
 
-        Buff buff = target.buff(buffClass);
+        Buff buff = findBuff(target, buffClass);
         String format;
         Buff resultBuff;
 
