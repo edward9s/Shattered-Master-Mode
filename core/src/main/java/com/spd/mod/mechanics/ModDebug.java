@@ -483,8 +483,8 @@ public final class ModDebug {
                 GLog.i(
                         "spawn <Mob> [cell|@variable|xquantity] [method [args...]]\n"
                         + "A single Mob opens the cell selector by default. Supply a cell/handle to place it directly.\n"
-                        + "xquantity keeps automatic placement for batch spawning.\n"
-                        + "Examples: spawn Rat | spawn Rat 123 | spawn Rat @cell | spawn Rat x10"
+                        + "xquantity, including x1, uses non-interactive automatic placement.\n"
+                        + "Examples: spawn Rat | spawn Rat 123 | spawn Rat @cell | spawn Rat x1 | spawn Rat x10"
                 );
                 return;
 
@@ -869,7 +869,6 @@ public final class ModDebug {
 
         int quantity = 1;
         boolean quantitySpecified = false;
-        boolean manualPlace = false;
         Integer explicitCell = null;
         int index = 1;
 
@@ -881,20 +880,10 @@ public final class ModDebug {
                 quantitySpecified = true;
                 index++;
 
-            } else if ("-p".equalsIgnoreCase(token)
-                    || "--place".equalsIgnoreCase(token)) {
-                // Legacy compatibility: single spawning is now manual by default.
-                manualPlace = true;
-                index++;
-
             } else if (token.matches("[0-9]+") || token.startsWith("@")) {
                 explicitCell = integerArgument(token);
                 index++;
             }
-        }
-
-        if (!quantitySpecified && explicitCell == null) {
-            manualPlace = true;
         }
 
         final String methodName =
@@ -927,7 +916,7 @@ public final class ModDebug {
             return;
         }
 
-        if (manualPlace) {
+        if (!quantitySpecified) {
             final Mob probe = (Mob) newInstance(raw);
 
             GameScene.selectCell(new CellSelector.Listener() {

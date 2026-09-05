@@ -278,7 +278,7 @@ spawn <Mob> [cell|@variable|xquantity] [method [args...]]
 
 - A single Mob opens the map selector by default; this is the normal interactive form.
 - A cell number or numeric `@handle` places the Mob there immediately without opening the selector.
-- `xN` is the batch form and automatically chooses normal valid respawn cells for each Mob.
+- `xN` uses automatic placement and chooses normal valid respawn cells for each Mob. `x1` is the non-interactive single-Mob form, which is useful in macros.
 - An optional method can be called on the newly spawned Mob after its normal debug initialization.
 
 Examples:
@@ -287,10 +287,11 @@ Examples:
 @cell cell
 spawn Rat @cell
 @bee spawn Bee 123
+spawn Rat x1
 spawn Rat x10
 ```
 
-Direct/manual Mob placement still follows normal placement safety rules. This is intentionally stricter than `warp`. The old `-p` / `--place` form remains accepted for compatibility with existing macros, but it is no longer needed or recommended.
+Direct/manual Mob placement still follows normal placement safety rules. This is intentionally stricter than `warp`.
 
 ## Applying buffs: `affect`
 

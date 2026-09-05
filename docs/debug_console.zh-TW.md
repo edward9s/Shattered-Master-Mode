@@ -278,7 +278,7 @@ spawn <Mob> [cell|@variable|xquantity] [method [args...]]
 
 - 單隻 Mob 預設直接打開地圖選格器；這是一般互動操作的主要形式。
 - 指定 cell 編號或數字型 `@handle` 時，會直接在該格生成，不再打開選格器。
-- `xN` 是批量形式，才會由遊戲為每隻 Mob 自動尋找合法的正常 respawn cell。
+- `xN` 會使用自動落點，由遊戲為每隻 Mob 尋找合法的正常 respawn cell；`x1` 就是非互動式的單隻生成形式，特別適合 macro。
 - 可在正常 debug 初始化完成後，再額外呼叫指定 method。
 
 例如：
@@ -287,10 +287,11 @@ spawn <Mob> [cell|@variable|xquantity] [method [args...]]
 @cell cell
 spawn Rat @cell
 @bee spawn Bee 123
+spawn Rat x1
 spawn Rat x10
 ```
 
-直接指定或手動選擇 Mob 落點時，仍遵守正常的落點安全條件，這部分刻意比 `warp` 嚴格。舊的 `-p` / `--place` 為了既有 macro 相容性仍可使用，但已不再需要，也不再是建議語法。
+直接指定或手動選擇 Mob 落點時，仍遵守正常的落點安全條件，這部分刻意比 `warp` 嚴格。
 
 ## 套用 Buff：`affect`
 
