@@ -106,13 +106,29 @@ jobs:
           curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/desktop-2.3.3.jar -o targets/rka.jar
 
       - name: Validate official SPD APK full injection
+        id: spd_apk
+        continue-on-error: true
         run: python mod/scripts/inject_smm_apk.py "$DONOR_APK" targets/spd.apk --out /tmp/spd-SMM.apk
 
       - name: Validate RKA APK full injection
+        id: rka_apk
+        continue-on-error: true
         run: python mod/scripts/inject_smm_apk.py "$DONOR_APK" targets/rka.apk --out /tmp/rka-SMM.apk
 
       - name: Validate official SPD JAR full injection
+        id: spd_jar
+        continue-on-error: true
         run: python mod/scripts/inject_smm_jar.py "$DONOR_JAR" targets/spd.jar --out /tmp/spd-SMM.jar
 
       - name: Validate RKA JAR full injection
+        id: rka_jar
+        continue-on-error: true
         run: python mod/scripts/inject_smm_jar.py "$DONOR_JAR" targets/rka.jar --out /tmp/rka-SMM.jar
+
+      - name: Fail if any full injection target failed
+        if: always()
+        run: |
+          test "${{ steps.spd_apk.outcome }}" = success
+          test "${{ steps.rka_apk.outcome }}" = success
+          test "${{ steps.spd_jar.outcome }}" = success
+          test "${{ steps.rka_jar.outcome }}" = success
