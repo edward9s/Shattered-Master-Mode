@@ -11,8 +11,8 @@ for path, zh in pairs:
     if zh:
         old_spawn = """直接指定或手動選擇 Mob 落點時，仍遵守正常的落點安全條件，這部分刻意比 `warp` 嚴格。\n"""
         new_spawn = """直接指定或手動選擇 Mob 落點時，仍遵守正常的落點安全條件，這部分刻意比 `warp` 嚴格。`spawn` 也會對不能只靠裸 constructor 正常建立的特殊 Mob 做必要的 debug 初始化；目前包含使用正常 factory 建立 Mimic，以及替 Bee 補上等級、HP/HT 與脫離 Honeypot 綁定所需的初始化。\n"""
-        old_terrain = """內部實作上，`terrain` 會呼叫目標遊戲的 `Level.set(cell, terrain)`，因此 passable／solid／pit 等相關 flag 會跟著更新。接著會刷新 map、重新計算視野並更新 fog。\n"""
-        new_terrain = """內部實作上，`terrain` 會呼叫目標遊戲的 `Level.set(cell, terrain)`，因此 passable／solid／pit 等相關 flag 會跟著更新。接著會刷新 map、重新計算視野並更新 fog。對一般 terrain tile 而言，選格或指定 cell 成功後，地圖上的 tile 圖像應立即改變，不需要換樓層或重新載入場景；需要額外物件或狀態的特殊機制仍屬例外。\n"""
+        old_terrain = """`terrain` 內部會呼叫目標遊戲的 `Level.set(cell, terrain)`，因此 passable／solid／pit 等 terrain flags 會同步更新；之後還會刷新 map、重新 observe 與更新 fog。\n"""
+        new_terrain = """`terrain` 內部會呼叫目標遊戲的 `Level.set(cell, terrain)`，因此 passable／solid／pit 等 terrain flags 會同步更新；之後還會刷新 map、重新 observe 與更新 fog。對一般 terrain tile 而言，選格或指定 cell 成功後，地圖上的 tile 圖像應立即改變，不需要換樓層或重新載入場景；需要額外物件或狀態的特殊機制仍屬例外。\n"""
     else:
         old_spawn = """Direct/manual Mob placement still follows normal placement safety rules. This is intentionally stricter than `warp`.\n"""
         new_spawn = """Direct/manual Mob placement still follows normal placement safety rules. This is intentionally stricter than `warp`. `spawn` also applies required debug initialization for special Mob types that cannot be safely created with a bare constructor; this currently includes using the normal factory path for Mimics and initializing Bee level, HP/HT, and detached Honeypot state.\n"""
