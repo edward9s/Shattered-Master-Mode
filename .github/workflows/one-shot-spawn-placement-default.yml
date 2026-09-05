@@ -25,6 +25,7 @@ jobs:
 
       - name: Make spawn placement-first
         run: |
+          # retry after tightening the source anchor
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
           python .github/scripts/patch_spawn_placement_default.py
