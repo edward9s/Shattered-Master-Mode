@@ -213,16 +213,21 @@ public final class ModDebug {
                 if (!args.isEmpty() && args.get(0).startsWith("@")) {
                     stored = getObjectField(args);
                     hasStoredResult = stored != null;
-                } else {
+                } else if (!args.isEmpty() && args.get(0).startsWith("#")) {
                     ModValueSearch.get(args);
+                } else {
+                    stored = getStaticField(args);
+                    hasStoredResult = stored != null;
                 }
                 break;
 
             case "set":
                 if (!args.isEmpty() && args.get(0).startsWith("@")) {
                     setObjectField(args);
-                } else {
+                } else if (!args.isEmpty() && args.get(0).startsWith("#")) {
                     ModValueSearch.set(args);
+                } else {
+                    setStaticField(args);
                 }
                 break;
 
@@ -358,7 +363,9 @@ public final class ModDebug {
                 + "search <number|changed|unchanged|increased|decreased>\n"
                 + "results [#id] | get #id | set #id <number> | clear\n"
                 + "get @object <field> | set @object <field> <value>\n"
+                + "get <Class> <staticField> | set <Class> <staticField> <value>\n"
                 + "@x get @object <field>  (store a non-null field value)\n"
+                + "@x get <Class> <staticField>  (store a non-null static value)\n"
                 + "save  (Android: export app save files to Download/<package>)\n"
                 + "load  (Android: import them, then restart the app)\n"
                 + "Class names may be simple (RingOfEnergy) or fully qualified.\n"
@@ -1303,6 +1310,80 @@ public final class ModDebug {
         GLog.p(str(
                 field.getName(), " = ",
                 valueString(field.get(object))));
+    }
+
+    private static Object getStaticField(List<String> args)
+            throws Exception {
+
+        if (args.size() != 2) {
+            throw new IllegalArgumentException(
+                    "get <Class> <staticField>");
+        }
+
+        Class<?> type = resolveClass(args.get(0), Object.class);
+        if (type == null) {
+            throw new ClassNotFoundException(args.get(0));
+        }
+
+        Field field = findField(type, args.get(1));
+        if (field == null) {
+            throw new NoSuchFieldException(str(
+                    type.getName(), ".", args.get(1)));
+        }
+        if (!Modifier.isStatic(field.getModifiers())) {
+            throw new IllegalArgumentException(str(
+                    "Field is not static: ",
+                    type.getName(), ".", field.getName()));
+        }
+
+        Object value = field.get(null);
+        GLog.p(str(
+                type.getSimpleName(), ".", field.getName(),
+                " -> ", valueString(value)));
+        return value;
+    }
+
+    private static void setStaticField(List<String> args)
+            throws Exception {
+
+        if (args.size() != 3) {
+            throw new IllegalArgumentException(
+                    "set <Class> <staticField> <value>");
+        }
+
+        Class<?> type = resolveClass(args.get(0), Object.class);
+        if (type == null) {
+            throw new ClassNotFoundException(args.get(0));
+        }
+
+        Field field = findField(type, args.get(1));
+        if (field == null) {
+            throw new NoSuchFieldException(str(
+                    type.getName(), ".", args.get(1)));
+        }
+        if (!Modifier.isStatic(field.getModifiers())) {
+            throw new IllegalArgumentException(str(
+                    "Field is not static: ",
+                    type.getName(), ".", field.getName()));
+        }
+        if (Modifier.isFinal(field.getModifiers())) {
+            throw new IllegalArgumentException(str(
+                    "Static final field is read-only: ",
+                    type.getName(), ".", field.getName()));
+        }
+
+        Object value = convertArg(field.getType(), args.get(2));
+        if (value == BAD_ARG) {
+            throw new IllegalArgumentException(str(
+                    "Cannot assign ", args.get(2),
+                    " to ", field.getType().getName(),
+                    " field ", field.getName()));
+        }
+
+        field.set(null, value);
+        GLog.p(str(
+                type.getSimpleName(), ".", field.getName(),
+                " = ", valueString(field.get(null))));
     }
 
     private static void inspect(List<String> args)

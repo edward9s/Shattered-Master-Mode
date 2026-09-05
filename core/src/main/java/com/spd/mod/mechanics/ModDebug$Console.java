@@ -165,20 +165,27 @@ public final class ModDebug$Console {
         Class<?> commandClass = resolveCommandClass(tokens, commandIndex, command);
 
         if (("get".equals(command) || "set".equals(command))
-                && tokens.size() > commandIndex + 2
-                && tokens.get(commandIndex + 1).startsWith("@")) {
-            TargetInfo target = targetInfo(tokens.get(commandIndex + 1));
-            int fieldIndex = commandIndex + 2;
-            Field field = resolveField(target.type, tokens.get(fieldIndex));
-            if (!field.getName().equals(tokens.get(fieldIndex))) {
-                announce("field", field.getName(), tokens.get(fieldIndex));
-                tokens.set(fieldIndex, field.getName());
-            }
+                && tokens.size() > commandIndex + 2) {
+            String targetToken = tokens.get(commandIndex + 1);
+            if (!targetToken.startsWith("#")) {
+                Class<?> fieldType = targetToken.startsWith("@")
+                        ? targetInfo(targetToken).type
+                        : commandClass;
+                if (fieldType != null) {
+                    int fieldIndex = commandIndex + 2;
+                    Field field = resolveField(fieldType, tokens.get(fieldIndex));
+                    if (!field.getName().equals(tokens.get(fieldIndex))) {
+                        announce("field", field.getName(), tokens.get(fieldIndex));
+                        tokens.set(fieldIndex, field.getName());
+                    }
 
-            if ("set".equals(command) && tokens.size() > fieldIndex + 1) {
-                tokens.set(
-                        fieldIndex + 1,
-                        rewriteNamedValue(field.getType(), tokens.get(fieldIndex + 1)));
+                    if ("set".equals(command) && tokens.size() > fieldIndex + 1) {
+                        tokens.set(
+                                fieldIndex + 1,
+                                rewriteNamedValue(
+                                        field.getType(), tokens.get(fieldIndex + 1)));
+                    }
+                }
             }
         }
 
@@ -252,6 +259,16 @@ public final class ModDebug$Console {
             label = "Trap class";
             parent = loadRequired(
                     "com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap");
+        } else if ("get".equals(command) || "set".equals(command)) {
+            String target = tokens.get(classIndex);
+            if (target.startsWith("@")) {
+                return targetInfo(target).type;
+            }
+            if (target.startsWith("#")) {
+                return null;
+            }
+            label = "Class";
+            parent = Object.class;
         } else if ("inspect".equals(command) || "use".equals(command)) {
             String target = tokens.get(classIndex);
             if (target.startsWith("@")
