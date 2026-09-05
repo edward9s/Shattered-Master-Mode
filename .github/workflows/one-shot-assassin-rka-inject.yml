@@ -1,0 +1,75 @@
+name: one-shot-assassin-rka-inject
+
+on:
+  push:
+    paths:
+      - '.github/workflows/one-shot-assassin-rka-inject.yml'
+
+permissions:
+  contents: read
+
+env:
+  GIT_AUTHOR_NAME: edward9s
+  GIT_AUTHOR_EMAIL: 277983297+edward9s@users.noreply.github.com
+  GIT_COMMITTER_NAME: edward9s
+  GIT_COMMITTER_EMAIL: 277983297+edward9s@users.noreply.github.com
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v3
+
+      - name: Checkout donor baseline SPD
+        uses: actions/checkout@v4
+        with:
+          repository: 00-Evan/shattered-pixel-dungeon
+          ref: v3.3.8
+          path: spd_src
+
+      - name: Build fresh current SMM donor
+        run: |
+          python scripts/patch_android.py
+          python scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGame.java
+          cp -a core spd_src/
+          cp -a android spd_src/ 2>/dev/null || true
+          cp -a desktop spd_src/ 2>/dev/null || true
+          cp -a assets spd_src/ 2>/dev/null || true
+          python scripts/patch_depth.py 26
+          chmod +x spd_src/gradlew
+          (cd spd_src && ./gradlew android:assembleRelease :desktop:release)
+          DONOR_APK=$(find spd_src/android/build/outputs/apk/release -name '*.apk' | head -n1)
+          DONOR_JAR=$(find spd_src/desktop/build/libs -name 'desktop-*.jar' | head -n1)
+          test -f "$DONOR_APK" && test -f "$DONOR_JAR"
+          echo "DONOR_APK=$DONOR_APK" >> "$GITHUB_ENV"
+          echo "DONOR_JAR=$DONOR_JAR" >> "$GITHUB_ENV"
+
+      - name: Download clean Rat King Adventure 2.3.3 targets
+        run: |
+          curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/android-release.apk -o /tmp/rka.apk
+          curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/desktop-2.3.3.jar -o /tmp/rka.jar
+          unzip -t /tmp/rka.apk >/dev/null
+          unzip -t /tmp/rka.jar >/dev/null
+
+      - name: Inject into Rat King Adventure
+        run: |
+          python scripts/inject_apk.py "$DONOR_APK" /tmp/rka.apk --out /tmp/rka-injected.apk
+          python scripts/inject_jar.py "$DONOR_JAR" /tmp/rka.jar --out /tmp/rka-injected.jar
+
+      - name: Verify Assassin payload
+        run: |
+          unzip -p /tmp/rka-injected.apk classes.dex | strings | grep -F 'Lcom/spd/mod/mechanics/ModAssassinBuff;'
+          unzip -p /tmp/rka-injected.apk classes.dex | strings | grep -F 'Lcom/spd/mod/mechanics/ModAssassin;'
+          unzip -p /tmp/rka-injected.apk classes.dex | strings | grep -F 'Lcom/spd/mod/mechanics/ModFlash;'
+          unzip -l /tmp/rka-injected.jar | grep -F 'com/spd/mod/mechanics/ModAssassinBuff.class'
+          unzip -l /tmp/rka-injected.jar | grep -F 'com/spd/mod/mechanics/ModAssassin.class'
+          unzip -l /tmp/rka-injected.jar | grep -F 'com/spd/mod/mechanics/ModFlash.class'
