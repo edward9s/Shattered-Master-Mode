@@ -26,6 +26,14 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
         this.level(tier);
         reset();
     }
+
+    /**
+     * Keep dynamic tier strings inside this kept class. Java string-concat indy can otherwise be
+     * desugared/merged by R8 into a donor-global synthetic helper that is not a stable injection ABI.
+     */
+    private static String tierText(String prefix, int tier, String suffix) {
+        return new StringBuilder(prefix).append(tier).append(suffix).toString();
+    }
     
     @Override
     public boolean keptThroughLostInventory() {
@@ -45,9 +53,9 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
 
         this.image = tier <= 2 ? ItemSpriteSheet.POTION_HOLDER : ItemSpriteSheet.ELIXIR_HOLDER;
         if (tier <= 2) {
-            this.color = "tier" + tier + "_reset";
+            this.color = tierText("tier", tier, "_reset");
         } else {
-            this.color = "exotic_tier" + tier;
+            this.color = tierText("exotic_tier", tier, "");
         }
     }
 
@@ -72,16 +80,16 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
 
     @Override
     public String name() {
-        String prefix = (tier <= 2) ? "" : "Exotic ";
-        return prefix + "Potion of Tier " + tier + " Reset";
+        String prefix = (tier <= 2) ? "Potion of Tier " : "Exotic Potion of Tier ";
+        return tierText(prefix, tier, " Reset");
     }
 
     @Override
     public String desc() {
-        String msg = (tier <= 2) ? 
-            "Drinking this potion will reset all your Tier " : 
+        String prefix = (tier <= 2) ?
+            "Drinking this potion will reset all your Tier " :
             "Drinking this exotic brew will magically reset all your Tier ";
-        return msg + tier + " talents, returning the spent points.";
+        return tierText(prefix, tier, " talents, returning the spent points.");
     }
 
     @Override
@@ -95,9 +103,9 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
         try {
             Dungeon.saveAll();
         } catch (Exception e) {
-            GLog.w("Reset Tier " + tier + " failed!");
+            GLog.w(tierText("Reset Tier ", tier, " failed!"));
         }
-        GLog.h("Tier " + tier + " Reset!");
+        GLog.h(tierText("Tier ", tier, " Reset!"));
     }
     
     @Override
