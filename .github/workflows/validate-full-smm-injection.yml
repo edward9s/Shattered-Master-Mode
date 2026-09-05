@@ -31,7 +31,7 @@ jobs:
       - name: Checkout SPD v3.3.8
         run: git clone --depth 1 --branch v3.3.8 https://github.com/00-Evan/shattered-pixel-dungeon.git spd_src
 
-      - name: Build fresh Android and desktop SMM donors
+      - name: Build fresh injection APK and desktop JAR donors
         run: |
           python mod/scripts/patch_android.py
           python mod/scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGame.java
@@ -41,14 +41,17 @@ jobs:
           cp -a mod/assets spd_src/ 2>/dev/null || true
           python mod/scripts/patch_depth.py 26
           chmod +x spd_src/gradlew
-          (cd spd_src && ./gradlew android:assembleRelease :desktop:release)
-          DONOR_APK=$(find spd_src/android/build/outputs/apk/release -name '*.apk' | head -1)
+          # The full APK payload donor is deliberately non-minified. The normal
+          # release build remains unchanged; this artifact exists only as the
+          # binary source consumed by the injector.
+          (cd spd_src && ./gradlew android:assembleDebug :desktop:release)
+          DONOR_APK=$(find spd_src/android/build/outputs/apk/debug -name '*.apk' | head -1)
           DONOR_JAR=$(find spd_src/desktop/build/libs -name '*.jar' | head -1)
           test -n "$DONOR_APK" -a -n "$DONOR_JAR"
           echo "DONOR_APK=$DONOR_APK" >> "$GITHUB_ENV"
           echo "DONOR_JAR=$DONOR_JAR" >> "$GITHUB_ENV"
 
-      - name: Verify complete Android keep rule was applied
+      - name: Verify normal release payload preservation rule remains present
         run: grep -F -- '-keep class com.spd.mod.** { *; }' spd_src/android/proguard-rules.pro
 
       - name: Diagnose direct donor-only dependencies from full SMM roots
@@ -89,6 +92,8 @@ jobs:
                       for dep in bad:
                           print('  -> ' + dep)
               print('SMM roots with direct donor-only dependencies:', offenders)
+              if offenders:
+                  raise SystemExit('Full SMM injection donor is not self-contained')
           PY
           python /tmp/diagnose_full_payload.py
 
