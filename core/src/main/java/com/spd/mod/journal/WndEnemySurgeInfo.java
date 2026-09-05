@@ -4,7 +4,6 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModEnemySurge;
-import com.spd.mod.tools.ModLevelSlider;
 
 /** Enemy Surge's live buff information window. */
 public class WndEnemySurgeInfo extends WndInfoBuff {
@@ -15,7 +14,9 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
     public WndEnemySurgeInfo(final ModEnemySurge buff) {
         super(buff);
 
-        final RedButton multiplierButton = new RedButton(multiplierText(buff), 8) {
+        float halfWidth = (width - GAP) / 2f;
+
+        final RedButton downButton = new RedButton(downText(buff), 8) {
             @Override
             protected void onClick() {
                 if (buff.target == null || buff.target.buff(ModEnemySurge.class) != buff) {
@@ -23,12 +24,27 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
                     return;
                 }
 
-                buff.setSpawnMultiplier(ModLevelSlider.level);
+                buff.setSpawnMultiplier(buff.spawnMultiplier() - 1);
                 rebuild(buff);
             }
         };
-        multiplierButton.setRect(0, height + GAP, width, BUTTON_HEIGHT);
-        add(multiplierButton);
+        downButton.setRect(0, height + GAP, halfWidth, BUTTON_HEIGHT);
+        add(downButton);
+
+        final RedButton upButton = new RedButton(upText(buff), 8) {
+            @Override
+            protected void onClick() {
+                if (buff.target == null || buff.target.buff(ModEnemySurge.class) != buff) {
+                    WndEnemySurgeInfo.this.hide();
+                    return;
+                }
+
+                buff.setSpawnMultiplier(buff.spawnMultiplier() + 1);
+                rebuild(buff);
+            }
+        };
+        upButton.setRect(downButton.right() + GAP, downButton.top(), halfWidth, BUTTON_HEIGHT);
+        add(upButton);
 
         final RedButton attractButton = new RedButton(attractText(buff), 8) {
             @Override
@@ -42,7 +58,7 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
                 rebuild(buff);
             }
         };
-        attractButton.setRect(0, multiplierButton.bottom() + GAP, width, BUTTON_HEIGHT);
+        attractButton.setRect(0, downButton.bottom() + GAP, width, BUTTON_HEIGHT);
         add(attractButton);
 
         resize(width, (int) attractButton.bottom() + 2);
@@ -54,8 +70,12 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
         GameScene.show(new WndEnemySurgeInfo(buff));
     }
 
-    private static String multiplierText(ModEnemySurge buff) {
-        return "Set " + ModLevelSlider.level + "x (Now " + buff.spawnMultiplier() + "x)";
+    private static String downText(ModEnemySurge buff) {
+        return "Down: " + Math.max(1, buff.spawnMultiplier() - 1) + "x";
+    }
+
+    private static String upText(ModEnemySurge buff) {
+        return "Up: " + Math.min(10, buff.spawnMultiplier() + 1) + "x";
     }
 
     private static String attractText(ModEnemySurge buff) {
