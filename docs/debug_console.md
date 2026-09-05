@@ -303,7 +303,8 @@ Select a tile after entering the command.
 
 ```text
 trap AlarmTrap
-@trap trap AlarmTrap
+trap alarm
+@trap trap RockfallTrap
 ```
 
 Syntax:
@@ -312,39 +313,52 @@ Syntax:
 trap <Trap>
 ```
 
-Select a tile after entering the command. The debug command creates and reveals the trap.
+`trap` is already a complete dedicated placement command: it constructs the Trap instance, assigns its cell, reveals it, installs it into the current Level, and changes the tile to `Terrain.TRAP`. Trap class names use the same fuzzy resolution as other class-based commands. If the best fuzzy match is ambiguous, the console prints `Similar:` candidates and does not place anything. The map and visibility are refreshed after placement.
 
-## Editing terrain
+## Editing terrain: `terrain`
 
-Terrain can already be edited through `Terrain` static constants and `Level.set(...)`. For cross-fork/version compatibility, prefer reading the constant instead of hard-coding terrain IDs:
+The convenient form is to name a terrain and then select a map cell:
+
+```text
+terrain LOCKED_DOOR
+terrain CHASM
+terrain WATER
+terrain WALL
+```
+
+Syntax:
+
+```text
+terrain <Terrain> [cell|@variable]
+```
+
+Omit the cell to open the map selector, or provide a cell number / saved handle directly:
 
 ```text
 @cell cell
-@terrain get Terrain LOCKED_DOOR
-use Level set @cell @terrain
-use GameScene updateMap @cell
-use Dungeon observe
+terrain CHASM @cell
+terrain WALL 123
 ```
 
-That turns the selected cell into a locked door. To test normal iron-key unlocking on the current floor:
+Terrain names are case-insensitive and support prefix, substring, and subsequence fuzzy matching. For example:
 
 ```text
+terrain chsm
+terrain lockdoor
+```
+
+`chsm` can resolve to `CHASM`, while `lockdoor` can resolve to `LOCKED_DOOR`. If the best match is ambiguous, the console prints `Similar:` candidates and leaves the map unchanged. Prefer names over hard-coded numeric terrain IDs for cross-fork/version compatibility.
+
+Internally, `terrain` calls the target game's `Level.set(cell, terrain)`, so passable/solid/pit and related flags are updated. It then refreshes the map, recalculates observation, and updates fog.
+
+For a locked-door test:
+
+```text
+terrain LOCKED_DOOR
 give IronKey
 ```
 
-To create a chasm cell:
-
-```text
-@cell cell
-@terrain get Terrain CHASM
-use Level set @cell @terrain
-use GameScene updateMap @cell
-use Dungeon observe
-```
-
-`Level.set` updates the cell's passable/solid/pit and related terrain flags. `GameScene.updateMap` refreshes the rendered tile immediately, and `Dungeon.observe` recalculates visibility.
-
-Not every map feature is represented by terrain alone. Traps also require a live `Trap` object, so prefer the `trap` command for them. Entrances/exits normally involve `LevelTransition`, and scripted gates or special rooms may carry additional state.
+Not every map feature is represented by terrain alone. Traps also require a live `Trap` object, so use `trap` for them. Entrances/exits normally involve `LevelTransition`, and scripted gates or special rooms may carry additional state.
 
 ## Movement
 

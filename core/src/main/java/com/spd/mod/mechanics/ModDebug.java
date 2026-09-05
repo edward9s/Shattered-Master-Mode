@@ -114,7 +114,7 @@ public final class ModDebug {
     public static void open() {
         GameScene.show(new WndTextInput(
                 "Debug command",
-                "help | give | spawn | affect | seed | trap | warp | inspect | use | enchant | inscribe | goto | where | macro | @ | search | results | get | set | clear | save | load",
+                "help | give | spawn | affect | seed | trap | terrain | warp | inspect | use | enchant | inscribe | goto | where | macro | @ | search | results | get | set | clear | save | load",
                 "",
                 400,
                 false,
@@ -199,6 +199,10 @@ public final class ModDebug {
 
             case "trap":
                 trap(args, storeVariable);
+                return;
+
+            case "terrain":
+                terrain(args);
                 return;
 
             case "warp":
@@ -388,6 +392,7 @@ public final class ModDebug {
                 + "affect <Buff> [duration] [method [args...]]  (select a character)\n"
                 + "seed <Blob> [amount]  (select a tile)\n"
                 + "trap <Trap>  (select a tile; trap is revealed)\n"
+                + "terrain <Terrain> [cell|@variable]  (select a tile if omitted)\n"
                 + "warp [cell|@variable]  (same-floor teleport)\n"
                 + "inspect <Class|hero|level|@variable>\n"
                 + "use <Class|hero|level|@variable> <method> [args...]\n"
@@ -1347,6 +1352,198 @@ public final class ModDebug {
         });
     }
 
+    private static void terrain(List<String> args) throws Exception {
+        if (args.isEmpty() || args.size() > 2) {
+            throw new IllegalArgumentException(
+                    "terrain <Terrain> [cell|@variable]");
+        }
+        if (Dungeon.level == null) {
+            throw new IllegalStateException("No active level");
+        }
+
+        final Field terrainField = resolveTerrainField(args.get(0));
+        if (terrainField == null) {
+            throw new IllegalArgumentException(str(
+                    "Terrain not found or ambiguous: ", args.get(0)));
+        }
+
+        terrainField.setAccessible(true);
+        final int terrainValue = terrainField.getInt(null);
+        final String terrainName = terrainField.getName();
+
+        if (args.size() == 2) {
+            applyTerrain(
+                    integerArgument(args.get(1)),
+                    terrainValue, terrainName);
+            return;
+        }
+
+        GameScene.selectCell(new CellSelector.Listener() {
+            @Override
+            public String prompt() {
+                return str("Select location for ", terrainName, ":");
+            }
+
+            @Override
+            public void onSelect(Integer cell) {
+                if (cell == null || cell < 0) {
+                    return;
+                }
+
+                try {
+                    applyTerrain(cell, terrainValue, terrainName);
+                } catch (Exception error) {
+                    reportCommandError("Terrain change failed", error);
+                }
+            }
+        });
+    }
+
+    private static Field resolveTerrainField(String input) throws Exception {
+        Class<?> terrain = loadRequired(TERRAIN_CLASS);
+        String name = input.trim();
+        String lower = name.toLowerCase(Locale.ROOT);
+
+        for (Field field : terrain.getDeclaredFields()) {
+            if (isTerrainConstant(field)
+                    && field.getName().equalsIgnoreCase(name)) {
+                field.setAccessible(true);
+                return field;
+            }
+        }
+
+        for (int rank = 0; rank < 3; rank++) {
+            ArrayList<Field> matches = new ArrayList<>();
+
+            for (Field field : terrain.getDeclaredFields()) {
+                if (!isTerrainConstant(field)) {
+                    continue;
+                }
+
+                if (fuzzyMatchRank(
+                        lower,
+                        field.getName().toLowerCase(Locale.ROOT)) == rank) {
+                    matches.add(field);
+                }
+            }
+
+            if (matches.size() == 1) {
+                Field field = matches.get(0);
+                field.setAccessible(true);
+                GLog.i(str(
+                        "Using Terrain.", field.getName(),
+                        " for ", input));
+                return field;
+            }
+
+            if (matches.size() > 1) {
+                ArrayList<String> names = new ArrayList<>();
+                for (Field field : matches) {
+                    names.add(field.getName());
+                }
+                Collections.sort(names);
+                logSimilar(names);
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private static boolean isTerrainConstant(Field field) {
+        if (!Modifier.isStatic(field.getModifiers())
+                || !Modifier.isFinal(field.getModifiers())
+                || field.getType() != int.class) {
+            return false;
+        }
+
+        String name = field.getName().toUpperCase(Locale.ROOT);
+        return !"PASSABLE".equals(name)
+                && !"LOS_BLOCKING".equals(name)
+                && !"FLAMABLE".equals(name)
+                && !"FLAMMABLE".equals(name)
+                && !"SECRET".equals(name)
+                && !"SOLID".equals(name)
+                && !"AVOID".equals(name)
+                && !"LIQUID".equals(name)
+                && !"PIT".equals(name)
+                && !name.endsWith("_FLAG")
+                && !name.endsWith("_FLAGS");
+    }
+
+    private static void applyTerrain(
+            int cell, int terrainValue, String terrainName)
+            throws Exception {
+
+        boolean insideMap = false;
+        InvocationResult inside = invokeCompatibleObjects(
+                Dungeon.level,
+                Dungeon.level.getClass(),
+                "insideMap",
+                new Object[]{cell},
+                false, false);
+
+        if (inside.invoked && inside.result instanceof Boolean) {
+            insideMap = (Boolean) inside.result;
+        } else {
+            Field mapField = findField(Dungeon.level.getClass(), "map");
+            if (mapField == null) {
+                throw new NoSuchFieldException(
+                        "Target level has no map field");
+            }
+            Object map = mapField.get(Dungeon.level);
+            insideMap = map != null
+                    && map.getClass().isArray()
+                    && cell >= 0
+                    && cell < Array.getLength(map);
+        }
+
+        if (!insideMap) {
+            throw new IllegalArgumentException(
+                    str("Cell is outside the map: ", cell));
+        }
+
+        Class<?> levelType = loadRequired(LEVEL_CLASS);
+        InvocationResult setResult = invokeCompatibleObjects(
+                null, levelType, "set",
+                new Object[]{cell, terrainValue},
+                false, false);
+
+        if (!setResult.invoked) {
+            throw new NoSuchMethodException(
+                    "Target Level has no compatible static set(cell, terrain)");
+        }
+
+        refreshTerrainCell(cell);
+        GLog.p(str(
+                "Set cell ", cell,
+                " to Terrain.", terrainName));
+    }
+
+    private static void refreshTerrainCell(int cell) throws Exception {
+        InvocationResult updated = invokeCompatibleObjects(
+                null, GameScene.class, "updateMap",
+                new Object[]{cell},
+                false, false);
+
+        if (!updated.invoked) {
+            invokeCompatibleObjects(
+                    null, GameScene.class, "updateMap",
+                    new Object[0],
+                    false, false);
+        }
+
+        invokeCompatibleObjects(
+                null, Dungeon.class, "observe",
+                new Object[0],
+                false, false);
+
+        invokeCompatibleObjects(
+                null, GameScene.class, "updateFog",
+                new Object[0],
+                false, false);
+    }
+
     private static void trap(
             List<String> args, final String storeVariable)
             throws Exception {
@@ -1439,6 +1636,8 @@ public final class ModDebug {
                         throw new NoSuchMethodException(
                                 "Target Level has no compatible static set(cell, terrain)");
                     }
+
+                    refreshTerrainCell(cell);
 
                     if (storeVariable != null) {
                         putVariable(
@@ -3249,7 +3448,105 @@ public final class ModDebug {
             }
         }
 
+        Class<?> fuzzy = resolveFuzzyClass(name, parent);
+        if (fuzzy != null) {
+            return fuzzy;
+        }
+
         return null;
+    }
+
+    private static Class<?> resolveFuzzyClass(
+            String input, Class<?> parent) {
+
+        ensureClassIndex();
+        String lower = input.toLowerCase(Locale.ROOT);
+
+        for (int rank = 0; rank < 3; rank++) {
+            ArrayList<Class<?>> matches = new ArrayList<>();
+
+            for (String className : CLASS_NAMES) {
+                String simple = simpleClassName(className);
+                if (fuzzyMatchRank(
+                        lower,
+                        simple.toLowerCase(Locale.ROOT)) != rank) {
+                    continue;
+                }
+
+                Class<?> loaded = tryLoad(className, parent);
+                if (loaded != null) {
+                    matches.add(loaded);
+                }
+            }
+
+            if (matches.size() == 1) {
+                Class<?> loaded = matches.get(0);
+                GLog.i(str(
+                        "Using ", loaded.getSimpleName(),
+                        " for ", input));
+                return loaded;
+            }
+
+            if (matches.size() > 1) {
+                ArrayList<String> names = new ArrayList<>();
+                for (Class<?> match : matches) {
+                    names.add(match.getSimpleName());
+                }
+                Collections.sort(names);
+                logSimilar(names);
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private static String simpleClassName(String className) {
+        int dot = className.lastIndexOf('.');
+        int dollar = className.lastIndexOf('$');
+        return className.substring(Math.max(dot, dollar) + 1);
+    }
+
+    private static int fuzzyMatchRank(
+            String query, String candidate) {
+
+        if (query == null || query.isEmpty()) {
+            return -1;
+        }
+        if (candidate.startsWith(query)) {
+            return 0;
+        }
+        if (candidate.contains(query)) {
+            return 1;
+        }
+        return isSubsequence(query, candidate) ? 2 : -1;
+    }
+
+    private static boolean isSubsequence(
+            String query, String candidate) {
+
+        int index = 0;
+        for (int i = 0;
+                i < candidate.length() && index < query.length();
+                i++) {
+            if (candidate.charAt(i) == query.charAt(index)) {
+                index++;
+            }
+        }
+        return index == query.length();
+    }
+
+    private static void logSimilar(List<String> names) {
+        StringBuilder out = new StringBuilder("Similar:");
+        int limit = Math.min(10, names.size());
+        for (int i = 0; i < limit; i++) {
+            out.append(i == 0 ? " " : ", ")
+                    .append(names.get(i));
+        }
+        if (names.size() > limit) {
+            out.append(", ...");
+        }
+        GLog.w(out.toString());
     }
 
     private static Class<?> loadRequired(
@@ -3836,7 +4133,7 @@ public final class ModDebug {
         String[] commands = {
                 "help", "give", "spawn",
                 "affect", "seed", "trap",
-                "warp", "inspect", "use",
+                "terrain", "warp", "inspect", "use",
                 "enchant", "inscribe",
                 "goto", "where", "macro",
                 "search", "results", "get",

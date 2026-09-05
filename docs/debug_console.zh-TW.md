@@ -303,7 +303,8 @@ seed <Blob> [amount]
 
 ```text
 trap AlarmTrap
-@trap trap AlarmTrap
+trap alarm
+@trap trap RockfallTrap
 ```
 
 語法：
@@ -312,39 +313,52 @@ trap AlarmTrap
 trap <Trap>
 ```
 
-輸入後再選地圖 cell。Debug 指令會建立並 reveal 該陷阱。
+`trap` 本身就是完整的專用放置指令：它會建立 Trap instance、設定 cell、reveal、加入目前 Level，並把該格設成 `Terrain.TRAP`。Trap class 名稱支援和其他 class 指令相同的 fuzzy 規則；若最佳匹配有歧義，會列出 `Similar:` 候選而不執行。放置完成後也會刷新地圖與視野。
 
-## 修改地形
+## 修改地形：`terrain`
 
-目前可直接利用 `Terrain` 的 static 常數與 `Level.set(...)` 修改某一格地形。為了跨 SPD fork／版本，建議不要硬寫 terrain 數字，而是先讀取常數：
+最方便的方式是直接輸入 terrain 名稱，然後點選地圖 cell：
+
+```text
+terrain LOCKED_DOOR
+terrain CHASM
+terrain WATER
+terrain WALL
+```
+
+語法：
+
+```text
+terrain <Terrain> [cell|@variable]
+```
+
+省略 cell 時會打開地圖選擇器；也可以直接指定 cell 或先保存的 handle：
 
 ```text
 @cell cell
-@terrain get Terrain LOCKED_DOOR
-use Level set @cell @terrain
-use GameScene updateMap @cell
-use Dungeon observe
+terrain CHASM @cell
+terrain WALL 123
 ```
 
-上面會把選定 cell 改成鎖上的門。若要測試一般鐵鑰匙開門，再建立目前樓層的鑰匙：
+Terrain 名稱不分大小寫，並支援 prefix、包含字串與 subsequence fuzzy。例如：
 
 ```text
+terrain chsm
+terrain lockdoor
+```
+
+其中 `chsm` 可匹配 `CHASM`，`lockdoor` 可匹配 `LOCKED_DOOR`。若最佳匹配不唯一，Console 會列出 `Similar:` 候選而不修改地圖。不要硬寫 terrain 數字，名稱在不同 SPD fork／版本間較安全。
+
+`terrain` 內部會呼叫目標遊戲的 `Level.set(cell, terrain)`，因此 passable／solid／pit 等 terrain flags 會同步更新；之後還會刷新 map、重新 observe 與更新 fog。
+
+例如建立鎖上的門後，可直接產生目前樓層的鐵鑰匙測試：
+
+```text
+terrain LOCKED_DOOR
 give IronKey
 ```
 
-改成 chasm：
-
-```text
-@cell cell
-@terrain get Terrain CHASM
-use Level set @cell @terrain
-use GameScene updateMap @cell
-use Dungeon observe
-```
-
-`Level.set` 會同步該 cell 的 passable／solid／pit 等 terrain flags；`GameScene.updateMap` 立即刷新圖塊，`Dungeon.observe` 重新計算可視範圍。
-
-注意：並非所有「看起來像地形」的機制都只有一個 terrain 數值。陷阱還需要實際 `Trap` 物件，因此應優先使用 `trap`；樓梯／入口／出口通常還牽涉 `LevelTransition`；特殊房間、scripted gate 等也可能有額外狀態。
+注意：並非所有「看起來像地形」的機制都只有一個 terrain 數值。陷阱還需要實際 `Trap` 物件，因此應使用 `trap`；樓梯／入口／出口通常還牽涉 `LevelTransition`；特殊房間、scripted gate 等也可能有額外狀態。
 
 ## 移動
 
