@@ -19,7 +19,7 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
         final RedButton downButton = new RedButton(downText(buff), 8) {
             @Override
             protected void onClick() {
-                if (buff.target == null || buff.target.buff(ModEnemySurge.class) != buff) {
+                if (!buff.isAttached()) {
                     WndEnemySurgeInfo.this.hide();
                     return;
                 }
@@ -34,7 +34,7 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
         final RedButton upButton = new RedButton(upText(buff), 8) {
             @Override
             protected void onClick() {
-                if (buff.target == null || buff.target.buff(ModEnemySurge.class) != buff) {
+                if (!buff.isAttached()) {
                     WndEnemySurgeInfo.this.hide();
                     return;
                 }
@@ -49,7 +49,7 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
         final RedButton attractButton = new RedButton(attractText(buff), 8) {
             @Override
             protected void onClick() {
-                if (buff.target == null || buff.target.buff(ModEnemySurge.class) != buff) {
+                if (!buff.isAttached()) {
                     WndEnemySurgeInfo.this.hide();
                     return;
                 }
