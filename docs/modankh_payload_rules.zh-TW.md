@@ -52,6 +52,18 @@ Enemy Surge 也避免直接呼叫 `Char.buff(Class)`，因為不同 SPD fork 編
 - 優先維持能完整保留功能的最小 explicit payload boundary；
 - generic API 在不同 fork 間看似 source signature 相同時，仍應比較實際 compiled descriptor。
 
+### Loot Buff 成功注入的經驗
+
+Loot Buff 證明 injectable feature 即使不是單一 Buff class，而是包含 UI、storage 與數個小型 helper 的完整功能 family，只要邊界明確，而且每個 dependency 都真正屬於該功能，仍可成功注入並在實際 injected build 中正常操作。
+
+`ModLootStorage` 也移除了對 `ModScrollOfLoot`、`ModAnkh` 這類 optional mod item 的 compile-time `instanceof` 依賴。這些判斷真正需要的只是排除特定 item family，因此沿 runtime class hierarchy 比對 class name，就能保留相同語意，而不必把無關 item implementation 一起拖進 payload。Loot 同時沿用較穩定的 `buffs(Class)` 路徑，避免再次綁定不同 fork 可能不一致的 `buff(Class)` descriptor。
+
+因此：
+
+- 最小 payload 指的是能完整保留功能的最小 cohesive boundary，不代表 class 數量越少越好；
+- optional donor class 若只用來做排除／capability 判斷，應避免因此形成不必要的 compile-time dependency；
+- 明確列入 UI／storage helper，通常比讓 donor dependency closure 靜默擴張更安全、更容易稽核。
+
 ## 2. R8 / desugaring 安全規則
 
 Binary donor 對最佳化後 bytecode 的形狀很敏感。R8/D8 可能重新命名、合併、outline，或共用原本分屬不同程式碼的 compiler-generated helper。若 injector 對 donor-only dependency 不加區別地一路追蹤，就可能把無關的 donor 程式碼一起拖進 payload，最後在 target compatibility validation 時爆炸。
