@@ -1,0 +1,48 @@
+name: one-shot-debug-help-topics
+
+on:
+  push:
+    paths:
+      - '.github/workflows/one-shot-debug-help-topics.yml'
+
+permissions:
+  contents: write
+
+env:
+  GIT_AUTHOR_NAME: edward9s
+  GIT_AUTHOR_EMAIL: 277983297+edward9s@users.noreply.github.com
+  GIT_COMMITTER_NAME: edward9s
+  GIT_COMMITTER_EMAIL: 277983297+edward9s@users.noreply.github.com
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Synchronize console UI and topic help
+        run: |
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+          python .github/scripts/patch_debug_help_topics.py
+          grep -F 'terrain | warp | inspect | use | enchant | inscribe' 'core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java'
+          grep -F '|| "terrain".equals(command)' 'core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java'
+          grep -F '|| "enchant".equals(command)' 'core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java'
+          grep -F '|| "inscribe".equals(command)' 'core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java'
+          grep -F 'help(args);' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
+          grep -F 'Use help <topic> for focused help.' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
+          grep -F 'case "terrain":' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
+          grep -F 'case "@":' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
+          grep -F 'case "!!":' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
+          grep -F 'help terrain' docs/debug_console.md docs/debug_console.zh-TW.md
+          if grep -Fq 'Class, field, method, Class-argument, and enum identifiers support' 'core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java'; then
+            echo 'legacy appended help text still present'
+            exit 1
+          fi
+          git diff --check
+          git add core/src/main/java/com/spd/mod/mechanics/ModDebug.java 'core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java' docs/debug_console.md docs/debug_console.zh-TW.md
+          git commit -m "Improve debug console help and command list"
+          git push origin main
