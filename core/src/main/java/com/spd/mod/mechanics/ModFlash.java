@@ -105,7 +105,10 @@ public class ModFlash {
             return true;
         }
 
-        Trap trap = level.traps.get(pos);
+        // Use SparseArray's own overload rather than inherited IntMap.get(int).
+        // Android R8 can rebind the inherited call to a minified libGDX owner,
+        // which is not a stable ABI when this class is injected into another APK.
+        Trap trap = level.traps.get(pos, null);
         if (trap != null && trap.active) {
             return true;
         }
