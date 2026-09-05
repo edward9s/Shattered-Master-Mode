@@ -5,11 +5,12 @@ on:
     branches: [ main ]
     paths:
       - '.github/workflows/build.yml'
+      - '.github/workflows/build-inject-kit.yml'
       - '.github/workflows/validate-full-smm-injection.yml'
       - 'core/src/main/java/com/spd/mod/**'
-      - 'scripts/inject_smm_apk.py'
-      - 'scripts/inject_smm_jar.py'
       - 'scripts/inject_apk.py'
+      - 'scripts/_inject_apk_core.py'
+      - 'scripts/inject_smm_jar.py'
       - 'scripts/inject_jar.py'
       - 'scripts/package_inject_kit.py'
       - 'scripts/patch_android.py'
@@ -58,41 +59,35 @@ jobs:
 
       - name: Package and verify distributable injection kit
         run: |
-          KIT_ZIP=/tmp/SMM-v3.3.8-mtest-InjectKit.zip
           KIT_DIR=/tmp/smm-inject-kit
           python mod/scripts/package_inject_kit.py \
-            v3.3.8 test "$DONOR_APK" "$DONOR_JAR" \
-            "$KIT_ZIP" --repo-root mod
+            "$DONOR_APK" "$DONOR_JAR" "$KIT_DIR" \
+            --repo-root mod
           python - <<'PY'
-          import zipfile
-          path = '/tmp/SMM-v3.3.8-mtest-InjectKit.zip'
+          from pathlib import Path
+          kit = Path('/tmp/smm-inject-kit')
           required = {
-              'SMM-v3.3.8-mtest-inject-donor.apk',
-              'SMM-v3.3.8-mtest-inject-donor.jar',
-              'inject_smm_apk.py',
+              'smm-inject-donor.apk',
+              'smm-inject-donor.jar',
               'inject_apk.py',
+              '_inject_apk_core.py',
               'inject_smm_jar.py',
               'inject_jar.py',
               'modankh_payload_rules.md',
               'README.txt',
           }
-          with zipfile.ZipFile(path) as zf:
-              names = set(zf.namelist())
-              missing = sorted(required - names)
-              if missing:
-                  raise SystemExit('Injection kit is missing: ' + ', '.join(missing))
-              if zf.testzip() is not None:
-                  raise SystemExit('Injection kit ZIP is corrupt')
-          print('Injection kit packaging: OK')
+          names = {p.name for p in kit.iterdir()}
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit('Injection kit is missing: ' + ', '.join(missing))
+          if 'inject_smm_apk.py' in names:
+              raise SystemExit('Obsolete inject_smm_apk.py leaked into injection kit')
+          print('Flat injection kit packaging: OK')
           PY
-          rm -rf "$KIT_DIR"
-          mkdir -p "$KIT_DIR"
-          python -m zipfile -e "$KIT_ZIP" "$KIT_DIR"
-          test -f "$KIT_DIR/inject_smm_apk.py"
-          test -f "$KIT_DIR/inject_smm_jar.py"
+          python -m py_compile "$KIT_DIR/inject_apk.py" "$KIT_DIR/_inject_apk_core.py"
           echo "KIT_DIR=$KIT_DIR" >> "$GITHUB_ENV"
-          echo "KIT_DONOR_APK=$KIT_DIR/SMM-v3.3.8-mtest-inject-donor.apk" >> "$GITHUB_ENV"
-          echo "KIT_DONOR_JAR=$KIT_DIR/SMM-v3.3.8-mtest-inject-donor.jar" >> "$GITHUB_ENV"
+          echo "KIT_DONOR_APK=$KIT_DIR/smm-inject-donor.apk" >> "$GITHUB_ENV"
+          echo "KIT_DONOR_JAR=$KIT_DIR/smm-inject-donor.jar" >> "$GITHUB_ENV"
 
       - name: Diagnose direct donor-only dependencies from full SMM roots
         run: |
@@ -103,7 +98,7 @@ jobs:
           import sys
           import tempfile
 
-          spec = importlib.util.spec_from_file_location('inj', 'mod/scripts/inject_apk.py')
+          spec = importlib.util.spec_from_file_location('inj', 'mod/scripts/_inject_apk_core.py')
           inj = importlib.util.module_from_spec(spec)
           sys.modules[spec.name] = inj
           spec.loader.exec_module(inj)
@@ -148,12 +143,12 @@ jobs:
       - name: Validate official SPD APK full injection from packaged kit
         id: spd_apk
         continue-on-error: true
-        run: python "$KIT_DIR/inject_smm_apk.py" "$KIT_DONOR_APK" targets/spd.apk --out /tmp/spd-SMM.apk
+        run: python "$KIT_DIR/inject_apk.py" "$KIT_DONOR_APK" targets/spd.apk --out /tmp/spd-SMM.apk
 
       - name: Validate RKA APK full injection from packaged kit
         id: rka_apk
         continue-on-error: true
-        run: python "$KIT_DIR/inject_smm_apk.py" "$KIT_DONOR_APK" targets/rka.apk --out /tmp/rka-SMM.apk
+        run: python "$KIT_DIR/inject_apk.py" "$KIT_DONOR_APK" targets/rka.apk --out /tmp/rka-SMM.apk
 
       - name: Validate official SPD JAR full injection from packaged kit
         id: spd_jar
