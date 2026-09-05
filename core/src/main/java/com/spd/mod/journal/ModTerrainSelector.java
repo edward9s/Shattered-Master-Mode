@@ -79,7 +79,10 @@ public class ModTerrainSelector extends CellSelector.Listener implements Callbac
             }
 
             if (count <= 1) {
-                GLog.w("Cancelled: Cannot remove the last %s!", type.name());
+                // String.valueOf(Object) keeps the compiled call owner on java.lang.String
+                // instead of rebinding inherited Enum.name() to the concrete transition
+                // enum class, which is not a stable binary API across injected targets.
+                GLog.w("Cancelled: Cannot remove the last %s!", String.valueOf(type));
                 ShatteredPixelDungeon.runOnRenderThread(this);
                 return;
             } else {
