@@ -31,7 +31,7 @@ jobs:
           python -m py_compile scripts/patch_android.py
           grep -F 'putTerrainFallback(values, "CHASM", 0);' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
           grep -F 'putTerrainFallback(values, "CRYSTAL_DOOR", 31);' core/src/main/java/com/spd/mod/mechanics/ModDebug.java
-          grep -F 'canonical ID' docs/debug_console.md
+          grep -F 'canonical Terrain ID' docs/debug_console.md
           grep -F 'canonical ID' docs/debug_console.zh-TW.md
           grep -F -- '-keepclassmembers class com.shatteredpixel.shatteredpixeldungeon.levels.Terrain { public static final int *; }' scripts/patch_android.py
           git diff --check
