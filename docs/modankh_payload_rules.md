@@ -25,6 +25,7 @@ Important payload families currently include:
 - explicitly supported helpers such as `ModValueSearch` and `ModSaveTransfer`
 - `com.spd.mod.mechanics.ModAssassinBuff` plus its required `ModAssassin` / `ModFlash` class families, for Debug Console `affect` support
 - `com.spd.mod.mechanics.ModParryRiposte` plus its `ModTotalInfoOverlay` / `WndTotalBuffInfo` UI support families, for Debug Console `affect` support
+- `com.spd.mod.mechanics.ModEnemySurge` plus its `ModEnemySurgeInfoOverlay` / `WndEnemySurgeInfo` UI support families, for Debug Console `affect` support
 
 Do not assume that every donor class reachable from these classes is safe to copy into a target build.
 
@@ -37,6 +38,18 @@ The APK and JAR injectors also detect the target SPD-family package root from th
 - Never make payload code depend on unrelated donor-only application classes.
 - Never rely on an obfuscated donor class name being meaningful in the target.
 - Do not broaden the payload merely to silence a compatibility error.
+
+### Lesson from the successful Enemy Surge injection
+
+`WndEnemySurgeInfo` originally depended on `ModLevelSlider`, which would have pulled `ModGame` and unrelated application/settings code into an otherwise small injectable feature. Replacing that dependency with self-contained Up/Down controls kept the payload boundary to `ModEnemySurge` plus its two UI families and was verified successfully in an injected build.
+
+Enemy Surge also avoided direct use of `Char.buff(Class)` because the erased return descriptor differs between supported SPD forks (`Buff` vs `Object`). A small helper based on the more stable `buffs(Class)` API kept the compiled call shape compatible.
+
+Therefore:
+
+- redesign a small payload UI when that removes a large unrelated dependency chain;
+- prefer the smallest explicit payload boundary that still preserves the feature;
+- when a generic API differs across forks, compare the compiled descriptor, not only the Java source signature.
 
 ## 2. R8 / desugaring safety
 
