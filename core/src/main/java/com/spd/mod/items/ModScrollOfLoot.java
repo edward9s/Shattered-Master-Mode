@@ -22,7 +22,14 @@ public class ModScrollOfLoot extends Scroll {
     }
 
     private void bindStorage() {
-        storage.setChangeListener(this::syncCount);
+        // Use an explicit kept inner class instead of a lambda/method reference. R8 may horizontally
+        // merge lambda synthetics with unrelated Android/library code, which is unsafe to relocate.
+        storage.setChangeListener(new Runnable() {
+            @Override
+            public void run() {
+                syncCount();
+            }
+        });
     }
 
     private void syncCount() {
@@ -106,11 +113,17 @@ public class ModScrollOfLoot extends Scroll {
                 + "\n\nLoot makes the hero trample all high-grass and loot all heaps."
                 + " Items that don't fit in your bags are absorbed into the scroll."
                 + " You can also Put items from your bags into the scroll for safekeeping.";
-        if (storage.size() > 0) {
-            base += "\n\nCurrently holding " + storage.size()
-                    + " item(s). Use Take to retrieve them one at a time, or Dump to empty the scroll at once.";
+        if (storage.size() <= 0) {
+            return base;
         }
-        return base;
+
+        // Keep the dynamic count formatting inside this kept class rather than allowing Java's
+        // string-concat indy to become a donor-global R8 synthetic helper.
+        return new StringBuilder(base)
+                .append("\n\nCurrently holding ")
+                .append(storage.size())
+                .append(" item(s). Use Take to retrieve them one at a time, or Dump to empty the scroll at once.")
+                .toString();
     }
 
     @Override
