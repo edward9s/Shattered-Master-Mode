@@ -52,6 +52,18 @@ Therefore:
 - prefer the smallest explicit payload boundary that still preserves the feature;
 - when a generic API differs across forks, compare the compiled descriptor, not only the Java source signature.
 
+### Lesson from the successful Loot Buff injection
+
+Loot Buff proved that an injectable feature can safely include a cohesive UI/storage/helper family larger than a single Buff class, as long as the boundary is explicit and each dependency belongs to the feature. The injected build was exercised successfully at runtime.
+
+`ModLootStorage` also removed compile-time `instanceof` dependencies on optional mod item classes such as `ModScrollOfLoot` and `ModAnkh`. Those checks only needed to exclude specific item families, so comparing the runtime class hierarchy by name preserved the behavior without pulling unrelated item implementations into the payload. Loot also reused the stable `buffs(Class)` path instead of the fork-sensitive `buff(Class)` descriptor.
+
+Therefore:
+
+- a minimal payload means the smallest cohesive feature boundary, not necessarily the fewest possible classes;
+- if an optional donor class is needed only for exclusion/capability checks, avoid a compile-time dependency when a narrow runtime check preserves the same semantics;
+- explicit UI/storage helpers are preferable to silently expanding the donor dependency closure.
+
 ## 2. R8 / desugaring safety
 
 Binary donors are sensitive to the shape of optimized bytecode. R8/D8 may rename, merge, outline, or share compiler-generated helpers across otherwise unrelated application code. If the injector follows one of those donor-only dependencies blindly, unrelated donor code can enter the payload and later fail target compatibility validation.
