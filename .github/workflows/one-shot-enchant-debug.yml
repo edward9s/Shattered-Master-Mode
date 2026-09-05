@@ -40,13 +40,8 @@ jobs:
                   raise SystemExit(f'Expected exactly one match, found {count}: {old[:120]!r}')
               text = text.replace(old, new, 1)
 
-          replace_once(
-          '''    private static final String DWARF_TOKEN_CLASS =
-                  "com.shatteredpixel.shatteredpixeldungeon.items.quest.DwarfToken";
-          ''',
-          '''    private static final String DWARF_TOKEN_CLASS =
-                  "com.shatteredpixel.shatteredpixeldungeon.items.quest.DwarfToken";
-              private static final String WEAPON_CLASS =
+          token_line = '            "com.shatteredpixel.shatteredpixeldungeon.items.quest.DwarfToken";\n'
+          replace_once(token_line, token_line + '''    private static final String WEAPON_CLASS =
                   "com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon";
               private static final String WEAPON_ENCHANTMENT_CLASS =
                   "com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon$Enchantment";
@@ -56,61 +51,35 @@ jobs:
                   "com.shatteredpixel.shatteredpixeldungeon.items.armor.Armor$Glyph";
           ''')
 
-          replace_once(
-          '''            case "use":
-                          InvocationResult result = use(args);
-                          if (result.invoked) {
-                              stored = result.result;
-                              hasStoredResult = result.result != null;
-                          }
-                          break;
-          ''',
-          '''            case "use":
-                          InvocationResult result = use(args);
-                          if (result.invoked) {
-                              stored = result.result;
-                              hasStoredResult = result.result != null;
-                          }
-                          break;
+          start = text.index('            case "use":\n')
+          end_marker = '                break;\n'
+          end = text.index(end_marker, start) + len(end_marker)
+          text = text[:end] + '''
+              case "enchant":
+                  stored = applyEquipmentEffect(args, true);
+                  hasStoredResult = stored != null;
+                  break;
 
-                      case "enchant":
-                          stored = applyEquipmentEffect(args, true);
-                          hasStoredResult = stored != null;
-                          break;
-
-                      case "inscribe":
-                          stored = applyEquipmentEffect(args, false);
-                          hasStoredResult = stored != null;
-                          break;
-          ''')
+              case "inscribe":
+                  stored = applyEquipmentEffect(args, false);
+                  hasStoredResult = stored != null;
+                  break;
+          ''' + text[end:]
 
           replace_once(
-          '''                "help | give | spawn | affect | seed | trap | warp | inspect | use | goto | where | macro | @ | search | results | get | set | clear | save | load",
-          ''',
-          '''                "help | give | spawn | affect | seed | trap | warp | inspect | use | enchant | inscribe | goto | where | macro | @ | search | results | get | set | clear | save | load",
-          ''')
+              '| inspect | use | goto |',
+              '| inspect | use | enchant | inscribe | goto |')
+
+          help_use = '                + "use <Class|hero|level|@variable> <method> [args...]\\n"\n'
+          replace_once(help_use, help_use
+              + '                + "enchant @weapon <Enchantment|random|none>\\n"\n'
+              + '                + "inscribe @armor <Glyph|random|none>\\n"\n')
 
           replace_once(
-          '''                + "use <Class|hero|level|@variable> <method> [args...]\\n"
-                          + "goto <depth> [branch]  (branch defaults to 0)\\n"
-          ''',
-          '''                + "use <Class|hero|level|@variable> <method> [args...]\\n"
-                          + "enchant @weapon <Enchantment|random|none>\\n"
-                          + "inscribe @armor <Glyph|random|none>\\n"
-                          + "goto <depth> [branch]  (branch defaults to 0)\\n"
-          ''')
+              'Quoted strings and @variables are supported as method arguments.',
+              'Quoted strings, @variables, and new:<Class> are supported as method arguments.')
 
-          replace_once(
-          '''                + "Quoted strings and @variables are supported as method arguments.\\n"
-                          + "Commands that open a selector should be the final line of a macro."
-          ''',
-          '''                + "Quoted strings, @variables, and new:<Class> are supported as method arguments.\\n"
-                          + "Commands that open a selector should be the final line of a macro."
-          ''')
-
-          marker = '''    private static void gotoLevel(List<String> args)
-                  throws Exception {
-          '''
+          marker = '    private static void gotoLevel(List<String> args)\n'
           insert = '''    private static Object applyEquipmentEffect(
                   List<String> args, boolean weapon) throws Exception {
 
@@ -193,15 +162,12 @@ jobs:
           }
 
           '''
-          if text.count(marker) != 1:
-              raise SystemExit(f'goto marker count: {text.count(marker)}')
-          text = text.replace(marker, insert + marker, 1)
+          replace_once(marker, insert + marker)
 
-          replace_once(
-          '''        if (type == boolean.class
+          boolean_marker = '''        if (type == boolean.class
                   || type == Boolean.class) {
-          ''',
-          '''        if (raw.length() > 4
+          '''
+          explicit_new = '''        if (raw.length() > 4
                   && raw.regionMatches(true, 0, "new:", 0, 4)) {
 
               String className = raw.substring(4);
@@ -218,18 +184,11 @@ jobs:
               }
           }
 
-          if (type == boolean.class
-                  || type == Boolean.class) {
-          ''')
+          '''
+          replace_once(boolean_marker, explicit_new + boolean_marker)
 
-          replace_once(
-          '''                "warp", "inspect", "use",
-                          "goto", "where", "macro",
-          ''',
-          '''                "warp", "inspect", "use",
-                          "enchant", "inscribe",
-                          "goto", "where", "macro",
-          ''')
+          built_in = '                "warp", "inspect", "use",\n'
+          replace_once(built_in, built_in + '                "enchant", "inscribe",\n')
 
           path.write_text(text, encoding='utf-8')
           PY
