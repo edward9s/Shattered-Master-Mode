@@ -1,0 +1,52 @@
+name: one-shot-assassin-apk-smali
+
+on:
+  push:
+    paths:
+      - '.github/workflows/one-shot-assassin-apk-smali.yml'
+
+permissions:
+  contents: read
+
+env:
+  GIT_AUTHOR_NAME: edward9s
+  GIT_AUTHOR_EMAIL: 277983297+edward9s@users.noreply.github.com
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v3
+      - uses: actions/checkout@v4
+        with:
+          repository: 00-Evan/shattered-pixel-dungeon
+          ref: v3.3.8
+          path: spd_src
+      - name: Build fresh release donor
+        run: |
+          python scripts/patch_android.py
+          python scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGame.java
+          cp -a core spd_src/
+          cp -a android spd_src/ 2>/dev/null || true
+          cp -a assets spd_src/ 2>/dev/null || true
+          chmod +x spd_src/gradlew
+          (cd spd_src && ./gradlew android:assembleRelease)
+          DONOR_APK=$(find spd_src/android/build/outputs/apk/release -name '*.apk' | head -n1)
+          echo "DONOR_APK=$DONOR_APK" >> "$GITHUB_ENV"
+      - name: Decode and print Assassin smali
+        run: |
+          curl -fL https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar -o /tmp/apktool.jar
+          java -jar /tmp/apktool.jar d -f -r -o /tmp/donor "$DONOR_APK"
+          for name in 'ModAssassin.smali' 'ModAssassin$Selector.smali' 'ModFlash.smali' 'ModAssassinBuff$LongPressLayer.smali'; do
+            path=$(find /tmp/donor -path "*/com/spd/mod/mechanics/$name" -print -quit)
+            test -n "$path"
+            echo "===== $name ====="
+            cat "$path"
+          done
