@@ -7,9 +7,7 @@ import com.shatteredpixel.shatteredpixeldungeon.items.EquipableItem;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
-import com.spd.mod.items.ModAnkh;
 import com.spd.mod.items.ModReusable;
-import com.spd.mod.items.ModScrollOfLoot;
 import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundlable;
 import com.watabou.utils.Bundle;
@@ -25,6 +23,8 @@ public class ModLootStorage implements Bundlable {
     private static final String STORED = "stored";
     private static final String RECLAIM_TEMPLATE = "reclaim_template";
     private static final String RECLAIM_LIMIT = "reclaim_limit";
+    private static final String MOD_ANKH_CLASS = "com.spd.mod.items.ModAnkh";
+    private static final String MOD_SCROLL_OF_LOOT_CLASS = "com.spd.mod.items.ModScrollOfLoot";
 
     private ArrayList<Item> stored = new ArrayList<>();
 
@@ -90,10 +90,22 @@ public class ModLootStorage implements Bundlable {
         return actions != null && actions.contains(action);
     }
 
+    private static boolean isClassOrSubclassNamed(Object value, String className) {
+        if (value == null) {
+            return false;
+        }
+        for (Class<?> cls = value.getClass(); cls != null; cls = cls.getSuperclass()) {
+            if (className.equals(cls.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static boolean canStore(Item item) {
         return item != null
-                && !(item instanceof ModScrollOfLoot)
-                && !(item instanceof ModAnkh);
+                && !isClassOrSubclassNamed(item, MOD_SCROLL_OF_LOOT_CLASS)
+                && !isClassOrSubclassNamed(item, MOD_ANKH_CLASS);
     }
 
     private boolean hasPendingReclaim() {
@@ -293,7 +305,7 @@ public class ModLootStorage implements Bundlable {
 
     public boolean putSingle(Hero hero, Item item) {
         if (hero == null || !canStore(item)) {
-            if (item instanceof ModAnkh) {
+            if (isClassOrSubclassNamed(item, MOD_ANKH_CLASS)) {
                 GLog.w(item.name() + " can't be stored in Loot storage.");
             }
             return false;
