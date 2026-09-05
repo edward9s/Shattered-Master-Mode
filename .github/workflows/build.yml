@@ -235,9 +235,13 @@ jobs:
           test -n "$DONOR_APK" -a -f "$DONOR_APK"
           test -n "$DONOR_JAR" -a -f "$DONOR_JAR"
           python mod/scripts/package_inject_kit.py \
-            "$UPSTREAM_TAG" "$MOD_VER" "$DONOR_APK" "$DONOR_JAR" \
-            "out/SMM-${UPSTREAM_TAG}-m${MOD_VER}-InjectKit.zip" \
+            "$DONOR_APK" "$DONOR_JAR" "inject-kit" \
             --repo-root mod
+
+      - name: Package Injection Kit Release ZIP
+        if: steps.check.outputs.skip == 'false' && github.event_name == 'schedule'
+        run: |
+          (cd inject-kit && zip -q -r ../out/SMM-InjectKit.zip .)
 
       - name: Upload Artifacts (Manual Only)
         if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
@@ -245,6 +249,14 @@ jobs:
         with:
           name: Release-${{ env.EXPECTED_TAG }}
           path: out/*
+
+      - name: Upload Injection Kit (Manual Only)
+        if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SMM-InjectKit
+          path: inject-kit/*
+          if-no-files-found: error
 
       - name: Create Release (Schedule Only)
         if: steps.check.outputs.skip == 'false' && github.event_name == 'schedule'
