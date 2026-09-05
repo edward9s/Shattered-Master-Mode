@@ -26,6 +26,7 @@ Important payload families currently include:
 - `com.spd.mod.mechanics.ModAssassinBuff` plus its required `ModAssassin` / `ModFlash` class families, for Debug Console `affect` support
 - `com.spd.mod.mechanics.ModParryRiposte` plus its `ModTotalInfoOverlay` / `WndTotalBuffInfo` UI support families, for Debug Console `affect` support
 - `com.spd.mod.mechanics.ModEnemySurge` plus its `ModEnemySurgeInfoOverlay` / `WndEnemySurgeInfo` UI support families, for Debug Console `affect` support
+- `com.spd.mod.mechanics.ModLootBuff` plus `ModLootStorage`, `ModLoot`, `ModLootBuffOverlay`, `WndModLoot`, and the small `ModItemKind` / `ModItemOrder` / `ModReusable` helpers, for Debug Console `affect` support
 
 Do not assume that every donor class reachable from these classes is safe to copy into a target build.
 
