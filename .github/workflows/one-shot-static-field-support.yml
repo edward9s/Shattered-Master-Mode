@@ -269,3 +269,5 @@ jobs:
           git add core/src/main/java/com/spd/mod/mechanics/ModDebug.java 'core/src/main/java/com/spd/mod/mechanics/ModDebug$Console.java'
           git commit -m 'Support static field get and set in debug console'
           git push
+
+# trigger
