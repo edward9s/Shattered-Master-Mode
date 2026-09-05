@@ -406,3 +406,5 @@ jobs:
           git diff --cached --check
           git commit -m "Initialize special mobs spawned by debug console"
           git push origin HEAD:main
+
+# trigger
