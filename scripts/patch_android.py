@@ -120,10 +120,11 @@ def patch_proguard(file_path):
         '-keep class com.spd.mod.journal.ModLootBuffOverlay$* { *; }',
         '-keep class com.spd.mod.items.WndModLoot { *; }',
         '-keep class com.spd.mod.items.WndModLoot$* { *; }',
-        '-keep class com.spd.mod.items.ModReusable { *; }',
-        '-keep class com.spd.mod.items.ModAnkh { *; }',
-        '-keep class com.spd.mod.items.ModAnkhStore { *; }',
-        '-keep class com.spd.mod.items.ModAnkhStore$* { *; }',
+        '-keep class com.spd.mod.items.Mod** { *; }',
+        '-keep class com.spd.mod.mechanics.ModBlast { *; }',
+        '-keep class com.spd.mod.mechanics.ModBlast$* { *; }',
+        '-keep class com.spd.mod.mechanics.ModSight { *; }',
+        '-keep class com.spd.mod.mechanics.ModSight$* { *; }',
         '-keepclassmembers class com.shatteredpixel.shatteredpixeldungeon.levels.Terrain { public static final int *; }',
     )
     missing = [rule for rule in rules if rule not in data]
