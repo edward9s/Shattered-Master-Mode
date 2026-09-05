@@ -6,7 +6,7 @@ Usage:
 
 Scope is intentionally narrow:
   * copies ModAnkh and the dedicated ModAnkhStore payload;
-  * copies the controlled ModDebug payload plus the supported Assassin/Parry/Enemy Surge feature families;
+  * copies the controlled ModDebug payload plus the supported Assassin/Parry/Enemy Surge/Loot feature families;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * adds the storage permissions required by ModDebug save/load;
   * otherwise leaves target resources and non-DEX APK entries untouched;
@@ -77,6 +77,17 @@ MOD_ENEMY_SURGE_INFO_OVERLAY = "Lcom/spd/mod/journal/ModEnemySurgeInfoOverlay;"
 MOD_ENEMY_SURGE_INFO_OVERLAY_INNER_PREFIX = "Lcom/spd/mod/journal/ModEnemySurgeInfoOverlay$"
 WND_ENEMY_SURGE_INFO = "Lcom/spd/mod/journal/WndEnemySurgeInfo;"
 WND_ENEMY_SURGE_INFO_INNER_PREFIX = "Lcom/spd/mod/journal/WndEnemySurgeInfo$"
+LOOT_PAYLOAD_FAMILIES = (
+    ("Lcom/spd/mod/mechanics/ModLootBuff;", "Lcom/spd/mod/mechanics/ModLootBuff$"),
+    ("Lcom/spd/mod/mechanics/ModLootStorage;", "Lcom/spd/mod/mechanics/ModLootStorage$"),
+    ("Lcom/spd/mod/mechanics/ModLoot;", "Lcom/spd/mod/mechanics/ModLoot$"),
+    ("Lcom/spd/mod/mechanics/ModItemKind;", "Lcom/spd/mod/mechanics/ModItemKind$"),
+    ("Lcom/spd/mod/mechanics/ModItemOrder;", "Lcom/spd/mod/mechanics/ModItemOrder$"),
+    ("Lcom/spd/mod/journal/ModLootBuffOverlay;", "Lcom/spd/mod/journal/ModLootBuffOverlay$"),
+    ("Lcom/spd/mod/items/WndModLoot;", "Lcom/spd/mod/items/WndModLoot$"),
+    ("Lcom/spd/mod/items/ModReusable;", "Lcom/spd/mod/items/ModReusable$"),
+)
+LOOT_REQUIRED_ROOTS = tuple(root for root, _ in LOOT_PAYLOAD_FAMILIES)
 SOURCE_GAME_DESCRIPTOR_PREFIX = "Lcom/shatteredpixel/shatteredpixeldungeon/"
 SOURCE_GAME_DOTTED_PREFIX = "com.shatteredpixel.shatteredpixeldungeon"
 DUNGEON = SOURCE_GAME_DESCRIPTOR_PREFIX + "Dungeon;"
@@ -735,6 +746,7 @@ def is_debug_root(descriptor: str) -> bool:
         or descriptor.startswith(MOD_ENEMY_SURGE_INFO_OVERLAY_INNER_PREFIX)
         or descriptor == WND_ENEMY_SURGE_INFO
         or descriptor.startswith(WND_ENEMY_SURGE_INFO_INNER_PREFIX)
+        or any(descriptor == root or descriptor.startswith(inner) for root, inner in LOOT_PAYLOAD_FAMILIES)
     )
 
 
@@ -842,6 +854,7 @@ def build_debug_payload(
         MOD_ENEMY_SURGE,
         MOD_ENEMY_SURGE_INFO_OVERLAY,
         WND_ENEMY_SURGE_INFO,
+        *LOOT_REQUIRED_ROOTS,
     )
     missing_roots = [desc for desc in required_roots if desc not in roots]
     if missing_roots:
@@ -2143,7 +2156,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             overlay_class.parent.mkdir(parents=True, exist_ok=True)
             overlay_class.write_text(donor_class.text, encoding="utf-8")
         log(f"ModAnkhStore payload classes: {len(store_payload)}")
-        log(f"Debug/Assassin/Parry/Enemy Surge payload classes: {len(debug_payload)}")
+        log(f"Debug/Assassin/Parry/Enemy Surge/Loot payload classes: {len(debug_payload)}")
 
         overlay_dex = work / "overlay.dex"
         compile_smali(
@@ -2202,7 +2215,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log(f"Output : {out}")
         log(f"SHA-256: {sha256(out)}")
         log("Package: unchanged from target (re-signed APK)")
-        log("Injected: ModAnkh + ModAnkhStore + debug/Assassin/Parry/Enemy Surge payload")
+        log("Injected: ModAnkh + ModAnkhStore + debug/Assassin/Parry/Enemy Surge/Loot payload")
         if not args.keystore:
             log(
                 "Install note: uninstall the original target first "
