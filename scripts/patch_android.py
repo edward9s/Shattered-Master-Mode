@@ -86,6 +86,7 @@ def patch_proguard(file_path):
         data = f.read()
 
     rules = (
+        '-keep class com.spd.mod.** { *; }',
         '-keep class com.spd.mod.mechanics.ModDebug { *; }',
         '-keep class com.spd.mod.mechanics.ModDebug$* { *; }',
         '-keep class com.spd.mod.mechanics.ModAssassinBuff { *; }',
