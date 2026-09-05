@@ -37,6 +37,31 @@ public class ModLastStand extends Buff {
         actPriority = VFX_PRIO;
     }
 
+    /**
+     * Uses Char.buffs(Class), whose erased return type is stable across the
+     * supported SPD forks. Injectable code must not rely on Char.buff(Class),
+     * whose compiled return descriptor differs in older forks.
+     */
+    public static ModLastStand find(Char ch) {
+        if (ch == null) {
+            return null;
+        }
+        for (ModLastStand lastStand : ch.buffs(ModLastStand.class)) {
+            return lastStand;
+        }
+        return null;
+    }
+
+    private static LethalShieldHook findHook(Char ch) {
+        if (ch == null) {
+            return null;
+        }
+        for (LethalShieldHook hook : ch.buffs(LethalShieldHook.class)) {
+            return hook;
+        }
+        return null;
+    }
+
     @Override
     public void fx(boolean on) {
         if (on) {
@@ -48,7 +73,7 @@ public class ModLastStand extends Buff {
     }
 
     private void ensureLethalHook() {
-        if (target != null && target.buff(LethalShieldHook.class) == null) {
+        if (target != null && findHook(target) == null) {
             LethalShieldHook.attachRuntime(target);
         }
     }
@@ -172,16 +197,14 @@ public class ModLastStand extends Buff {
         public int shielding() {
             return target != null
                     && target.isAlive()
-                    && target.buff(ModLastStand.class) != null
+                    && ModLastStand.find(target) != null
                     ? 1
                     : 0;
         }
 
         @Override
         public int absorbDamage(int dmg) {
-            ModLastStand lastStand = target == null
-                    ? null
-                    : target.buff(ModLastStand.class);
+            ModLastStand lastStand = ModLastStand.find(target);
 
             if (lastStand == null
                     || !target.isAlive()
