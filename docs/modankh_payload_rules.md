@@ -23,6 +23,7 @@ Important payload families currently include:
 - `com.spd.mod.items.ModAnkhStore` and its `$*` classes
 - `com.spd.mod.mechanics.ModDebug` and its `$*` classes
 - explicitly supported helpers such as `ModValueSearch` and `ModSaveTransfer`
+- `com.spd.mod.mechanics.ModAssassinBuff` plus its required `ModAssassin` / `ModFlash` class families, for Debug Console `affect` support
 
 Do not assume that every donor class reachable from these classes is safe to copy into a target build.
 

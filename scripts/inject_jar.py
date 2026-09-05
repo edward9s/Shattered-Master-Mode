@@ -6,8 +6,8 @@ Usage:
 
 The source JAR is a compiled SMM desktop JAR containing ModAnkh.class.
 The target JAR remains the base. The injector:
-  * copies ModAnkh, the dedicated ModAnkhStore payload, and the controlled
-    ModDebug payload from the donor;
+  * copies ModAnkh, the dedicated ModAnkhStore payload, the controlled
+    ModDebug payload, and the ModAssassinBuff support family from the donor;
   * adapts Item.setCurrent(Hero) when the target exposes the older
     curUser/curItem fields instead;
   * validates ModAnkh's executable SPD API references against the target JAR
@@ -46,6 +46,12 @@ MOD_ANKH_STORE_PREFIX = "com/spd/mod/items/ModAnkhStore"
 MOD_ANKH_STORE_ENTRY = "com/spd/mod/items/ModAnkhStore.class"
 MOD_DEBUG_PREFIX = "com/spd/mod/mechanics/ModDebug"
 MOD_DEBUG_ENTRY = "com/spd/mod/mechanics/ModDebug.class"
+MOD_ASSASSIN_BUFF_PREFIX = "com/spd/mod/mechanics/ModAssassinBuff"
+MOD_ASSASSIN_BUFF_ENTRY = "com/spd/mod/mechanics/ModAssassinBuff.class"
+MOD_ASSASSIN_PREFIX = "com/spd/mod/mechanics/ModAssassin"
+MOD_ASSASSIN_ENTRY = "com/spd/mod/mechanics/ModAssassin.class"
+MOD_FLASH_PREFIX = "com/spd/mod/mechanics/ModFlash"
+MOD_FLASH_ENTRY = "com/spd/mod/mechanics/ModFlash.class"
 MOD_VALUE_SEARCH_PREFIX = "com/spd/mod/mechanics/ModValueSearch"
 MOD_VALUE_SEARCH_ENTRY = "com/spd/mod/mechanics/ModValueSearch.class"
 MOD_SAVE_TRANSFER_PREFIX = "com/spd/mod/mechanics/ModSaveTransfer"
@@ -274,6 +280,9 @@ def rebuild_jar(
         raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModDebug")
     if MOD_VALUE_SEARCH_ENTRY not in debug_payload:
         raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModValueSearch")
+    for required in (MOD_ASSASSIN_BUFF_ENTRY, MOD_ASSASSIN_ENTRY, MOD_FLASH_ENTRY):
+        if required not in debug_payload:
+            raise InjectError(f"Donor JAR is missing required debug payload class: {required}")
     for name, data in store_payload.items():
         if not data.startswith(CLASS_MAGIC):
             raise InjectError(f"Invalid ModAnkhStore payload class: {name}")
@@ -956,6 +965,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                         name.startswith(MOD_SAVE_TRANSFER_PREFIX + "$")
                         and name.endswith(".class")
                     )
+                    or name == MOD_ASSASSIN_BUFF_ENTRY
+                    or (
+                        name.startswith(MOD_ASSASSIN_BUFF_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
+                    or name == MOD_ASSASSIN_ENTRY
+                    or (
+                        name.startswith(MOD_ASSASSIN_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
+                    or name == MOD_FLASH_ENTRY
+                    or (
+                        name.startswith(MOD_FLASH_PREFIX + "$")
+                        and name.endswith(".class")
+                    )
                 )
             )
             if MOD_DEBUG_ENTRY not in debug_names:
@@ -964,6 +988,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModValueSearch")
             if MOD_SAVE_TRANSFER_ENTRY not in debug_names:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModSaveTransfer")
+            for required in (MOD_ASSASSIN_BUFF_ENTRY, MOD_ASSASSIN_ENTRY, MOD_FLASH_ENTRY):
+                if required not in debug_names:
+                    raise InjectError(f"Donor JAR is missing required debug payload class: {required}")
             debug_payload = {
                 name: zf.read(name) for name in debug_names
             }
@@ -997,6 +1024,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_DEBUG_ENTRY,
                 MOD_VALUE_SEARCH_ENTRY,
                 MOD_SAVE_TRANSFER_ENTRY,
+                MOD_ASSASSIN_BUFF_ENTRY,
+                MOD_ASSASSIN_ENTRY,
+                MOD_FLASH_ENTRY,
             ],
         )
         shutil.copy2(unsigned_tmp, output)
@@ -1006,8 +1036,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         log(f"SHA-256: {sha256(output)}")
         log(
             f"Injected: ModAnkh + ModAnkhStore "
-            f"({len(store_payload)} store classes) + debug console "
-            f"({len(debug_payload)} debug classes)"
+            f"({len(store_payload)} store classes) + debug/Assassin payload "
+            f"({len(debug_payload)} classes)"
         )
         if args.keep_work:
             log(f"Work files kept at: {work}")

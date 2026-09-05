@@ -492,7 +492,7 @@ public final class ModDebug {
                 GLog.i(
                         "affect <Buff> [duration] [method [args...]]\n"
                         + "Select a character, then apply the Buff. Duration is used when supported.\n"
-                        + "Example: @buff affect Haste"
+                        + "Examples: @buff affect Haste | affect ModAssassinBuff (select the Hero)"
                 );
                 return;
 

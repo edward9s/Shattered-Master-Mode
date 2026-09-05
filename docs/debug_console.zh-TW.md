@@ -311,6 +311,15 @@ affect <Buff> [duration] [method [args...]]
 
 輸入指令後，再從地圖選擇要套用 Buff 的角色。`duration` 對 `FlavourBuff` 類型的暫時效果特別有用，也可在建立後再呼叫相容的初始化 method。
 
+可注入的 debug payload 也包含 `ModAssassinBuff`，以及它所需的 `ModAssassin`／`ModFlash` 支援 class。在注入版中要替英雄啟用永久的 Assassin Instinct 操作，可輸入：
+
+```text
+affect ModAssassinBuff
+# 接著選擇 Hero
+```
+
+`ModAssassinBuff` 會拒絕非 Hero target。Android／JAR injector 會把這個 family 與 debug payload 一起複製；Android donor build 也會用 R8 keep rules 保留這些 class，讓 `affect` 的 class index 能找到它。
+
 ## Blob 與 Trap
 
 ### 產生 Blob：`seed`

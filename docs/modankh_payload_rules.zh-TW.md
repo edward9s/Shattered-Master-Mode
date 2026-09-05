@@ -23,6 +23,7 @@ Payload 應盡可能小，而且其邊界必須是刻意設計的。
 - `com.spd.mod.items.ModAnkhStore` 及其 `$*` class
 - `com.spd.mod.mechanics.ModDebug` 及其 `$*` class
 - 明確支援的 helper，例如 `ModValueSearch`、`ModSaveTransfer`
+- `com.spd.mod.mechanics.ModAssassinBuff`，以及 Debug Console `affect` 所需的 `ModAssassin`／`ModFlash` class family
 
 不要假設只要某個 donor class 能從上述 class 觸及，就適合一起複製到 target。
 

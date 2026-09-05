@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Inject SMM's ModAnkh, ModAnkhStore, and debug console into an SPD-derived APK.
+"""Inject SMM's ModAnkh, debug console, and supported debug feature payloads into an SPD-derived APK.
 
 Usage:
     python scripts/inject_apk.py <source-smm.apk> <target.apk> [--out output.apk]
 
 Scope is intentionally narrow:
   * copies ModAnkh and the dedicated ModAnkhStore payload;
-  * copies the controlled ModDebug payload;
+  * copies the controlled ModDebug payload plus the ModAssassinBuff support family;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * adds the storage permissions required by ModDebug save/load;
   * otherwise leaves target resources and non-DEX APK entries untouched;
@@ -59,6 +59,12 @@ MOD_ANKH_STORE = "Lcom/spd/mod/items/ModAnkhStore;"
 MOD_ANKH_STORE_INNER_PREFIX = "Lcom/spd/mod/items/ModAnkhStore$"
 MOD_DEBUG = "Lcom/spd/mod/mechanics/ModDebug;"
 MOD_DEBUG_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModDebug$"
+MOD_ASSASSIN_BUFF = "Lcom/spd/mod/mechanics/ModAssassinBuff;"
+MOD_ASSASSIN_BUFF_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModAssassinBuff$"
+MOD_ASSASSIN = "Lcom/spd/mod/mechanics/ModAssassin;"
+MOD_ASSASSIN_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModAssassin$"
+MOD_FLASH = "Lcom/spd/mod/mechanics/ModFlash;"
+MOD_FLASH_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModFlash$"
 DUNGEON = "Lcom/shatteredpixel/shatteredpixeldungeon/Dungeon;"
 HERO_CLASS = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/HeroClass;"
 HERO = "Lcom/shatteredpixel/shatteredpixeldungeon/actors/hero/Hero;"
@@ -624,6 +630,12 @@ def is_debug_root(descriptor: str) -> bool:
     return (
         descriptor == MOD_DEBUG
         or descriptor.startswith(MOD_DEBUG_INNER_PREFIX)
+        or descriptor == MOD_ASSASSIN_BUFF
+        or descriptor.startswith(MOD_ASSASSIN_BUFF_INNER_PREFIX)
+        or descriptor == MOD_ASSASSIN
+        or descriptor.startswith(MOD_ASSASSIN_INNER_PREFIX)
+        or descriptor == MOD_FLASH
+        or descriptor.startswith(MOD_FLASH_INNER_PREFIX)
     )
 
 
@@ -706,7 +718,7 @@ def build_debug_payload(
     donor_index: dict[str, SmaliClass],
     target_index: dict[str, SmaliClass],
 ) -> tuple[dict[str, SmaliClass], dict[str, str]]:
-    """Build and relocate the donor-only dependency closure for ModDebug.
+    """Build and relocate the donor-only dependency closure for ModDebug and supported debug features.
 
     R8 may outline code into short donor-local classes such as Lj;. Those
     classes cannot be referenced by name in a different APK because the target
@@ -720,9 +732,15 @@ def build_debug_payload(
         for desc, item in donor_index.items()
         if is_debug_root(desc)
     }
-    if MOD_DEBUG not in roots:
+    required_roots = (
+        MOD_DEBUG, MOD_ASSASSIN_BUFF, MOD_ASSASSIN, MOD_FLASH,
+    )
+    missing_roots = [desc for desc in required_roots if desc not in roots]
+    if missing_roots:
         raise InjectError(
-            "Donor APK is missing com.spd.mod.mechanics.ModDebug"
+            "Donor APK is missing required debug payload classes: "
+            + ", ".join(missing_roots)
+            + ". Rebuild the SMM donor from current source before injecting."
         )
 
     closure = dict(roots)
@@ -1982,7 +2000,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             overlay_class.parent.mkdir(parents=True, exist_ok=True)
             overlay_class.write_text(donor_class.text, encoding="utf-8")
         log(f"ModAnkhStore payload classes: {len(store_payload)}")
-        log(f"Debug payload classes: {len(debug_payload)}")
+        log(f"Debug/Assassin payload classes: {len(debug_payload)}")
 
         overlay_dex = work / "overlay.dex"
         compile_smali(

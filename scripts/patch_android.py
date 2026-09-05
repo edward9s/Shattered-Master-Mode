@@ -88,6 +88,12 @@ def patch_proguard(file_path):
     rules = (
         '-keep class com.spd.mod.mechanics.ModDebug { *; }',
         '-keep class com.spd.mod.mechanics.ModDebug$* { *; }',
+        '-keep class com.spd.mod.mechanics.ModAssassinBuff { *; }',
+        '-keep class com.spd.mod.mechanics.ModAssassinBuff$* { *; }',
+        '-keep class com.spd.mod.mechanics.ModAssassin { *; }',
+        '-keep class com.spd.mod.mechanics.ModAssassin$* { *; }',
+        '-keep class com.spd.mod.mechanics.ModFlash { *; }',
+        '-keep class com.spd.mod.mechanics.ModFlash$* { *; }',
         '-keep class com.spd.mod.items.ModAnkh { *; }',
         '-keep class com.spd.mod.items.ModAnkhStore { *; }',
         '-keep class com.spd.mod.items.ModAnkhStore$* { *; }',

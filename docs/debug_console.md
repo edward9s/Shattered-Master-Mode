@@ -311,6 +311,15 @@ affect <Buff> [duration] [method [args...]]
 
 After the command, select the character that should receive the buff. Duration is especially useful for `FlavourBuff`-style temporary effects. The command can also invoke a compatible setup method on the created buff.
 
+The injectable debug payload also includes `ModAssassinBuff` and its required `ModAssassin` / `ModFlash` support classes. To enable the permanent Assassin Instinct control on the Hero in an injected build:
+
+```text
+affect ModAssassinBuff
+# then select the Hero
+```
+
+`ModAssassinBuff` refuses non-Hero targets. The Android/JAR injectors copy this family together with the debug payload; on Android the donor build keeps these classes through R8 so the class remains discoverable by `affect`.
+
 ## Blobs and traps
 
 ### Seed a blob: `seed`
