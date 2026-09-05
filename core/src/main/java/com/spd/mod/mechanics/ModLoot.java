@@ -71,6 +71,16 @@ public class ModLoot {
         return Grab.execute(storage);
     }
 
+    private static PinCushion pinCushion(Mob mob) {
+        if (mob == null) {
+            return null;
+        }
+        for (PinCushion pin : mob.buffs(PinCushion.class)) {
+            return pin;
+        }
+        return null;
+    }
+
     // --- 內部實作：拔箭 ---
     public static class Grab {
         /** @return 成功拔進背包的件數(每次成功都會播放 ITEM 音效)。 */
@@ -90,7 +100,7 @@ public class ModLoot {
             while (it.hasNext()) {
                 Mob mob = it.next();
                 while (true) {
-                    PinCushion pc = (PinCushion) mob.buff(PinCushion.class);
+                    PinCushion pc = pinCushion(mob);
                     if (pc == null) break;
 
                     Item item = pc.grabOne();
