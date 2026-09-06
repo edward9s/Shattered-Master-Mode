@@ -87,7 +87,7 @@ jobs:
           echo "KIT_DONOR_APK=$KIT_DIR/smm-inject-donor.apk" >> "$GITHUB_ENV"
           echo "KIT_DONOR_JAR=$KIT_DIR/smm-inject-donor.jar" >> "$GITHUB_ENV"
 
-      - name: Validate ModAnkh setCurrent compatibility adapter
+      - name: Validate capability-driven APK ABI profile
         run: |
           python - <<'PY'
           import importlib.util
@@ -104,17 +104,44 @@ jobs:
           game = 'Lcom/shatteredpixel/shatteredpixeldungeon/'
           item_desc = game + 'items/Item;'
           hero_desc = game + 'actors/hero/Hero;'
-          item_text = (
-              '.class public ' + item_desc + '\n'
-              '.super Ljava/lang/Object;\n'
-              '.field protected static curUser:' + hero_desc + '\n'
-              '.field protected static curItem:' + item_desc + '\n'
-          )
-          hero_text = '.class public ' + hero_desc + '\n.super Ljava/lang/Object;\n'
+          wnd_desc = game + 'windows/WndGame;'
+          red_desc = game + 'ui/RedButton;'
+          tracker_desc = game + 'items/weapon/melee/Sai$ComboStrikeTracker;'
+
+          def cls(path, text):
+              return mod.injector.SmaliClass.from_text(pathlib.Path(path), text)
+
           idx = {
-              item_desc: mod.injector.SmaliClass.from_text(pathlib.Path('Item.smali'), item_text),
-              hero_desc: mod.injector.SmaliClass.from_text(pathlib.Path('Hero.smali'), hero_text),
+              item_desc: cls('Item.smali',
+                  '.class public ' + item_desc + '\n'
+                  '.super Ljava/lang/Object;\n'
+                  '.field protected static a:' + hero_desc + '\n'
+                  '.field protected static b:' + item_desc + '\n'),
+              hero_desc: cls('Hero.smali',
+                  '.class public ' + hero_desc + '\n.super Ljava/lang/Object;\n'),
+              wnd_desc: cls('WndGame.smali',
+                  '.class public ' + wnd_desc + '\n'
+                  '.super Ljava/lang/Object;\n'
+                  '.method private a(' + red_desc + ')V\n.return-void\n.end method\n'),
+              red_desc: cls('RedButton.smali',
+                  '.class public ' + red_desc + '\n.super Ljava/lang/Object;\n'),
+              tracker_desc: cls('Tracker.smali',
+                  '.class public ' + tracker_desc + '\n'
+                  '.super Ljava/lang/Object;\n'
+                  '.field private a:I\n'
+                  '.field private b:F\n'),
           }
+
+          profile = mod.detect_target_abi(idx, game)
+          if profile.get('item.setCurrent').strategy != mod.ABI_STRUCTURAL:
+              raise SystemExit('setCurrent structural capability was not detected')
+          if profile.get('wndgame.menuHook').strategy != mod.ABI_RUNTIME:
+              raise SystemExit('WndGame runtime capability was not detected')
+          if profile.get('duelist.comboHit').strategy != mod.ABI_STRUCTURAL:
+              raise SystemExit('Duelist structural capability was not detected')
+          profile.require_compatible()
+          mod._current_abi_profile = profile
+
           donor = (
               '.class public Lcom/spd/mod/items/ModAnkh;\n'
               '.super ' + game + 'items/Ankh;\n'
@@ -124,14 +151,14 @@ jobs:
               '.end method\n'
           )
           out, notes = mod.adapt_modankh(donor, idx, item_desc, hero_desc)
-          if '->setCurrent(' in out or '->curUser:' not in out or '->curItem:' not in out:
-              raise SystemExit('setCurrent compatibility rewrite failed')
+          if '->setCurrent(' in out or '->a:' + hero_desc not in out or '->b:' + item_desc not in out:
+              raise SystemExit('structural setCurrent rewrite failed')
           if not notes:
-              raise SystemExit('setCurrent compatibility rewrite produced no note')
-          print('ModAnkh inherited-owner compatibility: OK')
+              raise SystemExit('structural setCurrent rewrite produced no note')
+          print('Capability-driven APK ABI profile: OK')
           PY
 
-      - name: Diagnose direct donor-only dependencies from full SMM roots
+      - name: Diagnose full SMM donor ABI
         run: |
           cat > /tmp/diagnose_full_payload.py <<'PY'
           import importlib.util
@@ -152,25 +179,45 @@ jobs:
               dec = pathlib.Path(td) / 'donor'
               inj.run([java.java, '-jar', apktool, 'd', '-f', '-r', '-o', dec, pathlib.Path(os.environ['KIT_DONOR_APK'])])
               idx = inj.index_smali(dec)
-              offenders = 0
+              donor_only = []
+              fragile = []
+
               for desc, item in sorted(idx.items()):
                   if not desc.startswith('Lcom/spd/mod/'):
                       continue
-                  if desc == inj.MOD_ANKH or inj.is_modankh_store_root(desc):
-                      continue
-                  bad = sorted(
-                      dep for dep in inj.smali_dependencies(item)
-                      if not dep.startswith(inj.TARGET_API_PREFIXES)
-                      and not dep.startswith('Lcom/spd/mod/')
-                  )
-                  if bad:
-                      offenders += 1
-                      print(desc)
+
+                  if desc != inj.MOD_ANKH and not inj.is_modankh_store_root(desc):
+                      bad = sorted(
+                          dep for dep in inj.smali_dependencies(item)
+                          if not dep.startswith(inj.TARGET_API_PREFIXES)
+                          and not dep.startswith('Lcom/spd/mod/')
+                      )
                       for dep in bad:
-                          print('  -> ' + dep)
-              print('SMM roots with direct donor-only dependencies:', offenders)
-              if offenders:
+                          donor_only.append(f'{desc}: {dep}')
+
+                  for _, owner, name, proto in inj.METHOD_INSN_RE.findall(item.text):
+                      if owner.endswith('/items/weapon/melee/Sai$ComboStrikeTracker;') and name == 'addHit' and proto == '()V':
+                          fragile.append(f'{desc}: direct ComboStrikeTracker.addHit()')
+                      if name == 'setCurrent' and desc != inj.MOD_ANKH and '/items/' in owner:
+                          fragile.append(f'{desc}: direct Item.setCurrent(Hero) outside ModAnkh adapter')
+
+                  for _, owner, name, typ in inj.FIELD_INSN_RE.findall(item.text):
+                      if owner.endswith('/input/PointerEvent$Type;') and name == 'CANCEL':
+                          fragile.append(f'{desc}: direct PointerEvent.Type.CANCEL field')
+
+              if donor_only:
+                  print('Donor-only dependency errors:')
+                  for error in donor_only:
+                      print('  - ' + error)
                   raise SystemExit('Full SMM injection donor is not self-contained')
+
+              if fragile:
+                  print('Fork-sensitive direct ABI references:')
+                  for error in fragile:
+                      print('  - ' + error)
+                  raise SystemExit('SMM contains direct fork-sensitive ABI references')
+
+              print('Full SMM donor ABI lint: OK')
           PY
           python /tmp/diagnose_full_payload.py
 
