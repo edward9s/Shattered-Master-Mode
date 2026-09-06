@@ -104,6 +104,7 @@ jobs:
           game = 'Lcom/shatteredpixel/shatteredpixeldungeon/'
           item_desc = game + 'items/Item;'
           hero_desc = game + 'actors/hero/Hero;'
+          char_desc = game + 'actors/Char;'
           wnd_desc = game + 'windows/WndGame;'
           red_desc = game + 'ui/RedButton;'
           tracker_desc = game + 'items/weapon/melee/Sai$ComboStrikeTracker;'
@@ -111,34 +112,37 @@ jobs:
           def cls(path, text):
               return mod.injector.SmaliClass.from_text(pathlib.Path(path), text)
 
-          idx = {
+          base = {
               item_desc: cls('Item.smali',
                   '.class public ' + item_desc + '\n'
                   '.super Ljava/lang/Object;\n'
                   '.field protected static a:' + hero_desc + '\n'
                   '.field protected static b:' + item_desc + '\n'),
               hero_desc: cls('Hero.smali',
-                  '.class public ' + hero_desc + '\n.super Ljava/lang/Object;\n'),
+                  '.class public ' + hero_desc + '\n.super ' + char_desc + '\n'),
+              char_desc: cls('Char.smali',
+                  '.class public ' + char_desc + '\n.super Ljava/lang/Object;\n'),
               wnd_desc: cls('WndGame.smali',
                   '.class public ' + wnd_desc + '\n'
                   '.super Ljava/lang/Object;\n'
                   '.method private a(' + red_desc + ')V\n.return-void\n.end method\n'),
               red_desc: cls('RedButton.smali',
                   '.class public ' + red_desc + '\n.super Ljava/lang/Object;\n'),
-              tracker_desc: cls('Tracker.smali',
-                  '.class public ' + tracker_desc + '\n'
-                  '.super Ljava/lang/Object;\n'
-                  '.field private a:I\n'
-                  '.field private b:F\n'),
           }
 
-          profile = mod.detect_target_abi(idx, game)
+          structural = dict(base)
+          structural[tracker_desc] = cls('TrackerOld.smali',
+              '.class public ' + tracker_desc + '\n'
+              '.super Ljava/lang/Object;\n'
+              '.field private a:I\n'
+              '.field private b:F\n')
+          profile = mod.detect_target_abi(structural, game)
           if profile.get('item.setCurrent').strategy != mod.ABI_STRUCTURAL:
               raise SystemExit('setCurrent structural capability was not detected')
           if profile.get('wndgame.menuHook').strategy != mod.ABI_RUNTIME:
               raise SystemExit('WndGame runtime capability was not detected')
           if profile.get('duelist.comboHit').strategy != mod.ABI_STRUCTURAL:
-              raise SystemExit('Duelist structural capability was not detected')
+              raise SystemExit('old Duelist structural capability was not detected')
           profile.require_compatible()
           mod._current_abi_profile = profile
 
@@ -150,11 +154,37 @@ jobs:
               '    return-void\n'
               '.end method\n'
           )
-          out, notes = mod.adapt_modankh(donor, idx, item_desc, hero_desc)
+          out, notes = mod.adapt_modankh(donor, structural, item_desc, hero_desc)
           if '->setCurrent(' in out or '->a:' + hero_desc not in out or '->b:' + item_desc not in out:
               raise SystemExit('structural setCurrent rewrite failed')
           if not notes:
               raise SystemExit('structural setCurrent rewrite produced no note')
+
+          semantic = dict(base)
+          semantic[tracker_desc] = cls('TrackerNew.smali',
+              '.class public ' + tracker_desc + '\n'
+              '.super Ljava/lang/Object;\n'
+              '.field private comboTime:F\n'
+              '.field private initialTime:F\n'
+              '.field public hits:I\n'
+              '.method private a(' + char_desc + ')V\n.return-void\n.end method\n')
+          profile = mod.detect_target_abi(semantic, game)
+          combo = profile.get('duelist.comboHit')
+          if combo.strategy != mod.ABI_RUNTIME:
+              raise SystemExit('renamed addHit(Char) capability was not detected')
+          if combo.data.get('proto') != '(' + char_desc + ')V':
+              raise SystemExit('renamed addHit(Char) descriptor was not preserved')
+          profile.require_compatible()
+
+          exact = dict(base)
+          exact[tracker_desc] = cls('TrackerExact.smali',
+              '.class public ' + tracker_desc + '\n'
+              '.super Ljava/lang/Object;\n'
+              '.method public addHit(' + char_desc + ')V\n.return-void\n.end method\n')
+          profile = mod.detect_target_abi(exact, game)
+          if profile.get('duelist.comboHit').strategy != mod.ABI_DIRECT:
+              raise SystemExit('exact addHit(Char) capability was not detected')
+
           print('Capability-driven APK ABI profile: OK')
           PY
 
@@ -196,8 +226,8 @@ jobs:
                           donor_only.append(f'{desc}: {dep}')
 
                   for _, owner, name, proto in inj.METHOD_INSN_RE.findall(item.text):
-                      if owner.endswith('/items/weapon/melee/Sai$ComboStrikeTracker;') and name == 'addHit' and proto == '()V':
-                          fragile.append(f'{desc}: direct ComboStrikeTracker.addHit()')
+                      if owner.endswith('/items/weapon/melee/Sai$ComboStrikeTracker;') and name == 'addHit':
+                          fragile.append(f'{desc}: direct ComboStrikeTracker.addHit{proto}')
                       if name == 'setCurrent' and desc != inj.MOD_ANKH and '/items/' in owner:
                           fragile.append(f'{desc}: direct Item.setCurrent(Hero) outside ModAnkh adapter')
 
@@ -230,9 +260,6 @@ jobs:
           curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/4.0.0-beta/ShatteredPD-v4.0.0-BETA-4-Java.jar -o targets/spd4beta.jar
           curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/android-release.apk -o targets/rka.apk
           curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/desktop-2.3.3.jar -o targets/rka.jar
-
-      - name: Inspect official SPD 4.0 beta combo tracker ABI
-        run: javap -classpath targets/spd4beta.jar -c -p 'com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.Sai$ComboStrikeTracker'
 
       - name: Validate official SPD 3.3.8 APK injection
         id: spd_apk
