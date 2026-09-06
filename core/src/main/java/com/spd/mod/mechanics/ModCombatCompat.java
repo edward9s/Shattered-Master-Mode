@@ -73,6 +73,62 @@ final class ModCombatCompat {
         }
     }
 
+    /**
+     * Invokes the target's native death path without linking the payload to a
+     * fixed Char.die descriptor. Current SPD uses die(Object); some older
+     * family targets expose die() instead.
+     *
+     * @return true when a compatible die method was found and invoked.
+     */
+    static boolean kill(Char target, Object cause) {
+        if (target == null || !target.isAlive()) {
+            return false;
+        }
+
+        try {
+            Method method = findDieMethod(target.getClass(), cause, true);
+            if (method == null) {
+                method = findDieMethod(target.getClass(), cause, false);
+            }
+            if (method == null) {
+                return false;
+            }
+
+            method.setAccessible(true);
+            if (method.getParameterTypes().length == 0) {
+                method.invoke(target);
+            } else {
+                method.invoke(target, cause);
+            }
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static Method findDieMethod(Class<?> targetClass, Object cause, boolean withCause) {
+        for (Class<?> type = targetClass; type != null; type = type.getSuperclass()) {
+            for (Method method : type.getDeclaredMethods()) {
+                if (!"die".equals(method.getName())
+                        || Modifier.isStatic(method.getModifiers())
+                        || method.getReturnType() != Void.TYPE) {
+                    continue;
+                }
+
+                Class<?>[] params = method.getParameterTypes();
+                if (withCause) {
+                    if (params.length == 1
+                            && (cause == null || params[0].isInstance(cause))) {
+                        return method;
+                    }
+                } else if (params.length == 0) {
+                    return method;
+                }
+            }
+        }
+        return null;
+    }
+
     private static Method findComboAddHitMethod(Class<?> trackerClass) {
         Method fallback = null;
         for (Method method : trackerClass.getDeclaredMethods()) {
