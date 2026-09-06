@@ -10,27 +10,32 @@ public class ModBlobPane {
     public static void populate(ScrollingGridPane pane) {
         pane.addHeader("Gases & Blobs");
 
-        for (Class<? extends Blob> blobClass : ModBlobClass.allBlobs()) {
-            String infoTitle = blobClass.getSimpleName();
-            String infoDescription = null;
+        try {
+            for (Class<? extends Blob> blobClass : ModBlobClass.allBlobs()) {
+                try {
+                    String infoTitle = blobClass.getSimpleName();
+                    String infoDescription = null;
 
-            try {
-                Blob blob = Reflection.newInstanceUnhandled(blobClass);
+                    Blob blob = Reflection.newInstanceUnhandled(blobClass);
+                    if (blob != null) {
+                        String localizedName = Messages.get(blob, "name");
+                        if (ModGridEntry.hasUsableText(localizedName)) {
+                            infoTitle = Messages.titleCase(localizedName);
+                        }
+                        infoDescription = blob.tileDesc();
+                    }
 
-                String localizedName = Messages.get(blob, "name");
-                if (ModGridEntry.hasUsableText(localizedName)) {
-                    infoTitle = Messages.titleCase(localizedName);
+                    pane.addItem(new ModGridBlob(
+                            blobClass,
+                            infoTitle,
+                            infoDescription));
+                } catch (Throwable ignore) {
+                    // One target-specific blob class must not make the whole
+                    // presentation-only journal unusable.
                 }
-
-                infoDescription = blob.tileDesc();
-            } catch (Exception ignored) {
-                // Blob effects remain available even if journal metadata cannot be resolved.
             }
-
-            pane.addItem(new ModGridBlob(
-                    blobClass,
-                    infoTitle,
-                    infoDescription));
+        } catch (Throwable ignore) {
+            // Runtime blob discovery is optional journal data.
         }
     }
 }
