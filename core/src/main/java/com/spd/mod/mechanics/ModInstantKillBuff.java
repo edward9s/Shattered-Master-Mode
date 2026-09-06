@@ -3,7 +3,11 @@ package com.spd.mod.mechanics;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Preparation;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
+import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
+import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
+import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.utils.Bundle;
@@ -105,7 +109,7 @@ public class ModInstantKillBuff extends ChampionEnemy {
     public String desc() {
         return "Permanent Master Mode combat buff for the Hero. Instant Kill is "
                 + (instantKill ? "ON" : "OFF")
-                + "; when enabled, every successful normal attack invokes the target's native death behavior, regardless of alignment. Infinite Accuracy is "
+                + "; when enabled, every successful normal attack invokes the target's native death behavior, regardless of alignment, with the Assassin's execution hit effect and status text. Infinite Accuracy is "
                 + (infiniteAccuracy ? "ON" : "OFF")
                 + "; when enabled, the Hero's normal attack accuracy is multiplied by Char.INFINITE_ACCURACY. Both effects apply to melee and thrown attacks that use the standard Char.attack path.";
     }
@@ -117,7 +121,14 @@ public class ModInstantKillBuff extends ChampionEnemy {
                 && enemy != null
                 && enemy != target
                 && enemy.isAlive()) {
-            ModCombatCompat.kill(enemy, target);
+            // Match Mod Assassin's impact cue, then reuse Preparation's native
+            // localized assassination status text only when the native death path ran.
+            Wound.hit(enemy);
+            if (ModCombatCompat.kill(enemy, target) && enemy.sprite != null) {
+                enemy.sprite.showStatus(
+                        CharSprite.NEGATIVE,
+                        Messages.get(Preparation.class, "assassinated"));
+            }
         }
     }
 
