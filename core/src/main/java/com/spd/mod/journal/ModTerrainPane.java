@@ -14,7 +14,16 @@ public class ModTerrainPane {
         pane.addHeader("Terrain Tiles");
 
         Level level = Dungeon.level;
-        String defaultName = level.tileName(-1);
+        if (level == null || Dungeon.hero == null) {
+            return;
+        }
+
+        String defaultName;
+        try {
+            defaultName = level.tileName(-1);
+        } catch (Throwable ignore) {
+            defaultName = null;
+        }
 
         for (int i = 0; i < 48; i++) {
             // 使用 Terrain 常數替換硬編碼 ID
@@ -28,21 +37,24 @@ public class ModTerrainPane {
                 continue;
             }
 
-            String tileName = level.tileName(i);
-            if (tileName.equals(defaultName)) {
-                continue;
-            }
-
             try {
+                String tileName = level.tileName(i);
+                if (tileName == null || (defaultName != null && tileName.equals(defaultName))) {
+                    continue;
+                }
+
                 int heroPos = Dungeon.hero.pos;
                 Image tileImage = DungeonTerrainTilemap.tile(heroPos, i);
+                if (tileImage == null) {
+                    continue;
+                }
                 pane.addItem(new ModGridTerrain(
                         tileImage,
                         i,
                         Messages.titleCase(tileName),
                         level.tileDesc(i)));
-            } catch (Exception e) {
-                // Ignore generation failure
+            } catch (Throwable ignore) {
+                // A target-specific terrain id/rendering path is optional journal data.
             }
         }
     }
