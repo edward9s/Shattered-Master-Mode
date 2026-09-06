@@ -9,6 +9,36 @@ from typing import Sequence
 import _inject_jar_core as injector
 
 
+_original_ensure_java = injector.ensure_java
+
+
+def _ensure_java() -> Path:
+    if injector.platform.system().lower() != "android":
+        return _original_ensure_java()
+
+    java = injector.shutil.which("java")
+    if java:
+        return Path(java).resolve()
+
+    pkg = injector.shutil.which("pkg")
+    if pkg is None:
+        raise injector.InjectError(
+            "Android host detected, but Termux package manager 'pkg' was not found"
+        )
+
+    injector.step("Installing minimal Termux dependencies")
+    injector.run([pkg, "install", "-y", "openjdk-21"])
+    java = injector.shutil.which("java")
+    if not java:
+        raise injector.InjectError(
+            "Termux installed openjdk-21 but java is still unavailable on PATH"
+        )
+    return Path(java).resolve()
+
+
+injector.ensure_java = _ensure_java
+
+
 DEFAULT_DONOR = Path(__file__).resolve().with_name("smm-inject-donor.jar")
 injector.MOD_ITEM_CLASS_PREFIX = "com/spd/mod/"
 
