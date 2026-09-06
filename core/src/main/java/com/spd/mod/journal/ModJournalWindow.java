@@ -3,8 +3,6 @@ package com.spd.mod.journal;
 import com.shatteredpixel.shatteredpixeldungeon.journal.Catalog;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTabbed;
-import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite;
-import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 
 public class ModJournalWindow extends WndTabbed {
 
@@ -53,9 +51,10 @@ public class ModJournalWindow extends WndTabbed {
         this.tabEnvironment.setRect(0.0f, 0.0f, w, h);
 
         // 2. 建立分頁標籤按鈕 (匿名內部類實作)
-        
+
         // 裝備標籤
-        add(new IconTab(new ItemSprite(ItemSpriteSheet.WEAPON_HOLDER, null)) {
+        add(new IconTab(ModJournalCompat.holderIcon(
+                "WEAPON_HOLDER", "SCROLL_HOLDER", "POTION_HOLDER", "SPELL_HOLDER")) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
@@ -69,7 +68,8 @@ public class ModJournalWindow extends WndTabbed {
         });
 
         // 消耗品標籤
-        add(new IconTab(new ItemSprite(ItemSpriteSheet.POTION_HOLDER, null)) {
+        add(new IconTab(ModJournalCompat.holderIcon(
+                "POTION_HOLDER", "SCROLL_HOLDER", "WEAPON_HOLDER", "SPELL_HOLDER")) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
@@ -82,8 +82,10 @@ public class ModJournalWindow extends WndTabbed {
             }
         });
 
-        // 圖鑑標籤
-        add(new IconTab(new ItemSprite(ItemSpriteSheet.MOB_HOLDER, null)) {
+        // 圖鑑標籤。MOB_HOLDER 是較新的 presentation constant；舊 fork 缺少它時
+        // 只需換用另一個 target 自己存在的 holder，不能因此讓整個 Journal 失效。
+        add(new IconTab(ModJournalCompat.holderIcon(
+                "MOB_HOLDER", "WEAPON_HOLDER", "SCROLL_HOLDER", "POTION_HOLDER")) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
@@ -97,7 +99,8 @@ public class ModJournalWindow extends WndTabbed {
         });
 
         // Buff 標籤
-        add(new IconTab(new ItemSprite(ItemSpriteSheet.SCROLL_HOLDER, null)) {
+        add(new IconTab(ModJournalCompat.holderIcon(
+                "SCROLL_HOLDER", "POTION_HOLDER", "WEAPON_HOLDER", "SPELL_HOLDER")) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
@@ -111,7 +114,8 @@ public class ModJournalWindow extends WndTabbed {
         });
 
         // 環境標籤
-        add(new IconTab(new ItemSprite(ItemSpriteSheet.SPELL_HOLDER, null)) {
+        add(new IconTab(ModJournalCompat.holderIcon(
+                "SPELL_HOLDER", "SCROLL_HOLDER", "POTION_HOLDER", "WEAPON_HOLDER")) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
