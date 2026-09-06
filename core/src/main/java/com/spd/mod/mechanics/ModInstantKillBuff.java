@@ -10,6 +10,7 @@ import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.ModTotalInfoOverlay;
+import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
 import java.lang.reflect.Field;
@@ -93,6 +94,16 @@ public class ModInstantKillBuff extends ChampionEnemy {
     public void detach() {
         super.detach();
         BuffIndicator.refreshHero();
+    }
+
+    @Override
+    public int icon() {
+        return BuffIndicator.DUEL_CLEAVE;
+    }
+
+    @Override
+    public void tintIcon(Image icon) {
+        icon.hardlight(0xCC2222);
     }
 
     @Override
