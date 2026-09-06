@@ -24,6 +24,7 @@ public class ModAnkh extends Ankh {
     public static final String AC_CHOOSE = "CHOOSE";
     public static final String AC_UNBLESS = "UNBLESS";
     public static final String AC_CONSOLE = "CONSOLE";
+    public static final String AC_LOOT = "LOOT";
     public static final String AC_PUT = "PUT";
     public static final String AC_TAKE = "TAKE";
 
@@ -150,6 +151,9 @@ public class ModAnkh extends Ankh {
             }
         }
 
+        if (!actions.contains(AC_LOOT)) {
+            actions.add(AC_LOOT);
+        }
         if (!actions.contains(AC_PUT)) {
             actions.add(AC_PUT);
         }
@@ -167,6 +171,8 @@ public class ModAnkh extends Ankh {
     public String actionName(String action, Hero hero) {
         if (AC_UNBLESS.equals(action)) {
             return "Unbless";
+        } else if (AC_LOOT.equals(action)) {
+            return "Loot";
         } else if (AC_PUT.equals(action)) {
             return "Put";
         } else if (AC_TAKE.equals(action)) {
@@ -186,6 +192,9 @@ public class ModAnkh extends Ankh {
         } else if (AC_CONSOLE.equals(action)) {
             GameScene.cancel();
             ModDebug$Console.open();
+        } else if (AC_LOOT.equals(action)) {
+            GameScene.cancel();
+            store.loot(this, hero);
         } else if (AC_PUT.equals(action)) {
             GameScene.cancel();
             store.showPutSelector(this, hero);
@@ -230,6 +239,8 @@ public class ModAnkh extends Ankh {
     public String desc() {
         String base = super.desc();
         StringBuilder sb = new StringBuilder(base);
+
+        sb.append("\n\nLoot tramples high grass and collects reachable heap items and embedded projectiles across the level. Items that do not fit in your bags are stored inside the ankh.");
 
         if (!store.isEmpty()) {
             sb.append("\n\nCurrently storing ")
