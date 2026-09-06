@@ -10,7 +10,6 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
 import com.shatteredpixel.shatteredpixeldungeon.items.KindOfWeapon;
 import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
-import com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.Sai;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.noosa.Image;
@@ -230,7 +229,7 @@ public class ModParryRiposte extends ChampionEnemy {
                     Buff.affect(hero, Combo.class).hit(attacker);
                 }
                 if (hero.heroClass == HeroClass.DUELIST) {
-                    Buff.affect(hero, Sai.ComboStrikeTracker.class).addHit();
+                    ModCombatCompat.addDuelistComboHit(hero);
                 }
             }
         }
