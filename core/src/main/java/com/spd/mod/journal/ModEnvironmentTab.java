@@ -14,9 +14,16 @@ public class ModEnvironmentTab extends Component {
         sharedGrid = new ModScrollingGridPane();
         add(sharedGrid);
 
-        // 呼叫子模組填充資料
-        ModTerrainPane.populate(sharedGrid);
-        ModBlobPane.populate(sharedGrid);
+        // Terrain/blob inspection is presentation-only. Keep the other section
+        // available even when one target fork cannot construct a section.
+        try {
+            ModTerrainPane.populate(sharedGrid);
+        } catch (Throwable ignore) {
+        }
+        try {
+            ModBlobPane.populate(sharedGrid);
+        } catch (Throwable ignore) {
+        }
     }
 
     @Override
