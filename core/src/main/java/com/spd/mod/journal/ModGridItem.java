@@ -32,23 +32,41 @@ public class ModGridItem extends ModGridEntry {
     }
 
     private static String infoTitle(Item item, Weapon.Enchantment enchant, Armor.Glyph glyph) {
-        if (item != null) {
-            return Messages.titleCase(item.name());
-        } else if (enchant != null) {
-            return Messages.titleCase(enchant.name());
-        } else if (glyph != null) {
-            return Messages.titleCase(glyph.name());
+        try {
+            String title = null;
+            if (item != null) {
+                title = item.name();
+            } else if (enchant != null) {
+                title = enchant.name();
+            } else if (glyph != null) {
+                title = glyph.name();
+            }
+            if (ModGridEntry.hasUsableText(title)) {
+                return Messages.titleCase(title);
+            }
+        } catch (Throwable ignore) {
+            // Target-specific metadata is optional presentation data.
         }
-        return null;
+
+        Class<?> type = item != null ? item.getClass()
+                : enchant != null ? enchant.getClass()
+                : glyph != null ? glyph.getClass()
+                : null;
+        return type != null ? type.getSimpleName() : "Unknown";
     }
 
     private static String infoDescription(Item item, Weapon.Enchantment enchant, Armor.Glyph glyph) {
-        if (item != null) {
-            return item.info();
-        } else if (enchant != null) {
-            return enchant.desc();
-        } else if (glyph != null) {
-            return glyph.desc();
+        try {
+            if (item != null) {
+                return item.info();
+            } else if (enchant != null) {
+                return enchant.desc();
+            } else if (glyph != null) {
+                return glyph.desc();
+            }
+        } catch (Throwable ignore) {
+            // A beta/fork item may require runtime state to build rich info.
+            // Long-press can still open the entry with a neutral description.
         }
         return null;
     }
