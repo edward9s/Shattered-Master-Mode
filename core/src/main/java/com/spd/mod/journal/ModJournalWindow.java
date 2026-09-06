@@ -25,63 +25,25 @@ public class ModJournalWindow extends WndTabbed {
             resize(126, 180);
         }
 
-        float w = (float) this.width;
-        float h = (float) this.height;
-
-        // Every tab is presentation/inspection UI. A target-specific runtime
-        // failure in one tab must not prevent the journal itself from opening.
-        try {
-            this.tabEquip = new ModCatalogTab(Catalog.equipmentCatalogs, 0);
-            add(this.tabEquip);
-            this.tabEquip.setRect(0.0f, 0.0f, w, h);
-        } catch (Throwable ignore) {
-            this.tabEquip = null;
-        }
-
-        try {
-            this.tabConsumable = new ModCatalogTab(Catalog.consumableCatalogs, 1);
-            add(this.tabConsumable);
-            this.tabConsumable.setRect(0.0f, 0.0f, w, h);
-        } catch (Throwable ignore) {
-            this.tabConsumable = null;
-        }
-
-        try {
-            this.tabBestiary = new ModBestiaryTab();
-            add(this.tabBestiary);
-            this.tabBestiary.setRect(0.0f, 0.0f, w, h);
-        } catch (Throwable ignore) {
-            this.tabBestiary = null;
-        }
-
-        try {
-            this.tabBuff = new ModBuffTab();
-            add(this.tabBuff);
-            this.tabBuff.setRect(0.0f, 0.0f, w, h);
-        } catch (Throwable ignore) {
-            this.tabBuff = null;
-        }
-
-        try {
-            this.tabEnvironment = new ModEnvironmentTab();
-            add(this.tabEnvironment);
-            this.tabEnvironment.setRect(0.0f, 0.0f, w, h);
-        } catch (Throwable ignore) {
-            this.tabEnvironment = null;
-        }
-
+        // Content tabs are deliberately lazy. Runtime class scanning and
+        // presentation helpers can touch a large amount of target-specific
+        // code, so opening the journal should only construct the selected tab.
         add(new IconTab(ModJournalCompat.holderIcon(
                 "WEAPON_HOLDER", "SCROLL_HOLDER", "POTION_HOLDER", "SPELL_HOLDER")) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
-                if (tabEquip != null) {
-                    tabEquip.active = selected;
-                    tabEquip.visible = selected;
-                    if (selected) {
-                        last_index = 0;
-                        tabEquip.restoreScroll();
+                if (selected) {
+                    ModCatalogTab tab = ensureEquipTab();
+                    if (tab != null) {
+                        tab.active = true;
+                        tab.visible = true;
+                        tab.restoreScroll();
                     }
+                    last_index = 0;
+                } else if (tabEquip != null) {
+                    tabEquip.active = false;
+                    tabEquip.visible = false;
                 }
             }
         });
@@ -91,13 +53,17 @@ public class ModJournalWindow extends WndTabbed {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
-                if (tabConsumable != null) {
-                    tabConsumable.active = selected;
-                    tabConsumable.visible = selected;
-                    if (selected) {
-                        last_index = 1;
-                        tabConsumable.restoreScroll();
+                if (selected) {
+                    ModCatalogTab tab = ensureConsumableTab();
+                    if (tab != null) {
+                        tab.active = true;
+                        tab.visible = true;
+                        tab.restoreScroll();
                     }
+                    last_index = 1;
+                } else if (tabConsumable != null) {
+                    tabConsumable.active = false;
+                    tabConsumable.visible = false;
                 }
             }
         });
@@ -121,13 +87,17 @@ public class ModJournalWindow extends WndTabbed {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
-                if (tabBuff != null) {
-                    tabBuff.active = selected;
-                    tabBuff.visible = selected;
-                    if (selected) {
-                        last_index = 3;
-                        tabBuff.restoreScroll();
+                if (selected) {
+                    ModBuffTab tab = ensureBuffTab();
+                    if (tab != null) {
+                        tab.active = true;
+                        tab.visible = true;
+                        tab.restoreScroll();
                     }
+                    last_index = 3;
+                } else if (tabBuff != null) {
+                    tabBuff.active = false;
+                    tabBuff.visible = false;
                 }
             }
         });
@@ -137,13 +107,17 @@ public class ModJournalWindow extends WndTabbed {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
-                if (tabEnvironment != null) {
-                    tabEnvironment.active = selected;
-                    tabEnvironment.visible = selected;
-                    if (selected) {
-                        last_index = 4;
-                        tabEnvironment.restoreScroll();
+                if (selected) {
+                    ModEnvironmentTab tab = ensureEnvironmentTab();
+                    if (tab != null) {
+                        tab.active = true;
+                        tab.visible = true;
+                        tab.restoreScroll();
                     }
+                    last_index = 4;
+                } else if (tabEnvironment != null) {
+                    tabEnvironment.active = false;
+                    tabEnvironment.visible = false;
                 }
             }
         });
@@ -157,6 +131,71 @@ public class ModJournalWindow extends WndTabbed {
         select(index);
     }
 
+    private ModCatalogTab ensureEquipTab() {
+        if (tabEquip == null) {
+            try {
+                tabEquip = new ModCatalogTab(Catalog.equipmentCatalogs, 0);
+                addContent(tabEquip);
+            } catch (Throwable ignore) {
+                tabEquip = null;
+            }
+        }
+        return tabEquip;
+    }
+
+    private ModCatalogTab ensureConsumableTab() {
+        if (tabConsumable == null) {
+            try {
+                tabConsumable = new ModCatalogTab(Catalog.consumableCatalogs, 1);
+                addContent(tabConsumable);
+            } catch (Throwable ignore) {
+                tabConsumable = null;
+            }
+        }
+        return tabConsumable;
+    }
+
+    private ModBestiaryTab ensureBestiaryTab() {
+        if (tabBestiary == null) {
+            try {
+                tabBestiary = new ModBestiaryTab();
+                addContent(tabBestiary);
+            } catch (Throwable ignore) {
+                tabBestiary = null;
+            }
+        }
+        return tabBestiary;
+    }
+
+    private ModBuffTab ensureBuffTab() {
+        if (tabBuff == null) {
+            try {
+                tabBuff = new ModBuffTab();
+                addContent(tabBuff);
+            } catch (Throwable ignore) {
+                tabBuff = null;
+            }
+        }
+        return tabBuff;
+    }
+
+    private ModEnvironmentTab ensureEnvironmentTab() {
+        if (tabEnvironment == null) {
+            try {
+                tabEnvironment = new ModEnvironmentTab();
+                addContent(tabEnvironment);
+            } catch (Throwable ignore) {
+                tabEnvironment = null;
+            }
+        }
+        return tabEnvironment;
+    }
+
+    private void addContent(com.watabou.noosa.ui.Component content) {
+        add(content);
+        content.setRect(0.0f, 0.0f, (float) width, (float) height);
+    }
+
     public ModCatalogTab getTabEquip() { return this.tabEquip; }
     public ModCatalogTab getTabConsumable() { return this.tabConsumable; }
     public ModBestiaryTab getTabBestiary() { return this.tabBestiary; }
@@ -164,10 +203,11 @@ public class ModJournalWindow extends WndTabbed {
     public ModEnvironmentTab getTabEnvironment() { return this.tabEnvironment; }
 
     public void showBestiary() {
-        if (tabBestiary != null) {
-            tabBestiary.active = true;
-            tabBestiary.visible = true;
-            tabBestiary.restoreScroll();
+        ModBestiaryTab tab = ensureBestiaryTab();
+        if (tab != null) {
+            tab.active = true;
+            tab.visible = true;
+            tab.restoreScroll();
         }
     }
 
