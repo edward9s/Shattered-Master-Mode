@@ -78,8 +78,9 @@ Donor 編譯時使用的 SPD source 版本只是 build baseline；InjectKit 的�
 - 依 target 實際 class/member 結構選擇相容策略，不依賴 target 版本號。
 - APK injection 會建立 target ABI profile，並選擇 `direct`、`rewrite`、`structural` 或 `runtime` 策略。
 - 優先使用原生 API，其次使用語義等價 rewrite，再使用可唯一判定的 structural fallback。
+- 同一語義若存在不同 descriptor，視為 capability variant；例如 Duelist combo tracker 可提供 `addHit()` 或 `addHit(Char)`。
 - Structural match 不唯一時必須拒絕，不得猜測。
-- Fork-sensitive 或 minifier-sensitive reflection 在 member name 不穩定時必須以 type/shape constraint 判定。
+- Fork-sensitive 或 minifier-sensitive reflection 在 member name 不穩定時必須以 type、descriptor、shape constraint 判定。
 - 不得為了繞過 compatibility error 而複製任意 donor-only 或 obfuscated class。
 - 不得放寬 validation 來忽略真正缺少的 executable reference。
 - CI 必須阻止已知 fork-sensitive ABI 再被 SMM 直接引用。
@@ -91,7 +92,7 @@ Donor 編譯時使用的 SPD source 版本只是 build baseline；InjectKit 的�
 目前 CI 驗證：
 
 - 官方 Shattered Pixel Dungeon 3.3.8 APK/JAR
-- 官方 Shattered Pixel Dungeon 4.0 beta APK
+- 官方 Shattered Pixel Dungeon 4.0 beta APK/JAR
 - Rat King Adventure 2.3.3 APK/JAR
 
 靜態 packaging 無法涵蓋的行為仍需要 runtime 測試。
