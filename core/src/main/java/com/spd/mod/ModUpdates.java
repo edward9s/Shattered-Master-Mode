@@ -2,7 +2,6 @@ package com.spd.mod;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Net;
-import com.watabou.noosa.Game;
 import com.watabou.utils.Bundle;
 
 import java.util.regex.Matcher;
@@ -18,7 +17,6 @@ public final class ModUpdates {
     private static long lastCheck = 0L;
     private static boolean checking = false;
     private static String latestVersion;
-    private static String latestReleaseUrl;
 
     private ModUpdates() {
     }
@@ -40,7 +38,6 @@ public final class ModUpdates {
                 public void handleHttpResponse(Net.HttpResponse response) {
                     try {
                         String bestVersion = null;
-                        String bestUrl = null;
 
                         for (Bundle release : Bundle.read(response.getResultAsStream()).getBundleArray()) {
                             if (release.getBoolean("draft") || release.getBoolean("prerelease")) {
@@ -56,16 +53,14 @@ public final class ModUpdates {
                             String version = matcher.group(1);
                             if (bestVersion == null || compareVersions(version, bestVersion) > 0) {
                                 bestVersion = version;
-                                bestUrl = release.getString("html_url");
                             }
                         }
 
                         synchronized (ModUpdates.class) {
                             if (bestVersion != null && compareVersions(bestVersion, ModGame.version()) > 0) {
                                 latestVersion = bestVersion;
-                                latestReleaseUrl = bestUrl;
                             } else {
-                                clearAvailableUpdate();
+                                latestVersion = null;
                             }
                             lastCheck = System.currentTimeMillis();
                             checking = false;
@@ -95,23 +90,12 @@ public final class ModUpdates {
         // Leave lastCheck unset so a later menu opening can retry.
     }
 
-    private static void clearAvailableUpdate() {
-        latestVersion = null;
-        latestReleaseUrl = null;
-    }
-
     public static synchronized boolean updateAvailable() {
-        return latestVersion != null && latestReleaseUrl != null;
+        return latestVersion != null;
     }
 
     public static synchronized String latestVersion() {
         return latestVersion;
-    }
-
-    public static synchronized void openReleasePage() {
-        if (latestReleaseUrl != null) {
-            Game.platform.openURI(latestReleaseUrl);
-        }
     }
 
     static int compareVersions(String a, String b) {
