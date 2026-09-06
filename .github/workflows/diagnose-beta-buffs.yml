@@ -1,0 +1,96 @@
+name: Compare beta journal buff runtime set
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/diagnose-beta-buffs.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download binary baselines
+        run: |
+          curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/v3.3.8/ShatteredPD-v3.3.8-Java.jar -o spd338.jar
+          curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/4.0.0-beta/ShatteredPD-v4.0.0-BETA-4-Java.jar -o spd4.jar
+      - name: Compare SMM-scanned Buff subclass sets
+        run: |
+          cat > DumpBuffs.java <<'JAVA'
+          import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
+          import java.util.*;
+          import java.util.jar.*;
+
+          public class DumpBuffs {
+              static final String[] PREFIXES = {
+                  "com.shatteredpixel.shatteredpixeldungeon.actors.buffs.",
+                  "com.shatteredpixel.shatteredpixeldungeon.plants.",
+                  "com.shatteredpixel.shatteredpixeldungeon.items.potions.",
+                  "com.shatteredpixel.shatteredpixeldungeon.items.scrolls.",
+                  "com.shatteredpixel.shatteredpixeldungeon.items.stones.",
+                  "com.shatteredpixel.shatteredpixeldungeon.items.spells.",
+                  "com.shatteredpixel.shatteredpixeldungeon.items.food.",
+                  "com.shatteredpixel.shatteredpixeldungeon.items.bombs.",
+                  "com.shatteredpixel.shatteredpixeldungeon.items.wands.",
+                  "com.shatteredpixel.shatteredpixeldungeon.items.bags."
+              };
+              static boolean allowed(String n) {
+                  for (String p : PREFIXES) if (n.startsWith(p)) return true;
+                  return false;
+              }
+              public static void main(String[] args) throws Exception {
+                  String jarPath = args[0];
+                  ClassLoader cl = DumpBuffs.class.getClassLoader();
+                  ArrayList<String> names = new ArrayList<>();
+                  try (JarFile jar = new JarFile(jarPath)) {
+                      Enumeration<JarEntry> en = jar.entries();
+                      while (en.hasMoreElements()) {
+                          String e = en.nextElement().getName();
+                          if (!e.endsWith(".class")) continue;
+                          String n = e.substring(0,e.length()-6).replace('/','.');
+                          if (!allowed(n)) continue;
+                          try {
+                              Class<?> c = Class.forName(n, false, cl);
+                              int m = c.getModifiers();
+                              if (c != Buff.class && Buff.class.isAssignableFrom(c)
+                                      && !java.lang.reflect.Modifier.isAbstract(m)
+                                      && !java.lang.reflect.Modifier.isInterface(m)
+                                      && !c.isAnonymousClass() && !c.isLocalClass() && !c.isSynthetic()
+                                      && (!c.isMemberClass() || java.lang.reflect.Modifier.isStatic(m))) {
+                                  if (!n.contains("PinCushion") && !n.contains("HTBoost")) names.add(n);
+                              }
+                          } catch (Throwable ignore) {}
+                      }
+                  }
+                  Collections.sort(names);
+                  for (String n : names) System.out.println(n);
+              }
+          }
+          JAVA
+          javac -cp spd338.jar DumpBuffs.java
+          java -cp spd338.jar:. DumpBuffs spd338.jar > buffs338.txt
+          rm -f DumpBuffs.class
+          javac -cp spd4.jar DumpBuffs.java
+          java -cp spd4.jar:. DumpBuffs spd4.jar > buffs4.txt
+          echo '===== BETA-only SMM-scanned Buffs ====='
+          comm -13 buffs338.txt buffs4.txt | tee beta-buffs.txt
+          echo '===== Removed SMM-scanned Buffs ====='
+          comm -23 buffs338.txt buffs4.txt || true
+      - name: Inspect beta-only Buff constructors and display methods
+        run: |
+          while read cls; do
+            [ -n "$cls" ] || continue
+            echo "===== $cls ====="
+            javap -classpath spd4.jar -p -s "$cls" || true
+            echo '--- bytecode refs ---'
+            javap -classpath spd4.jar -p -c "$cls" \
+              | grep -E '(<init>| icon\(| name\(| desc\(| set\(| reset\(| extend\(|invoke|Field )' \
+              | head -n 220 || true
+          done < beta-buffs.txt
