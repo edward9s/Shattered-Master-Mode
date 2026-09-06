@@ -23,39 +23,46 @@ jobs:
           curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/v3.3.8/ShatteredPD-v3.3.8-Java.jar -o spd338.jar
           curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/4.0.0-beta/ShatteredPD-v4.0.0-BETA-4-Java.jar -o spd4.jar
 
-      - name: Compare journal-facing class ABI
+      - name: Compare journal entry sets
         run: |
-          set -eu
-          classes=(
-            com.shatteredpixel.shatteredpixeldungeon.journal.Catalog
-            com.shatteredpixel.shatteredpixeldungeon.journal.Bestiary
-            com.shatteredpixel.shatteredpixeldungeon.items.Item
-            com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite
-            com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet
-            'com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet$Icons'
-            com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff
-            'com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff$buffType'
-            com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane
-            com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane
-            com.shatteredpixel.shatteredpixeldungeon.windows.WndTabbed
-            com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTerrainTilemap
-            com.shatteredpixel.shatteredpixeldungeon.tiles.TerrainFeaturesTilemap
-            com.watabou.utils.Reflection
-          )
-          mkdir -p abi338 abi4
-          for cls in "${classes[@]}"; do
-            safe=${cls//[^A-Za-z0-9]/_}
-            javap -classpath spd338.jar -p -s "$cls" > "abi338/$safe.txt" || true
-            javap -classpath spd4.jar -p -s "$cls" > "abi4/$safe.txt" || true
-            echo "===== $cls ====="
-            diff -u "abi338/$safe.txt" "abi4/$safe.txt" || true
-          done
+          cat > DumpJournal.java <<'JAVA'
+          import com.shatteredpixel.shatteredpixeldungeon.journal.Bestiary;
+          import com.shatteredpixel.shatteredpixeldungeon.journal.Catalog;
+          import java.util.*;
 
-      - name: Inspect beta journal bytecode and catalog members
+          public class DumpJournal {
+              public static void main(String[] args) {
+                  for (Catalog c : Catalog.values()) {
+                      for (Class<?> k : c.items()) {
+                          System.out.println("CATALOG\t" + c.name() + "\t" + k.getName());
+                      }
+                  }
+                  for (Bestiary b : Bestiary.values()) {
+                      for (Class<?> k : b.entities()) {
+                          System.out.println("BESTIARY\t" + b.name() + "\t" + k.getName());
+                      }
+                  }
+              }
+          }
+          JAVA
+          javac -cp spd338.jar DumpJournal.java
+          java -cp spd338.jar:. DumpJournal | sort > journal338.txt
+          rm -f DumpJournal.class
+          javac -cp spd4.jar DumpJournal.java
+          java -cp spd4.jar:. DumpJournal | sort > journal4.txt
+          echo '===== Added in BETA-4 ====='
+          comm -13 journal338.txt journal4.txt || true
+          echo '===== Removed in BETA-4 ====='
+          comm -23 journal338.txt journal4.txt || true
+
+      - name: Inspect added beta classes
         run: |
-          echo '===== BETA WndJournal signatures ====='
-          javap -classpath spd4.jar -p -s com.shatteredpixel.shatteredpixeldungeon.windows.WndJournal || true
-          echo '===== BETA WndJournal bytecode references ====='
-          javap -classpath spd4.jar -p -c com.shatteredpixel.shatteredpixeldungeon.windows.WndJournal \
-            | grep -E 'Catalog|Bestiary|ItemSpriteSheet|Reflection|ScrollingGridPane|TerrainFeaturesTilemap|newInstance|items\(|entities\(' \
-            | head -n 300 || true
+          comm -13 journal338.txt journal4.txt | cut -f3 | while read cls; do
+            [ -n "$cls" ] || continue
+            echo "===== $cls ====="
+            javap -classpath spd4.jar -p -s "$cls" || true
+            echo '--- constructor/info/name/glowing bytecode refs ---'
+            javap -classpath spd4.jar -p -c "$cls" \
+              | grep -E '(^  public .*\(\);|(^  public .* (name|info|desc|glowing)\()|invoke|Field |new )' \
+              | head -n 160 || true
+          done
