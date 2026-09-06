@@ -52,6 +52,7 @@ public class ModGame {
 
     public static void installMenu(Consumer<RedButton> addButton) {
         loadSettings();
+        ModUpdates.checkForUpdate();
         addButton.accept(new ModDepthSelector.OpenBtn());
         addButton.accept(new ModToolsWindow.OpenBtn());
     }
@@ -69,6 +70,7 @@ public class ModGame {
         }
 
         loadSettings();
+        ModUpdates.checkForUpdate();
 
         Method addButton = null;
         Method[] methods = window.getClass().getDeclaredMethods();
