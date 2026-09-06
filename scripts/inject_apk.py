@@ -57,11 +57,13 @@ class AbiProfile:
         counts: dict[str, int] = {}
         for capability in self.capabilities.values():
             counts[capability.strategy] = counts.get(capability.strategy, 0) + 1
-        summary = ", ".join(
-            f"{count} {strategy}"
-            for strategy, count in sorted(counts.items())
+        injector.log(
+            "Target ABI strategies: "
+            + ", ".join(
+                f"{count} {strategy}"
+                for strategy, count in sorted(counts.items())
+            )
         )
-        injector.log("Target ABI strategies: " + summary)
 
     def require_compatible(self) -> None:
         failures = [
@@ -232,11 +234,29 @@ def _probe_duelist_combo(
             "Sai.ComboStrikeTracker class is missing",
         )
 
-    if _has_method(target_index, tracker_descriptor, "addHit", "()V"):
+    if ("addHit", "()V") in tracker.methods:
         return AbiCapability(
             "duelist.comboHit",
             ABI_DIRECT,
-            "ComboStrikeTracker.addHit() is available",
+            "ComboStrikeTracker.addHit() is declared",
+        )
+
+    # ModCombatCompat can call an R8-renamed addHit() when the tracker has one
+    # unambiguous declared instance ()V method. Constructors are not Methods
+    # and therefore must not be counted here.
+    noarg_void = [
+        name
+        for (name, proto), flags in tracker.methods.items()
+        if proto == "()V"
+        and "static" not in flags
+        and not name.startswith("<")
+    ]
+    if len(noarg_void) == 1:
+        return AbiCapability(
+            "duelist.comboHit",
+            ABI_RUNTIME,
+            "unique declared non-static ()V method can be invoked independent of its name",
+            data={"method": noarg_void[0]},
         )
 
     int_field = _unique_declared_field(tracker, "I", require_static=False)
@@ -249,10 +269,16 @@ def _probe_duelist_combo(
             data={"hits_field": int_field, "time_field": float_field},
         )
 
+    instance_shape = sorted(
+        f"{name}:{typ}"
+        for (name, typ), flags in tracker.fields.items()
+        if "static" not in flags
+    )
     return AbiCapability(
         "duelist.comboHit",
         ABI_UNSUPPORTED,
-        "addHit() is absent and tracker state shape is ambiguous",
+        "no exact/unique runtime method and tracker state is ambiguous"
+        + (" (instance fields: " + ", ".join(instance_shape) + ")" if instance_shape else ""),
     )
 
 
