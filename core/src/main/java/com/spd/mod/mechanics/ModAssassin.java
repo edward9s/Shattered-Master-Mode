@@ -11,7 +11,6 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
 import com.shatteredpixel.shatteredpixeldungeon.items.KindOfWeapon;
 import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
-import com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.Sai;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
@@ -86,7 +85,7 @@ public class ModAssassin {
                 Buff.affect(hero, Combo.class).hit(target);
             }
             if (hero.heroClass == HeroClass.DUELIST) {
-                Buff.affect(hero, Sai.ComboStrikeTracker.class).addHit();
+                ModCombatCompat.addDuelistComboHit(hero);
             }
         }
 
