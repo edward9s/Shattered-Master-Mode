@@ -16,11 +16,11 @@ Mod items are development aids and not official in-game items. If future updates
 
 ## How to build from source
 
-SMM is an overlay for Shattered Pixel Dungeon rather than a standalone project. The current source is built against SPD v3.3.8. You will need Git, Python 3, JDK 17, and the Android SDK to build the APK.
+SMM is an overlay for Shattered Pixel Dungeon rather than a standalone project. You will need Git, Python 3, JDK 17, and the Android SDK to build the APK.
 
 ```bash
 git clone https://github.com/edward9s/Shattered-Master-Mode.git mod
-git clone --branch v3.3.8 --depth 1 https://github.com/00-Evan/shattered-pixel-dungeon.git spd_src
+git clone https://github.com/00-Evan/shattered-pixel-dungeon.git spd_src
 
 python mod/scripts/patch_android.py
 python mod/scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGame.java
