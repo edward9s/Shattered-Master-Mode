@@ -16,7 +16,7 @@ Mod items are development aids and not official in-game items. If future updates
 
 ## Full SMM binary injection
 
-SMM can be injected into compatible SPD-derived APK/JAR builds without rebuilding the target from source. The target remains the base artifact; the injector adds the compiled `com.spd.mod` payload, rebases SPD package references when necessary, validates compatible target APIs, and patches the target `WndGame` menu so SMM opens through the normal game menu.
+SMM can be injected into compatible SPD-derived APK/JAR builds without rebuilding the target from source. The target remains the base artifact; the injector adds the compiled `com.spd.mod` payload, rebases SPD package references when necessary, applies compatibility checks/adaptations, and patches the target `WndGame` menu so SMM opens through the normal game menu.
 
 Use the `SMM-m<version>-InjectKit.zip` artifact produced by **Build SMM Injection Kit**. The kit contains dedicated donor binaries and the public injector scripts:
 
@@ -29,7 +29,7 @@ python inject_jar.py smm-inject-donor.jar TARGET.jar --out TARGET-SMM.jar
 
 The APK donor is intentionally a **non-minified debug APK**. Do not replace it with the normal release APK: R8 may outline or rebind SMM bytecode into donor-only obfuscated helpers that are unsafe to transplant. The donor's SPD source version is only a build baseline; the InjectKit is versioned by SMM itself, e.g. `SMM-m0.3.0-InjectKit.zip`.
 
-See [Binary injection rules](docs/modankh_payload_rules.md) | [正體中文](docs/modankh_payload_rules.zh-TW.md).
+See [Binary injection rules](docs/smm_injection_rules.md) | [正體中文](docs/smm_injection_rules.zh-TW.md).
 
 Debug Console documentation: [English](docs/debug_console.md) | [正體中文](docs/debug_console.zh-TW.md)
 
