@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
-"""Inject the complete compiled SMM payload into an SPD-derived desktop JAR.
-
-This is the single public JAR injection entry point. The low-level JAR/class
-machinery lives in ``_inject_jar_core.py``; this front-end configures that
-engine for full-SMM injection and replaces the legacy Dungeon startup hook with
-the traditional WndGame menu entry.
-"""
+"""Inject the compiled SMM payload into an SPD-derived desktop JAR."""
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Sequence
 
 import _inject_jar_core as injector
 
 
+DEFAULT_DONOR = Path(__file__).resolve().with_name("smm-inject-donor.jar")
 injector.MOD_ITEM_CLASS_PREFIX = "com/spd/mod/"
 
 _original_patch_classes = injector.patch_classes
@@ -139,8 +135,6 @@ def patch_full_classes(
     work: Path,
     target_game_root: str = injector.SOURCE_GAME_INTERNAL_ROOT,
 ):
-    # Preserve the proven ModAnkh compatibility adaptation/validation. The
-    # core helper's patched Dungeon output is intentionally discarded below.
     patched_modankh, _unused_patched_dungeon = _original_patch_classes(
         java,
         target,
@@ -187,17 +181,39 @@ def rebuild_full_jar(
     )
 
 
+def output_path(target: Path) -> Path:
+    return target.with_name(target.stem + "-SMM" + (target.suffix or ".jar"))
+
+
+def print_help() -> None:
+    print(
+        "usage: inject_jar.py TARGET.jar [--out OUTPUT.jar] [--keep-work]\n\n"
+        "Inject SMM into an SPD-derived desktop JAR using smm-inject-donor.jar beside this script.\n\n"
+        "options:\n"
+        "  --out PATH    output JAR (default: <target>-SMM.jar)\n"
+        "  --keep-work   keep temporary work files\n"
+        "  -h, --help    show this help"
+    )
+
+
 injector.patch_classes = patch_full_classes
 injector.rebuild_jar = rebuild_full_jar
+injector.output_path_for = output_path
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    return injector.main(argv)
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args or "-h" in args or "--help" in args:
+        print_help()
+        return 0 if args else 2
+    if not DEFAULT_DONOR.is_file():
+        raise injector.InjectError(f"SMM donor JAR not found beside injector: {DEFAULT_DONOR}")
+    return injector.main([str(DEFAULT_DONOR), *args])
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except injector.InjectError as exc:
-        print(f"\nError: {exc}", file=__import__("sys").stderr)
+        print(f"\nError: {exc}", file=sys.stderr)
         raise SystemExit(2)
