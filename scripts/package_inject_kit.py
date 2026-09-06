@@ -44,11 +44,11 @@ def populate_kit(
     (kit / "README.txt").write_text(
         "Shattered Master Mode Injection Kit\n\n"
         "APK:\n"
-        "  python inject_apk.py smm-inject-donor.apk TARGET.apk --out TARGET-SMM.apk\n\n"
+        "  python inject_apk.py TARGET.apk\n\n"
         "Desktop JAR:\n"
-        "  python inject_jar.py smm-inject-donor.jar TARGET.jar --out TARGET-SMM.jar\n\n"
-        "Use the included donor files. The APK donor is a non-minified build required for injection.\n"
-        "Keep each _inject_*_core.py file beside its corresponding public injector script.\n",
+        "  python inject_jar.py TARGET.jar\n\n"
+        "Optional: --out OUTPUT\n"
+        "Keep the kit files together. The APK donor is a non-minified build required for injection.\n",
         encoding="utf-8",
     )
 
