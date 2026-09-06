@@ -103,7 +103,7 @@ public class ModInstantKillBuff extends ChampionEnemy {
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(0xCC2222);
+        icon.hardlight(0x66FF33);
     }
 
     @Override
