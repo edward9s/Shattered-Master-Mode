@@ -37,27 +37,18 @@ def populate_kit(
         "scripts/_inject_apk_core.py",
         "scripts/inject_jar.py",
         "scripts/_inject_jar_core.py",
-        "docs/smm_injection_rules.md",
-        "docs/smm_injection_rules.zh-TW.md",
     ):
         source = repo / relative
         copy_required(source, kit / source.name)
 
     (kit / "README.txt").write_text(
-        "Shattered Master Mode full injection kit\n\n"
+        "Shattered Master Mode Injection Kit\n\n"
         "APK:\n"
         "  python inject_apk.py smm-inject-donor.apk TARGET.apk --out TARGET-SMM.apk\n\n"
         "Desktop JAR:\n"
         "  python inject_jar.py smm-inject-donor.jar TARGET.jar --out TARGET-SMM.jar\n\n"
-        "The APK donor is intentionally the non-minified GitHub Actions debug build.\n"
-        "Do not replace it with the release APK: release R8 optimization may create\n"
-        "donor-only obfuscated helper classes that are unsafe to transplant.\n\n"
-        "inject_apk.py and inject_jar.py are the only public injection commands.\n"
-        "_inject_apk_core.py and _inject_jar_core.py are private implementation modules.\n\n"
-        "The target game remains the base. Full SMM injection patches the target\n"
-        "WndGame menu entry and injects com.spd.mod; it does not give the Hero a\n"
-        "startup ModAnkh.\n\n"
-        "See smm_injection_rules.md (English) or smm_injection_rules.zh-TW.md.\n",
+        "Use the included donor files. The APK donor is a non-minified build required for injection.\n"
+        "Keep each _inject_*_core.py file beside its corresponding public injector script.\n",
         encoding="utf-8",
     )
 
