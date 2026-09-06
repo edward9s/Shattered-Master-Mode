@@ -24,43 +24,61 @@ public class ModBuffTab extends Component {
 
         // Master Mode-specific buffs are explicitly pinned above scanned vanilla buffs.
         grid.addHeader("Mod Buff");
-        grid.addItem(new ModGridParryRiposte());
-        grid.addItem(new ModGridLastStand());
-        grid.addItem(new ModGridEnemySurge());
-        grid.addItem(new ModGridAssassinBuff());
-        grid.addItem(new ModGridLoot());
+        addPinned(new PinnedFactory() {
+            @Override public ModGridEntry create() { return new ModGridParryRiposte(); }
+        });
+        addPinned(new PinnedFactory() {
+            @Override public ModGridEntry create() { return new ModGridLastStand(); }
+        });
+        addPinned(new PinnedFactory() {
+            @Override public ModGridEntry create() { return new ModGridEnemySurge(); }
+        });
+        addPinned(new PinnedFactory() {
+            @Override public ModGridEntry create() { return new ModGridAssassinBuff(); }
+        });
+        addPinned(new PinnedFactory() {
+            @Override public ModGridEntry create() { return new ModGridLoot(); }
+        });
 
         ArrayList<ModGridBuff> positiveBuffs = new ArrayList<>();
         ArrayList<ModGridBuff> negativeBuffs = new ArrayList<>();
         ArrayList<ModGridBuff> neutralBuffs = new ArrayList<>();
 
-        for (Class<?> buffClass : ModBuffClass.allBuffs()) {
-            try {
-                Buff buff = (Buff) Reflection.newInstanceUnhandled(buffClass);
-                ModCharSelector.smartSetDuration(buff, 1.0f);
+        try {
+            for (Class<?> buffClass : ModBuffClass.allBuffs()) {
+                try {
+                    Buff buff = (Buff) Reflection.newInstanceUnhandled(buffClass);
+                    if (buff == null) {
+                        continue;
+                    }
+                    ModCharSelector.smartSetDuration(buff, 1.0f);
 
-                if (buff.icon() != 127) {
-                    String name = buff.name();
-                    if (!name.contains("NO TEXT FOUND")) {
-                        BuffIcon icon = new BuffIcon(buff, true);
-                        ModGridBuff gridBuff = new ModGridBuff(
-                                icon,
-                                (Class<? extends Buff>) buffClass,
-                                Messages.titleCase(name),
-                                buff.desc());
+                    if (buff.icon() != 127) {
+                        String name = buff.name();
+                        if (name != null && !name.contains("NO TEXT FOUND")) {
+                            BuffIcon icon = new BuffIcon(buff, true);
+                            ModGridBuff gridBuff = new ModGridBuff(
+                                    icon,
+                                    (Class<? extends Buff>) buffClass,
+                                    Messages.titleCase(name),
+                                    buff.desc());
 
-                        if (buff.type == Buff.buffType.POSITIVE) {
-                            positiveBuffs.add(gridBuff);
-                        } else if (buff.type == Buff.buffType.NEGATIVE) {
-                            negativeBuffs.add(gridBuff);
-                        } else {
-                            neutralBuffs.add(gridBuff);
+                            if (buff.type == Buff.buffType.POSITIVE) {
+                                positiveBuffs.add(gridBuff);
+                            } else if (buff.type == Buff.buffType.NEGATIVE) {
+                                negativeBuffs.add(gridBuff);
+                            } else {
+                                neutralBuffs.add(gridBuff);
+                            }
                         }
                     }
+                } catch (Throwable ignore) {
+                    // Target-specific buff linkage/constructor failures are non-fatal
+                    // to the presentation-only journal enumeration.
                 }
-            } catch (Exception e) {
-                // Ignore exception and continue to the next entity
             }
+        } catch (Throwable ignore) {
+            // Runtime class discovery is optional journal data.
         }
 
         if (!positiveBuffs.isEmpty()) {
@@ -82,6 +100,21 @@ public class ModBuffTab extends Component {
             for (ModGridBuff gridBuff : neutralBuffs) {
                 grid.addItem(gridBuff);
             }
+        }
+    }
+
+    private interface PinnedFactory {
+        ModGridEntry create();
+    }
+
+    private void addPinned(PinnedFactory factory) {
+        try {
+            ModGridEntry entry = factory.create();
+            if (entry != null) {
+                grid.addItem(entry);
+            }
+        } catch (Throwable ignore) {
+            // A single debug-buff presentation entry must not close the journal.
         }
     }
 
