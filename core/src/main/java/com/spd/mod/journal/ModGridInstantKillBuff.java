@@ -8,7 +8,7 @@ public class ModGridInstantKillBuff extends ModGridEntry {
 
     private static final String TITLE = "Instant Kill";
     private static final String DESCRIPTION =
-            "Permanent Master Mode buff for the Hero. Successful normal attacks, including melee and thrown weapons, invoke the enemy's native death behavior.";
+            "Permanent configurable combat buff for the Hero. Attach it here, then tap its live buff icon to toggle Instant Kill and Infinite Accuracy independently. Both settings default to OFF and persist with the buff.";
 
     public ModGridInstantKillBuff() {
         super(new BuffIcon(new ModInstantKillBuff(), true), TITLE, DESCRIPTION);
