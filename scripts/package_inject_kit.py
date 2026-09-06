@@ -35,8 +35,8 @@ def populate_kit(
     for relative in (
         "scripts/inject_apk.py",
         "scripts/_inject_apk_core.py",
-        "scripts/inject_smm_jar.py",
         "scripts/inject_jar.py",
+        "scripts/_inject_jar_core.py",
         "docs/modankh_payload_rules.md",
     ):
         source = repo / relative
@@ -47,12 +47,12 @@ def populate_kit(
         "APK:\n"
         "  python inject_apk.py smm-inject-donor.apk TARGET.apk --out TARGET-SMM.apk\n\n"
         "Desktop JAR:\n"
-        "  python inject_smm_jar.py smm-inject-donor.jar TARGET.jar --out TARGET-SMM.jar\n\n"
+        "  python inject_jar.py smm-inject-donor.jar TARGET.jar --out TARGET-SMM.jar\n\n"
         "The APK donor is intentionally the non-minified GitHub Actions debug build.\n"
         "Do not replace it with the release APK: release R8 optimization may create\n"
         "donor-only obfuscated helper classes that are unsafe to transplant.\n\n"
-        "inject_apk.py is the only public APK injection command.\n"
-        "_inject_apk_core.py is its private implementation module.\n\n"
+        "inject_apk.py and inject_jar.py are the only public injection commands.\n"
+        "_inject_apk_core.py and _inject_jar_core.py are private implementation modules.\n\n"
         "The target game remains the base. Full SMM injection patches the target\n"
         "WndGame menu entry and injects com.spd.mod; it does not give the Hero a\n"
         "startup ModAnkh.\n",
