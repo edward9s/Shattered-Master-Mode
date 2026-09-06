@@ -85,6 +85,21 @@ The SPD source version used to compile the donors is only a build baseline. The 
 - Do not weaken validation to ignore missing executable references.
 - CI rejects newly introduced direct references to ABI members already classified as fork-sensitive.
 
+### Payload coding pitfalls
+
+Treat payload source as code that will be transplanted into a different compiled program, not merely code that compiles against the donor source.
+
+- Prefer direct references to stable public APIs. They remain visible to bytecode ABI validation and normally fail fast when a target is incompatible. Do not replace a stable direct reference with string reflection merely to avoid a hypothetical rename.
+- Public/name-preserved members are usually stable on supported SPD-family builds, but name preservation does not prevent shrinking, optimization, inlining, or semantic changes in forks.
+- Primitive or `String` `static final` constants can be inlined by `javac`. After inlining, the payload may contain only the literal value, so the injector cannot validate that the target still uses the same constant. Avoid target-owned inlined constants for gameplay-critical semantics when the value can vary; use an SMM-owned constant only when the numeric value is intentionally part of SMM behavior.
+- Non-`final` static fields are not Java compile-time constants, but whole-program optimizers may still propagate or remove them. Treat target fields as ABI dependencies even when they currently survive representative builds.
+- Enum constants are object fields, not primitive compile-time constants. Prefer direct enum references when the constant is expected to exist; use a runtime/name fallback only for known cross-version absence such as an enum member added in newer versions.
+- Reflection by member-name string is invisible to ordinary bytecode reference validation. If reflection is necessary, prefer name-first lookup plus an unambiguous type/descriptor/shape fallback, and reject ambiguous matches.
+- Overrides are also ABI contracts. A payload method such as a target hook can silently stop overriding if a fork changes its name or descriptor even when the payload still loads. Important inherited hooks need explicit ABI validation and/or representative runtime testing.
+- Passing representative APK/JAR injection tests is strong evidence for the tested targets. Do not add speculative compatibility machinery when current targets work; instead record known fragile dependencies and harden them when a real target or ABI difference requires it.
+
+Before adding a target dependency, ask whether it is a direct member reference, an inlined constant, a reflection-only name, or an override contract. The last three require extra care because normal missing-member validation may not see them.
+
 ## Validation
 
 Injection-sensitive changes are tested using freshly built donors and the packaged Injection Kit layout.
