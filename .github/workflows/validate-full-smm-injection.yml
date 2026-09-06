@@ -227,8 +227,12 @@ jobs:
           curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/v3.3.8/ShatteredPD-v3.3.8-Android.apk -o targets/spd.apk
           curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/v3.3.8/ShatteredPD-v3.3.8-Java.jar -o targets/spd.jar
           curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/4.0.0-beta/ShatteredPD-v4.0.0-BETA-4-Android.apk -o targets/spd4beta.apk
+          curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/4.0.0-beta/ShatteredPD-v4.0.0-BETA-4-Java.jar -o targets/spd4beta.jar
           curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/android-release.apk -o targets/rka.apk
           curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/desktop-2.3.3.jar -o targets/rka.jar
+
+      - name: Inspect official SPD 4.0 beta combo tracker ABI
+        run: javap -classpath targets/spd4beta.jar -c -p 'com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.Sai$ComboStrikeTracker'
 
       - name: Validate official SPD 3.3.8 APK injection
         id: spd_apk
@@ -250,6 +254,11 @@ jobs:
         continue-on-error: true
         run: python "$KIT_DIR/inject_jar.py" targets/spd.jar --out /tmp/spd-SMM.jar
 
+      - name: Validate official SPD 4.0 beta JAR injection
+        id: spd4_jar
+        continue-on-error: true
+        run: python "$KIT_DIR/inject_jar.py" targets/spd4beta.jar --out /tmp/spd4beta-SMM.jar
+
       - name: Validate RKA JAR injection
         id: rka_jar
         continue-on-error: true
@@ -262,4 +271,5 @@ jobs:
           test "${{ steps.spd4_apk.outcome }}" = success
           test "${{ steps.rka_apk.outcome }}" = success
           test "${{ steps.spd_jar.outcome }}" = success
+          test "${{ steps.spd4_jar.outcome }}" = success
           test "${{ steps.rka_jar.outcome }}" = success
