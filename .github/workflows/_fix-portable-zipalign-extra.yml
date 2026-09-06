@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Patch portable ZIP aligner and regression test
+      - name: Patch portable ZIP aligner
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -35,22 +35,10 @@ jobs:
           elif new not in text:
               raise SystemExit('inject_apk.py portable align loop anchor not found')
           injector.write_text(text, encoding='utf-8')
-
-          workflow = Path('.github/workflows/validate-full-smm-injection.yml')
-          text = workflow.read_text(encoding='utf-8')
-          test_step = '''\n      - name: Validate portable ZIP aligner with trailing extra padding\n        run: |\n          python - <<'PY'\n          import importlib.util\n          import pathlib\n          import struct\n          import sys\n          import tempfile\n          import zipfile\n\n          kit = pathlib.Path('/tmp/smm-inject-kit')\n          sys.path.insert(0, str(kit))\n          spec = importlib.util.spec_from_file_location('portable_align_test', kit / 'inject_apk.py')\n          mod = importlib.util.module_from_spec(spec)\n          sys.modules[spec.name] = mod\n          spec.loader.exec_module(mod)\n\n          with tempfile.TemporaryDirectory() as td:\n              root = pathlib.Path(td)\n              source = root / 'source.apk'\n              output = root / 'aligned.apk'\n\n              info = zipfile.ZipInfo('stored.bin')\n              info.compress_type = zipfile.ZIP_STORED\n              # A complete extra record followed by three raw padding bytes.\n              # Python accepts the source, but the old aligner appended 0xA11E\n              # after those bytes and created bogus field 0000 length 0x1e00.\n              info.extra = struct.pack('<HH', 0xCAFE, 0) + b'\\0\\0\\0'\n              with zipfile.ZipFile(source, 'w') as zf:\n                  zf.writestr(info, b'payload')\n\n              with zipfile.ZipFile(source, 'r') as zf:\n                  assert zf.read('stored.bin') == b'payload'\n\n              mod._portable_zipalign(source, output)\n              with zipfile.ZipFile(output, 'r') as zf:\n                  assert zf.read('stored.bin') == b'payload'\n                  extra = zf.getinfo('stored.bin').extra\n                  assert extra.startswith(struct.pack('<HH', 0xCAFE, 0))\n              mod._verify_portable_zip_alignment(output)\n\n          print('Portable ZIP aligner trailing-extra regression: OK')\n          PY\n'''
-          anchor = '''          echo "KIT_DONOR_JAR=$KIT_DIR/smm-inject-donor.jar" >> "$GITHUB_ENV"\n\n      - name: Validate capability-driven APK ABI profile\n'''
-          if 'Validate portable ZIP aligner with trailing extra padding' not in text:
-              if anchor not in text:
-                  raise SystemExit('validation workflow insertion anchor not found')
-              replacement = '''          echo "KIT_DONOR_JAR=$KIT_DIR/smm-inject-donor.jar" >> "$GITHUB_ENV"\n''' + test_step + '''\n      - name: Validate capability-driven APK ABI profile\n'''
-              text = text.replace(anchor, replacement, 1)
-              workflow.write_text(text, encoding='utf-8')
           PY
 
           git config user.name 'edward9s'
           git config user.email '277983297+edward9s@users.noreply.github.com'
-          git add scripts/inject_apk.py .github/workflows/validate-full-smm-injection.yml
-          git rm .github/workflows/_fix-portable-zipalign-extra.yml
+          git add scripts/inject_apk.py
           git commit -m 'Handle trailing ZIP extra padding in portable aligner'
           git push
