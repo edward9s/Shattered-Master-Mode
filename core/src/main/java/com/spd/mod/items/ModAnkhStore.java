@@ -1,11 +1,22 @@
 package com.spd.mod.items;
 
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
+import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.PinCushion;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
+import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
+import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
+import com.shatteredpixel.shatteredpixeldungeon.items.Dewdrop;
 import com.shatteredpixel.shatteredpixeldungeon.items.EquipableItem;
+import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+import com.shatteredpixel.shatteredpixeldungeon.items.wands.WandOfRegrowth;
+import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
+import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
+import com.shatteredpixel.shatteredpixeldungeon.plants.BlandfruitBush;
+import com.shatteredpixel.shatteredpixeldungeon.plants.Plant;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
@@ -25,13 +36,15 @@ import com.watabou.utils.Bundle;
 import com.watabou.utils.PointF;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 
 /**
- * Self-contained storage and Put/Take UI for ModAnkh.
+ * Self-contained storage and Put/Take/Loot support for ModAnkh.
  * This class is a first-class APK-injection payload and has no ModDebug dependency.
  *
  * Take intentionally mirrors the proven WndModLoot grid interaction while remaining inside the
- * ModAnkhStore class family, so ModAnkh keeps its standalone payload boundary.
+ * ModAnkhStore class family, so ModAnkh keeps its standalone payload boundary. Loot mirrors the
+ * shared ModLoot rules for projectiles, heaps and grass without introducing a second storage.
  */
 public final class ModAnkhStore {
 
@@ -41,6 +54,18 @@ public final class ModAnkhStore {
 
     // UI-only state. Deliberately not serialized.
     private float takeScrollY = 0f;
+
+    private static final class LootResult {
+        int pickedIntoBags;
+        int absorbed;
+
+        void add(LootResult other) {
+            if (other != null) {
+                pickedIntoBags += other.pickedIntoBags;
+                absorbed += other.absorbed;
+            }
+        }
+    }
 
     public void storeInBundle(Bundle bundle) {
         bundle.put(STORED, stored);
@@ -62,6 +87,181 @@ public final class ModAnkhStore {
 
     public int size() {
         return stored.size();
+    }
+
+    /**
+     * Performs the same map-wide Loot operation as Scroll of Loot, but stores overflow in this
+     * ModAnkh's existing storage. Pickup time is neutralized exactly as in the shared Loot helper.
+     */
+    public void loot(Item owner, Hero hero) {
+        if (owner == null || hero == null || hero != Dungeon.hero || Dungeon.level == null) {
+            return;
+        }
+
+        LootResult result = grabItems(owner, hero);
+        trampleGrass(hero);
+        result.add(collectHeaps(owner, hero));
+
+        if (result.absorbed > 0) {
+            GLog.i("Absorbed " + result.absorbed + " item(s) into the ankh.");
+            if (result.pickedIntoBags == 0) {
+                Sample.INSTANCE.play(Assets.Sounds.ITEM);
+            }
+            Item.updateQuickslot();
+        }
+    }
+
+    private PinCushion pinCushion(Mob mob) {
+        if (mob == null) {
+            return null;
+        }
+        for (PinCushion pin : mob.buffs(PinCushion.class)) {
+            return pin;
+        }
+        return null;
+    }
+
+    private LootResult grabItems(Item owner, Hero hero) {
+        Level level = Dungeon.level;
+        LootResult result = new LootResult();
+        if (level == null || hero == null) {
+            return result;
+        }
+
+        float start = hero.cooldown();
+
+        Iterator<Mob> it = level.mobs.iterator();
+        while (it.hasNext()) {
+            Mob mob = it.next();
+            while (true) {
+                PinCushion pc = pinCushion(mob);
+                if (pc == null) {
+                    break;
+                }
+
+                Item item = pc.grabOne();
+                if (item == null) {
+                    break;
+                }
+
+                boolean picked = item.doPickUp(hero, mob.pos);
+                if (picked) {
+                    GLog.i("Grabbed: " + item.name());
+                    result.pickedIntoBags++;
+                } else if (absorbOverflow(owner, item)) {
+                    result.absorbed++;
+                } else {
+                    level.drop(item, mob.pos);
+                    break;
+                }
+            }
+        }
+
+        float end = hero.cooldown();
+        hero.spendConstant(start - end);
+        return result;
+    }
+
+    private LootResult collectHeaps(Item owner, Hero hero) {
+        Level level = Dungeon.level;
+        LootResult result = new LootResult();
+        if (level == null || hero == null) {
+            return result;
+        }
+
+        float start = hero.cooldown();
+
+        if (level.heaps != null) {
+            for (Heap heap : level.heaps.valueList()) {
+                if (heap == null) {
+                    continue;
+                }
+
+                boolean normalCollectable = heap.type == Heap.Type.HEAP
+                        || heap.type == Heap.Type.CHEST
+                        || heap.type == Heap.Type.REMAINS
+                        || heap.type == Heap.Type.SKELETON;
+                boolean saleHeap = heap.type == Heap.Type.FOR_SALE;
+                if (!normalCollectable && !saleHeap) {
+                    continue;
+                }
+
+                // A FOR_SALE heap's last item is the actual shop merchandise. Later ordinary drops
+                // are inserted before it, so protect that exact reference and process the rest.
+                Item protectedSaleItem = saleHeap ? heap.items.peekLast() : null;
+
+                for (Item item : heap.items.toArray(new Item[0])) {
+                    if (item == null || item == protectedSaleItem) {
+                        continue;
+                    }
+
+                    if (item instanceof Dewdrop) {
+                        boolean picked = ((Dewdrop) item).doPickUp(hero, heap.pos);
+                        if (picked) {
+                            heap.remove(item);
+                            GLog.i("Collected: " + item.name());
+                        }
+                        continue;
+                    }
+
+                    boolean picked = item.doPickUp(hero, heap.pos);
+                    if (picked) {
+                        heap.remove(item);
+                        GLog.i("Collected: " + item.name());
+                        result.pickedIntoBags++;
+                    } else if (absorbOverflow(owner, item)) {
+                        heap.remove(item);
+                        result.absorbed++;
+                    }
+                    // If neither bags nor the ankh can accept it, leave it in the original heap and
+                    // continue scanning the remaining items in that heap.
+                }
+            }
+        }
+
+        float end = hero.cooldown();
+        hero.spendConstant(start - end);
+        return result;
+    }
+
+    private void trampleGrass(Hero hero) {
+        Level level = Dungeon.level;
+        if (level == null || hero == null) {
+            return;
+        }
+
+        if (level.map != null) {
+            for (int i = 0; i < level.map.length; i++) {
+                int tile = level.map[i];
+                if (tile == Terrain.HIGH_GRASS || tile == Terrain.FURROWED_GRASS) {
+                    level.pressCell(i);
+                    if (hero.heroClass == HeroClass.HUNTRESS) {
+                        Level.set(i, Terrain.FURROWED_GRASS);
+                        GameScene.updateMap(i);
+                    }
+                }
+            }
+        }
+
+        if (level.plants != null) {
+            Iterator<Plant> it = level.plants.valueList().iterator();
+            while (it.hasNext()) {
+                Plant plant = it.next();
+                if (plant instanceof WandOfRegrowth.Dewcatcher
+                        || plant instanceof WandOfRegrowth.Seedpod
+                        || plant instanceof BlandfruitBush) {
+                    level.pressCell(plant.pos);
+                }
+            }
+        }
+    }
+
+    private boolean absorbOverflow(Item owner, Item item) {
+        if (!canStore(owner, item)) {
+            return false;
+        }
+        absorb(item);
+        return true;
     }
 
     public void showPutSelector(final Item owner, final Hero hero) {
@@ -141,8 +341,7 @@ public final class ModAnkhStore {
             stored.remove(item);
             GLog.i("Took item from the ankh.");
         } else {
-            com.shatteredpixel.shatteredpixeldungeon.Dungeon.level
-                    .drop(item, hero.pos).sprite.drop();
+            Dungeon.level.drop(item, hero.pos).sprite.drop();
             stored.remove(item);
             GLog.w("Dropped item on the floor (backpack full).");
         }
