@@ -87,6 +87,50 @@ jobs:
           echo "KIT_DONOR_APK=$KIT_DIR/smm-inject-donor.apk" >> "$GITHUB_ENV"
           echo "KIT_DONOR_JAR=$KIT_DIR/smm-inject-donor.jar" >> "$GITHUB_ENV"
 
+      - name: Validate ModAnkh setCurrent compatibility adapter
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import pathlib
+          import sys
+
+          kit = pathlib.Path('/tmp/smm-inject-kit')
+          sys.path.insert(0, str(kit))
+          spec = importlib.util.spec_from_file_location('public_inject_apk', kit / 'inject_apk.py')
+          mod = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = mod
+          spec.loader.exec_module(mod)
+
+          game = 'Lcom/shatteredpixel/shatteredpixeldungeon/'
+          item_desc = game + 'items/Item;'
+          hero_desc = game + 'actors/hero/Hero;'
+          item_text = (
+              '.class public ' + item_desc + '\n'
+              '.super Ljava/lang/Object;\n'
+              '.field protected static curUser:' + hero_desc + '\n'
+              '.field protected static curItem:' + item_desc + '\n'
+          )
+          hero_text = '.class public ' + hero_desc + '\n.super Ljava/lang/Object;\n'
+          idx = {
+              item_desc: mod.injector.SmaliClass.from_text(pathlib.Path('Item.smali'), item_text),
+              hero_desc: mod.injector.SmaliClass.from_text(pathlib.Path('Hero.smali'), hero_text),
+          }
+          donor = (
+              '.class public Lcom/spd/mod/items/ModAnkh;\n'
+              '.super ' + game + 'items/Ankh;\n'
+              '.method public test(' + hero_desc + ')V\n'
+              '    invoke-virtual {p0, p1}, Lcom/spd/mod/items/ModAnkh;->setCurrent(' + hero_desc + ')V\n'
+              '    return-void\n'
+              '.end method\n'
+          )
+          out, notes = mod.adapt_modankh(donor, idx, item_desc, hero_desc)
+          if '->setCurrent(' in out or '->curUser:' not in out or '->curItem:' not in out:
+              raise SystemExit('setCurrent compatibility rewrite failed')
+          if not notes:
+              raise SystemExit('setCurrent compatibility rewrite produced no note')
+          print('ModAnkh inherited-owner compatibility: OK')
+          PY
+
       - name: Diagnose direct donor-only dependencies from full SMM roots
         run: |
           cat > /tmp/diagnose_full_payload.py <<'PY'
@@ -135,33 +179,40 @@ jobs:
           mkdir -p targets
           curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/v3.3.8/ShatteredPD-v3.3.8-Android.apk -o targets/spd.apk
           curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/v3.3.8/ShatteredPD-v3.3.8-Java.jar -o targets/spd.jar
+          curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/4.0.0-beta/ShatteredPD-v4.0.0-BETA-4-Android.apk -o targets/spd4beta.apk
           curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/android-release.apk -o targets/rka.apk
           curl -fL https://github.com/TrashboxBobylev/Rat-King-Adventure/releases/download/2.3.3/desktop-2.3.3.jar -o targets/rka.jar
 
-      - name: Validate official SPD APK full injection from packaged kit
+      - name: Validate official SPD 3.3.8 APK injection
         id: spd_apk
         continue-on-error: true
-        run: python "$KIT_DIR/inject_apk.py" "$KIT_DONOR_APK" targets/spd.apk --out /tmp/spd-SMM.apk
+        run: python "$KIT_DIR/inject_apk.py" targets/spd.apk --out /tmp/spd-SMM.apk
 
-      - name: Validate RKA APK full injection from packaged kit
+      - name: Validate official SPD 4.0 beta APK injection
+        id: spd4_apk
+        continue-on-error: true
+        run: python "$KIT_DIR/inject_apk.py" targets/spd4beta.apk --out /tmp/spd4beta-SMM.apk
+
+      - name: Validate RKA APK injection
         id: rka_apk
         continue-on-error: true
-        run: python "$KIT_DIR/inject_apk.py" "$KIT_DONOR_APK" targets/rka.apk --out /tmp/rka-SMM.apk
+        run: python "$KIT_DIR/inject_apk.py" targets/rka.apk --out /tmp/rka-SMM.apk
 
-      - name: Validate official SPD JAR full injection from packaged kit
+      - name: Validate official SPD JAR injection
         id: spd_jar
         continue-on-error: true
-        run: python "$KIT_DIR/inject_jar.py" "$KIT_DONOR_JAR" targets/spd.jar --out /tmp/spd-SMM.jar
+        run: python "$KIT_DIR/inject_jar.py" targets/spd.jar --out /tmp/spd-SMM.jar
 
-      - name: Validate RKA JAR full injection from packaged kit
+      - name: Validate RKA JAR injection
         id: rka_jar
         continue-on-error: true
-        run: python "$KIT_DIR/inject_jar.py" "$KIT_DONOR_JAR" targets/rka.jar --out /tmp/rka-SMM.jar
+        run: python "$KIT_DIR/inject_jar.py" targets/rka.jar --out /tmp/rka-SMM.jar
 
       - name: Fail if any full injection target failed
         if: always()
         run: |
           test "${{ steps.spd_apk.outcome }}" = success
+          test "${{ steps.spd4_apk.outcome }}" = success
           test "${{ steps.rka_apk.outcome }}" = success
           test "${{ steps.spd_jar.outcome }}" = success
           test "${{ steps.rka_jar.outcome }}" = success
