@@ -75,12 +75,14 @@ Donor 編譯時使用的 SPD source 版本只是 build baseline；InjectKit 的�
 
 ## 相容性規則
 
-- 將 SPD fork 間的 binary API 差異視為正常情況。
-- 比較 compiled descriptor，不只看 Java source signature。
-- 優先使用跨支援 target 穩定的 API。
-- Fork-sensitive 或 minifier-sensitive API 使用明確 adapter，或不依賴 member name 的 reflection / capability check。
+- 依 target 實際 class/member 結構選擇相容策略，不依賴 target 版本號。
+- APK injection 會建立 target ABI profile，並選擇 `direct`、`rewrite`、`structural` 或 `runtime` 策略。
+- 優先使用原生 API，其次使用語義等價 rewrite，再使用可唯一判定的 structural fallback。
+- Structural match 不唯一時必須拒絕，不得猜測。
+- Fork-sensitive 或 minifier-sensitive reflection 在 member name 不穩定時必須以 type/shape constraint 判定。
 - 不得為了繞過 compatibility error 而複製任意 donor-only 或 obfuscated class。
 - 不得放寬 validation 來忽略真正缺少的 executable reference。
+- CI 必須阻止已知 fork-sensitive ABI 再被 SMM 直接引用。
 
 ## 驗證
 
