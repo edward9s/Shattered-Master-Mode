@@ -7,6 +7,7 @@ import com.shatteredpixel.shatteredpixeldungeon.items.bags.ScrollHolder;
 import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.Scroll;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
+import com.spd.mod.mechanics.ModItemCompat;
 import com.spd.mod.mechanics.ModLootStorage;
 import com.watabou.utils.Bundle;
 
@@ -33,7 +34,7 @@ public class ModScrollOfLoot extends Scroll {
     }
 
     private void syncCount() {
-        this.level(storage == null ? 0 : storage.size());
+        ModItemCompat.setLevel(this, storage == null ? 0 : storage.size());
     }
 
     public ModLootStorage storage() {
@@ -72,7 +73,7 @@ public class ModScrollOfLoot extends Scroll {
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
-        this.level(0);
+        ModItemCompat.setLevel(this, 0);
         super.restoreFromBundle(bundle);
 
         Object restored = bundle.get(STORAGE);
