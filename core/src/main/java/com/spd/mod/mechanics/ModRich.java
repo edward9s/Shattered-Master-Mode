@@ -66,7 +66,8 @@ public class ModRich {
             newItem.cursed = false;
             newItem.identify();
 
-            if (newItem instanceof Key || newItem instanceof Dewdrop) {
+            boolean nativePickup = newItem instanceof Key || newItem instanceof Dewdrop;
+            if (nativePickup) {
                 // These items have special pickup behavior which must not be
                 // bypassed by collecting them directly into the backpack.
                 // Keys move into Notes, while dew interacts with Waterskin or
@@ -82,7 +83,9 @@ public class ModRich {
             }
 
             GLog.p("Created %s", new Object[]{newItem.name()});
-            Sample.INSTANCE.play(Assets.Sounds.ITEM);
+            if (!nativePickup) {
+                Sample.INSTANCE.play(Assets.Sounds.ITEM);
+            }
 
         } catch (Exception e) {
         }
