@@ -16,9 +16,7 @@ Mod items are development aids and not official in-game items. If future updates
 
 ## How to build from source
 
-SMM is an overlay for a compatible Shattered Pixel Dungeon source tree, not a standalone project. Use the SPD version that matches the SMM release you are building. You will need Git, Python 3, JDK 17, and the Android SDK if you want to build the APK.
-
-The following commands assume a Bash-compatible shell and that `mod/` and `spd_src/` are sibling directories:
+SMM is an overlay for Shattered Pixel Dungeon rather than a standalone project. The current source is built against SPD v3.3.8. You will need Git, Python 3, JDK 17, and the Android SDK to build the APK.
 
 ```bash
 git clone https://github.com/edward9s/Shattered-Master-Mode.git mod
@@ -27,16 +25,12 @@ git clone --branch v3.3.8 --depth 1 https://github.com/00-Evan/shattered-pixel-d
 python mod/scripts/patch_android.py
 python mod/scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGame.java
 cp -a mod/core spd_src/
-cp -a mod/android spd_src/ 2>/dev/null || true
-cp -a mod/desktop spd_src/ 2>/dev/null || true
-cp -a mod/assets spd_src/ 2>/dev/null || true
-python mod/scripts/patch_depth.py 26
 
 cd spd_src
 ./gradlew android:assembleDebug :desktop:release
 ```
 
-Replace `v3.3.8` with the SPD version corresponding to the SMM release when necessary. The Android APK is produced under `android/build/outputs/apk/`, and the desktop JAR under `desktop/build/libs/`. The repository's [`build.yml`](.github/workflows/build.yml) is the canonical reference for the current build process.
+The Android APK is produced under `android/build/outputs/apk/`, and the desktop JAR under `desktop/build/libs/`.
 
 ## Binary injection for prebuilt APK/JAR files
 
