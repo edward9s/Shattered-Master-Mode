@@ -19,7 +19,6 @@ public class ModJournalWindow extends WndTabbed {
         super();
         instance = this;
 
-        // 介面尺寸適應
         if (PixelScene.landscape()) {
             resize(216, 130);
         } else {
@@ -29,61 +28,80 @@ public class ModJournalWindow extends WndTabbed {
         float w = (float) this.width;
         float h = (float) this.height;
 
-        // 1. 初始化內容面板
-        this.tabEquip = new ModCatalogTab(Catalog.equipmentCatalogs, 0);
-        add(this.tabEquip);
-        this.tabEquip.setRect(0.0f, 0.0f, w, h);
+        // Every tab is presentation/inspection UI. A target-specific runtime
+        // failure in one tab must not prevent the journal itself from opening.
+        try {
+            this.tabEquip = new ModCatalogTab(Catalog.equipmentCatalogs, 0);
+            add(this.tabEquip);
+            this.tabEquip.setRect(0.0f, 0.0f, w, h);
+        } catch (Throwable ignore) {
+            this.tabEquip = null;
+        }
 
-        this.tabConsumable = new ModCatalogTab(Catalog.consumableCatalogs, 1);
-        add(this.tabConsumable);
-        this.tabConsumable.setRect(0.0f, 0.0f, w, h);
+        try {
+            this.tabConsumable = new ModCatalogTab(Catalog.consumableCatalogs, 1);
+            add(this.tabConsumable);
+            this.tabConsumable.setRect(0.0f, 0.0f, w, h);
+        } catch (Throwable ignore) {
+            this.tabConsumable = null;
+        }
 
-        this.tabBestiary = new ModBestiaryTab();
-        add(this.tabBestiary);
-        this.tabBestiary.setRect(0.0f, 0.0f, w, h);
+        try {
+            this.tabBestiary = new ModBestiaryTab();
+            add(this.tabBestiary);
+            this.tabBestiary.setRect(0.0f, 0.0f, w, h);
+        } catch (Throwable ignore) {
+            this.tabBestiary = null;
+        }
 
-        this.tabBuff = new ModBuffTab();
-        add(this.tabBuff);
-        this.tabBuff.setRect(0.0f, 0.0f, w, h);
+        try {
+            this.tabBuff = new ModBuffTab();
+            add(this.tabBuff);
+            this.tabBuff.setRect(0.0f, 0.0f, w, h);
+        } catch (Throwable ignore) {
+            this.tabBuff = null;
+        }
 
-        this.tabEnvironment = new ModEnvironmentTab();
-        add(this.tabEnvironment);
-        this.tabEnvironment.setRect(0.0f, 0.0f, w, h);
+        try {
+            this.tabEnvironment = new ModEnvironmentTab();
+            add(this.tabEnvironment);
+            this.tabEnvironment.setRect(0.0f, 0.0f, w, h);
+        } catch (Throwable ignore) {
+            this.tabEnvironment = null;
+        }
 
-        // 2. 建立分頁標籤按鈕 (匿名內部類實作)
-
-        // 裝備標籤
         add(new IconTab(ModJournalCompat.holderIcon(
                 "WEAPON_HOLDER", "SCROLL_HOLDER", "POTION_HOLDER", "SPELL_HOLDER")) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
-                tabEquip.active = selected;
-                tabEquip.visible = selected;
-                if (selected) {
-                    last_index = 0;
-                    tabEquip.restoreScroll();
+                if (tabEquip != null) {
+                    tabEquip.active = selected;
+                    tabEquip.visible = selected;
+                    if (selected) {
+                        last_index = 0;
+                        tabEquip.restoreScroll();
+                    }
                 }
             }
         });
 
-        // 消耗品標籤
         add(new IconTab(ModJournalCompat.holderIcon(
                 "POTION_HOLDER", "SCROLL_HOLDER", "WEAPON_HOLDER", "SPELL_HOLDER")) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
-                tabConsumable.active = selected;
-                tabConsumable.visible = selected;
-                if (selected) {
-                    last_index = 1;
-                    tabConsumable.restoreScroll();
+                if (tabConsumable != null) {
+                    tabConsumable.active = selected;
+                    tabConsumable.visible = selected;
+                    if (selected) {
+                        last_index = 1;
+                        tabConsumable.restoreScroll();
+                    }
                 }
             }
         });
 
-        // 圖鑑標籤。MOB_HOLDER 是較新的 presentation constant；舊 fork 缺少它時
-        // 只需換用另一個 target 自己存在的 holder，不能因此讓整個 Journal 失效。
         add(new IconTab(ModJournalCompat.holderIcon(
                 "MOB_HOLDER", "WEAPON_HOLDER", "SCROLL_HOLDER", "POTION_HOLDER")) {
             @Override
@@ -98,67 +116,75 @@ public class ModJournalWindow extends WndTabbed {
             }
         });
 
-        // Buff 標籤
         add(new IconTab(ModJournalCompat.holderIcon(
                 "SCROLL_HOLDER", "POTION_HOLDER", "WEAPON_HOLDER", "SPELL_HOLDER")) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
-                tabBuff.active = selected;
-                tabBuff.visible = selected;
-                if (selected) {
-                    last_index = 3;
-                    tabBuff.restoreScroll();
+                if (tabBuff != null) {
+                    tabBuff.active = selected;
+                    tabBuff.visible = selected;
+                    if (selected) {
+                        last_index = 3;
+                        tabBuff.restoreScroll();
+                    }
                 }
             }
         });
 
-        // 環境標籤
         add(new IconTab(ModJournalCompat.holderIcon(
                 "SPELL_HOLDER", "SCROLL_HOLDER", "POTION_HOLDER", "WEAPON_HOLDER")) {
             @Override
             protected void select(boolean selected) {
                 super.select(selected);
-                tabEnvironment.active = selected;
-                tabEnvironment.visible = selected;
-                if (selected) {
-                    last_index = 4;
-                    tabEnvironment.restoreScroll();
+                if (tabEnvironment != null) {
+                    tabEnvironment.active = selected;
+                    tabEnvironment.visible = selected;
+                    if (selected) {
+                        last_index = 4;
+                        tabEnvironment.restoreScroll();
+                    }
                 }
             }
         });
 
         layoutTabs();
-        select(last_index);
+        int index = last_index;
+        if (index < 0 || index > 4) {
+            index = 0;
+            last_index = 0;
+        }
+        select(index);
     }
 
-    // --- 以下為 Getter 方法 (供其他類別存取面板) ---
     public ModCatalogTab getTabEquip() { return this.tabEquip; }
     public ModCatalogTab getTabConsumable() { return this.tabConsumable; }
     public ModBestiaryTab getTabBestiary() { return this.tabBestiary; }
     public ModBuffTab getTabBuff() { return this.tabBuff; }
     public ModEnvironmentTab getTabEnvironment() { return this.tabEnvironment; }
 
-    // --- 圖鑑切換邏輯 (對應原有 Smali 需求) ---
     public void showBestiary() {
-        tabBestiary.active = true;
-        tabBestiary.visible = true;
-        tabBestiary.restoreScroll();
+        if (tabBestiary != null) {
+            tabBestiary.active = true;
+            tabBestiary.visible = true;
+            tabBestiary.restoreScroll();
+        }
     }
 
     public void hideBestiary() {
-        tabBestiary.active = false;
-        tabBestiary.visible = false;
+        if (tabBestiary != null) {
+            tabBestiary.active = false;
+            tabBestiary.visible = false;
+        }
     }
 
-    // --- 介面位移處理 ---
     @Override
     public void offset(int x, int y) {
         super.offset(x, y);
-        this.tabEquip.layout();
-        this.tabConsumable.layout();
-        this.tabBestiary.layout();
-        this.tabBuff.layout();
-        this.tabEnvironment.layout();
+        if (this.tabEquip != null) this.tabEquip.layout();
+        if (this.tabConsumable != null) this.tabConsumable.layout();
+        if (this.tabBestiary != null) this.tabBestiary.layout();
+        if (this.tabBuff != null) this.tabBuff.layout();
+        if (this.tabEnvironment != null) this.tabEnvironment.layout();
     }
 }
