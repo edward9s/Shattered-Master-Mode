@@ -34,28 +34,37 @@ public class ModCatalogTab extends Component {
 
         grid.addHeader("Mod Tools");
 
-        injectModItem(new ModScrollOfAssassin());
-        injectModItem(new ModScrollOfBlast());
-        injectModItem(new ModScrollOfSight());
-        injectModItem(new ModScrollOfLoot());
-        injectModItem(new ModScrollOfDisplacement());
-        injectModItem(new ModPotionOfResetTier.Tier1());
-        injectModItem(new ModPotionOfResetTier.Tier2());
-        injectModItem(new ModPotionOfResetTier.Tier3());
-        injectModItem(new ModPotionOfResetTier.Tier4());
-        injectModItem(new ModPotionOfWeakness());
-        injectModItem(new ModElixirBrew());
-        injectModItem(new ModAnkh());
+        addModItem(ModScrollOfAssassin.class);
+        addModItem(ModScrollOfBlast.class);
+        addModItem(ModScrollOfSight.class);
+        addModItem(ModScrollOfLoot.class);
+        addModItem(ModScrollOfDisplacement.class);
+        addModItem(ModPotionOfResetTier.Tier1.class);
+        addModItem(ModPotionOfResetTier.Tier2.class);
+        addModItem(ModPotionOfResetTier.Tier3.class);
+        addModItem(ModPotionOfResetTier.Tier4.class);
+        addModItem(ModPotionOfWeakness.class);
+        addModItem(ModElixirBrew.class);
+        addModItem(ModAnkh.class);
 
         for (Catalog catalog : catalogs) {
-            grid.addHeader(Messages.titleCase(catalog.title()));
+            try {
+                grid.addHeader(Messages.titleCase(catalog.title()));
 
-            for (Class<?> clazz : catalog.items()) {
-                Object instance = Reflection.newInstance(clazz);
-                ModGridItem gridItem = createGridItem(instance);
-                if (gridItem != null) {
-                    grid.addItem(gridItem);
+                for (Class<?> clazz : catalog.items()) {
+                    try {
+                        Object instance = Reflection.newInstanceUnhandled(clazz);
+                        ModGridItem gridItem = createGridItem(instance);
+                        if (gridItem != null) {
+                            grid.addItem(gridItem);
+                        }
+                    } catch (Throwable ignore) {
+                        // Journal entries are presentation-only. A target-specific
+                        // constructor/linkage failure must not close the journal.
+                    }
                 }
+            } catch (Throwable ignore) {
+                // Keep the remaining catalog groups usable on divergent forks.
             }
         }
 
@@ -70,24 +79,37 @@ public class ModCatalogTab extends Component {
         }
     }
 
+    private void addModItem(Class<? extends Item> clazz) {
+        try {
+            Item item = Reflection.newInstanceUnhandled(clazz);
+            injectModItem(item);
+        } catch (Throwable ignore) {
+            // One incompatible debug item must not make the whole journal unusable.
+        }
+    }
+
     private void addScannedSection(String title, Iterable<? extends Class<?>> classes) {
         ArrayList<ModGridItem> items = new ArrayList<>();
 
-        for (Class<?> clazz : classes) {
-            try {
-                Object instance = Reflection.newInstanceUnhandled(clazz);
-                if (!hasUsableName(instance)) {
-                    continue;
-                }
+        try {
+            for (Class<?> clazz : classes) {
+                try {
+                    Object instance = Reflection.newInstanceUnhandled(clazz);
+                    if (!hasUsableName(instance)) {
+                        continue;
+                    }
 
-                ModGridItem gridItem = createGridItem(instance);
-                if (gridItem != null) {
-                    items.add(gridItem);
+                    ModGridItem gridItem = createGridItem(instance);
+                    if (gridItem != null) {
+                        items.add(gridItem);
+                    }
+                } catch (Throwable ignore) {
+                    // A concrete class can still be runtime-only or require state
+                    // that makes it unsuitable for direct journal construction.
                 }
-            } catch (Throwable ignore) {
-                // A concrete class can still be runtime-only or require state
-                // that makes it unsuitable for direct journal construction.
             }
+        } catch (Throwable ignore) {
+            // Runtime discovery itself is optional presentation data.
         }
 
         if (!items.isEmpty()) {
@@ -117,6 +139,10 @@ public class ModCatalogTab extends Component {
     }
 
     private ModGridItem createGridItem(Object instance) {
+        if (instance == null) {
+            return null;
+        }
+
         ModGridItem gridItem = null;
 
         if (instance instanceof Item) {
@@ -125,10 +151,14 @@ public class ModCatalogTab extends Component {
             gridItem = new ModGridItem(sprite, item, null, null);
 
             if (item.icon != -1) {
-                Image iconImage = new Image(Assets.Sprites.ITEM_ICONS);
-                RectF frame = ItemSpriteSheet.Icons.film.get(item.icon);
-                iconImage.frame(frame);
-                gridItem.addSecondIcon(iconImage);
+                try {
+                    Image iconImage = new Image(Assets.Sprites.ITEM_ICONS);
+                    RectF frame = ItemSpriteSheet.Icons.film.get(item.icon);
+                    iconImage.frame(frame);
+                    gridItem.addSecondIcon(iconImage);
+                } catch (Throwable ignore) {
+                    // Secondary item-icon rendering is cosmetic.
+                }
             }
         } else if (instance instanceof Weapon.Enchantment) {
             Weapon.Enchantment enchant = (Weapon.Enchantment) instance;
@@ -144,6 +174,9 @@ public class ModCatalogTab extends Component {
     }
 
     private void injectModItem(Item item) {
+        if (item == null) {
+            return;
+        }
         ModGridItem gridItem = createGridItem(item);
         if (gridItem != null) {
             grid.addItem(gridItem);
