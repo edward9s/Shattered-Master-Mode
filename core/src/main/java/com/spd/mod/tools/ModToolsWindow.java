@@ -4,7 +4,6 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
-import com.shatteredpixel.shatteredpixeldungeon.windows.WndOptions;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTitledMessage;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 
@@ -16,7 +15,7 @@ public class ModToolsWindow extends WndTitledMessage {
     public static ModToolsWindow instance;
 
     public ModToolsWindow() {
-        super(Icons.PREFS.get(), "Tools v" + ModGame.version(), "Select a function to execute.");
+        super(Icons.PREFS.get(), titleText(), "Select a function to execute.");
         instance = this;
 
         int w = this.width;
@@ -91,9 +90,16 @@ public class ModToolsWindow extends WndTitledMessage {
         resize(w, (int) y);
     }
 
+    private static String titleText() {
+        if (ModUpdates.updateAvailable()) {
+            return "Tools v" + ModGame.version() + " (new " + ModUpdates.latestVersion() + ")";
+        }
+        return "Tools v" + ModGame.version();
+    }
+
     public static class OpenBtn extends RedButton {
 
-        private boolean updateLabel;
+        private String shownVersion;
 
         public OpenBtn() {
             super("Tools");
@@ -104,16 +110,10 @@ public class ModToolsWindow extends WndTitledMessage {
         public void update() {
             super.update();
 
-            boolean available = ModUpdates.updateAvailable();
-            if (available != updateLabel) {
-                updateLabel = available;
-                if (available) {
-                    text("Tools (Update!)");
-                    textColor(0xffaa00);
-                } else {
-                    text("Tools");
-                    textColor(0xffff44);
-                }
+            String latest = ModUpdates.updateAvailable() ? ModUpdates.latestVersion() : null;
+            if (latest == null ? shownVersion != null : !latest.equals(shownVersion)) {
+                shownVersion = latest;
+                text(latest == null ? "Tools" : "Tools (new " + latest + ")");
             }
         }
 
@@ -123,28 +123,7 @@ public class ModToolsWindow extends WndTitledMessage {
             if (parent instanceof Window) {
                 ((Window) parent).hide();
             }
-
-            if (ModUpdates.updateAvailable()) {
-                String latest = ModUpdates.latestVersion();
-                GameScene.show(new WndOptions(
-                        Icons.CHANGES.get(),
-                        "SMM Update",
-                        "Shattered Master Mode v" + latest + " is available.\n\n"
-                                + "Installed: v" + ModGame.version(),
-                        "Release Page",
-                        "Continue") {
-                    @Override
-                    protected void onSelect(int index) {
-                        if (index == 0) {
-                            ModUpdates.openReleasePage();
-                        } else if (index == 1) {
-                            GameScene.show(new ModToolsWindow());
-                        }
-                    }
-                });
-            } else {
-                GameScene.show(new ModToolsWindow());
-            }
+            GameScene.show(new ModToolsWindow());
         }
     }
 }
