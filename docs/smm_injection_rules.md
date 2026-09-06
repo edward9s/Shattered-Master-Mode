@@ -75,12 +75,14 @@ The SPD source version used to compile the donors is only a build baseline. The 
 
 ## Compatibility rules
 
-- Treat binary API differences between SPD forks as expected.
-- Compare compiled descriptors, not only Java source signatures.
-- Prefer APIs stable across supported targets.
-- Use deliberate adapters or member-name-independent reflection/capability checks for fork- or minifier-sensitive APIs.
+- Select compatibility from the target's actual class/member structure, not its version number.
+- APK injection builds a target ABI profile and selects `direct`, `rewrite`, `structural`, or `runtime` strategies.
+- Prefer exact APIs, then semantic rewrites, then unambiguous structural fallbacks.
+- Reject ambiguous structural matches instead of guessing.
+- Fork- or minifier-sensitive reflection must use type/shape constraints when member names are not stable.
 - Do not copy arbitrary donor-only or obfuscated classes to bypass compatibility errors.
 - Do not weaken validation to ignore missing executable references.
+- CI rejects newly introduced direct references to ABI members already classified as fork-sensitive.
 
 ## Validation
 
