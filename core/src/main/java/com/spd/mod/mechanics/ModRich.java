@@ -2,11 +2,14 @@ package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+import com.shatteredpixel.shatteredpixeldungeon.items.Dewdrop;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+import com.shatteredpixel.shatteredpixeldungeon.items.Waterskin;
 import com.shatteredpixel.shatteredpixeldungeon.items.armor.Armor;
 import com.shatteredpixel.shatteredpixeldungeon.items.bombs.Bomb;
 import com.shatteredpixel.shatteredpixeldungeon.items.keys.Key;
 import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
+import com.shatteredpixel.shatteredpixeldungeon.journal.Notes;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
@@ -65,9 +68,28 @@ public class ModRich {
             newItem.cursed = false;
             newItem.identify();
 
-            boolean collected = newItem.collect(Dungeon.hero.belongings.backpack);
-            if (!collected) {
-                Dungeon.level.drop(newItem, Dungeon.hero.pos);
+            if (newItem instanceof Key) {
+                // Keys live in the journal/Notes system, not in the backpack.
+                Notes.add((Key) newItem);
+                GameScene.updateKeyDisplay();
+
+            } else if (newItem instanceof Dewdrop) {
+                // A generated dewdrop should enter an available waterskin, but
+                // must not simulate Dewdrop.doPickUp(): that can consume the dew
+                // for healing and spend a turn. If it cannot be stored, leave it
+                // on the floor so the player can decide what happens to it.
+                Waterskin waterskin = Dungeon.hero.belongings.getItem(Waterskin.class);
+                if (waterskin != null && !waterskin.isFull()) {
+                    waterskin.collectDew((Dewdrop) newItem);
+                } else {
+                    Dungeon.level.drop(newItem, Dungeon.hero.pos);
+                }
+
+            } else {
+                boolean collected = newItem.collect(Dungeon.hero.belongings.backpack);
+                if (!collected) {
+                    Dungeon.level.drop(newItem, Dungeon.hero.pos);
+                }
             }
 
             GLog.p("Created %s", new Object[]{newItem.name()});
