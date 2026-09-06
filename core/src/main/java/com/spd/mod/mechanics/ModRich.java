@@ -67,11 +67,16 @@ public class ModRich {
             newItem.identify();
 
             boolean nativePickup = newItem instanceof Key || newItem instanceof Dewdrop;
-            if (nativePickup) {
-                // These items have special pickup behavior which must not be
-                // bypassed by collecting them directly into the backpack.
-                // Keys move into Notes, while dew interacts with Waterskin or
-                // its normal consume behavior through their own doPickUp().
+            boolean created = true;
+            if (newItem instanceof Dewdrop) {
+                // Dew has special pickup behavior (Waterskin / direct use).
+                // If that behavior rejects the pickup, discard this generated
+                // dew instead of leaving an unwanted heap on the floor.
+                created = newItem.doPickUp(Dungeon.hero);
+            } else if (newItem instanceof Key) {
+                // Keys have special pickup behavior which moves them into Notes.
+                // Preserve the ordinary fallback if a target-specific key ever
+                // rejects pickup.
                 if (!newItem.doPickUp(Dungeon.hero)) {
                     Dungeon.level.drop(newItem, Dungeon.hero.pos);
                 }
@@ -82,7 +87,9 @@ public class ModRich {
                 }
             }
 
-            GLog.p("Created %s", new Object[]{newItem.name()});
+            if (created) {
+                GLog.p("Created %s", new Object[]{newItem.name()});
+            }
             if (!nativePickup) {
                 Sample.INSTANCE.play(Assets.Sounds.ITEM);
             }
