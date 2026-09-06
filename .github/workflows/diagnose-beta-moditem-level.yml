@@ -41,13 +41,17 @@ jobs:
           curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/4.0.0-beta/ShatteredPD-v4.0.0-BETA-4-Java.jar -o beta.jar
           python mod/scripts/inject_jar.py beta.jar --out beta-smm.jar
 
-      - name: Instantiate level-sensitive Mod items
+      - name: Verify beta Item level adapter
         run: |
           cat > Probe.java <<'JAVA'
           import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+          import com.spd.mod.mechanics.ModItemCompat;
           import java.lang.reflect.Method;
 
           public class Probe {
+              public static class ProbeItem extends Item {
+              }
+
               private static int level(Item item) throws Exception {
                   for (Class<?> c = Item.class; c != null; c = c.getSuperclass()) {
                       for (Method m : c.getDeclaredMethods()) {
@@ -62,25 +66,30 @@ jobs:
               }
 
               public static void main(String[] args) throws Exception {
-                  String[] classes = {
-                      "com.spd.mod.items.ModScrollOfLoot",
-                      "com.spd.mod.items.ModPotionOfResetTier$Tier1",
-                      "com.spd.mod.items.ModPotionOfResetTier$Tier2",
-                      "com.spd.mod.items.ModPotionOfResetTier$Tier3",
-                      "com.spd.mod.items.ModPotionOfResetTier$Tier4",
-                      "com.spd.mod.items.ModPotionOfWeakness"
-                  };
-                  int[] expected = {0, 1, 2, 3, 4, -1};
-                  for (int i = 0; i < classes.length; i++) {
-                      Item item = (Item) Class.forName(classes[i]).getDeclaredConstructor().newInstance();
-                      int actual = level(item);
-                      System.out.println(classes[i] + " level=" + actual);
-                      if (actual != expected[i]) {
-                          throw new AssertionError(classes[i] + " expected level " + expected[i] + " but got " + actual);
-                      }
+                  ProbeItem item = new ProbeItem();
+                  ModItemCompat.setLevel(item, 7);
+                  int actual = level(item);
+                  System.out.println("ProbeItem level=" + actual);
+                  if (actual != 7) {
+                      throw new AssertionError("expected level 7 but got " + actual);
                   }
               }
           }
           JAVA
           javac -cp beta-smm.jar Probe.java
           java -cp beta-smm.jar:. Probe
+
+      - name: Verify Mod items no longer bind old level descriptor
+        run: |
+          for cls in \
+            'com.spd.mod.items.ModScrollOfLoot' \
+            'com.spd.mod.items.ModPotionOfResetTier' \
+            'com.spd.mod.items.ModPotionOfWeakness'; do
+            echo "===== $cls ====="
+            OUT=$(javap -classpath beta-smm.jar -p -c "$cls")
+            echo "$OUT" | grep -F 'ModItemCompat.setLevel'
+            if echo "$OUT" | grep -F 'level:(I)V'; then
+              echo "Old Item.level(I)V binding remains in $cls" >&2
+              exit 1
+            fi
+          done
