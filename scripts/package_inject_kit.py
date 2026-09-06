@@ -37,7 +37,8 @@ def populate_kit(
         "scripts/_inject_apk_core.py",
         "scripts/inject_jar.py",
         "scripts/_inject_jar_core.py",
-        "docs/modankh_payload_rules.md",
+        "docs/smm_injection_rules.md",
+        "docs/smm_injection_rules.zh-TW.md",
     ):
         source = repo / relative
         copy_required(source, kit / source.name)
@@ -55,7 +56,8 @@ def populate_kit(
         "_inject_apk_core.py and _inject_jar_core.py are private implementation modules.\n\n"
         "The target game remains the base. Full SMM injection patches the target\n"
         "WndGame menu entry and injects com.spd.mod; it does not give the Hero a\n"
-        "startup ModAnkh.\n",
+        "startup ModAnkh.\n\n"
+        "See smm_injection_rules.md (English) or smm_injection_rules.zh-TW.md.\n",
         encoding="utf-8",
     )
 
