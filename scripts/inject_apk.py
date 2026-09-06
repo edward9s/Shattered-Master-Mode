@@ -538,6 +538,21 @@ def _alignment_for_entry(info: zipfile.ZipInfo) -> int:
     return PORTABLE_ZIPALIGN_DEFAULT
 
 
+def _normalize_zip_extra(extra: bytes, filename: str) -> bytes:
+    """Preserve complete ZIP extra records while dropping 1-3 trailing padding bytes."""
+    offset = 0
+    length = len(extra)
+    while offset + 4 <= length:
+        _field_id, payload_size = struct.unpack_from("<HH", extra, offset)
+        end = offset + 4 + payload_size
+        if end > length:
+            raise injector.InjectError(
+                f"Malformed ZIP extra field while aligning {filename}"
+            )
+        offset = end
+    return extra[:offset]
+
+
 def _add_alignment_extra(
     info: zipfile.ZipInfo,
     header_offset: int,
@@ -600,6 +615,13 @@ def _portable_zipalign(source: Path, output: Path) -> None:
         zout.comment = zin.comment
         for source_info in zin.infolist():
             info = copy.copy(source_info)
+            # Some APK repackers leave 1-3 raw padding bytes at the end of a
+            # central-directory extra field. Python tolerates those bytes while
+            # reading the source, but appending another extra-field record turns
+            # the old padding into the start of a bogus record. Preserve every
+            # complete record and discard only that trailing padding before adding
+            # our alignment record.
+            info.extra = _normalize_zip_extra(info.extra, info.filename)
             alignment = _alignment_for_entry(info)
             if alignment > 1:
                 _add_alignment_extra(info, zout.fp.tell(), alignment)
