@@ -14,9 +14,13 @@
 Mod items are development aids and not official in-game items. If future updates modify the underlying structure of Mod Items, old save files containing them will fail to load.
  * **Proper Upgrade Procedure:** You **only** need to use the **Tools -> Alchemize** tool to completely remove all Mod Items from your inventory and the map **IF** the new version explicitly modifies Mod Items.
 
-## Full SMM binary injection
+## Binary injection for prebuilt APK/JAR files
 
-Use the `SMM-m<version>-InjectKit.zip` artifact produced by **Build SMM Injection Kit**.
+Binary injection is a **fallback method** for SPD-derived builds whose source code is unavailable or cannot reasonably be rebuilt. If compatible source code is available, integrating SMM at source level and rebuilding the project is the preferred and more reliable approach.
+
+The injector modifies an already-built APK or JAR and therefore has to work against the target's compiled classes and ABI. Forks may rename, remove, or change classes, methods, fields, resources, or game behavior in ways the injector cannot safely infer. Compatibility checks and runtime adapters cover known variations, but **successful injection is not guaranteed**, and an APK/JAR that is accepted by the injector may still expose target-specific runtime problems that cannot be detected statically.
+
+Use the `SMM-m<version>-InjectKit.zip` artifact produced by **Build SMM Injection Kit** only when binary injection is appropriate.
 
 ```bash
 python inject_apk.py TARGET.apk
@@ -25,7 +29,7 @@ python inject_jar.py TARGET.jar
 
 The default outputs are `TARGET-SMM.apk` and `TARGET-SMM.jar`. Use `--out` to choose another path.
 
-Keep the kit files together. APK injection uses the included non-minified donor.
+Keep the kit files together. APK injection uses the included non-minified donor. If the injector reports an unsupported or unresolved target ABI, do not assume the target can be made compatible by forcing the injection; source-level integration is preferable when possible.
 
 See [Binary injection rules](docs/smm_injection_rules.md) | [正體中文](docs/smm_injection_rules.zh-TW.md).
 
