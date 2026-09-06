@@ -34,7 +34,6 @@ def populate_kit(
 
     for relative in (
         "scripts/inject_apk.py",
-        "scripts/_inject_apk_impl.py",
         "scripts/_inject_apk_core.py",
         "scripts/inject_jar.py",
         "scripts/_inject_jar_core.py",
