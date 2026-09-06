@@ -1,0 +1,46 @@
+name: Compare beta journal UI implementation bytecode
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/diagnose-beta-ui-bytecode.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download binary baselines
+        run: |
+          curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/v3.3.8/ShatteredPD-v3.3.8-Java.jar -o spd338.jar
+          curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/4.0.0-beta/ShatteredPD-v4.0.0-BETA-4-Java.jar -o spd4.jar
+      - name: Compare UI implementation bytecode
+        run: |
+          classes=(
+            com.shatteredpixel.shatteredpixeldungeon.windows.WndTabbed
+            com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane
+            com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane
+            com.shatteredpixel.shatteredpixeldungeon.ui.Window
+            com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite
+            com.watabou.noosa.ui.Component
+            com.watabou.noosa.Group
+            com.watabou.noosa.Camera
+          )
+          for cls in "${classes[@]}"; do
+            safe=${cls//./_}
+            javap -classpath spd338.jar -p -c "$cls" > "$safe.338"
+            javap -classpath spd4.jar -p -c "$cls" > "$safe.4"
+            echo "===== $cls ====="
+            if cmp -s "$safe.338" "$safe.4"; then
+              echo IDENTICAL
+            else
+              diff -u "$safe.338" "$safe.4" | head -n 350 || true
+            fi
+          done
