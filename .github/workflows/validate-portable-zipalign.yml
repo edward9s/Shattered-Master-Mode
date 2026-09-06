@@ -1,0 +1,64 @@
+name: Validate portable zipalign
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'scripts/inject_apk.py'
+      - '.github/workflows/validate-portable-zipalign.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reproduce trailing-extra padding case
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import pathlib
+          import struct
+          import sys
+          import tempfile
+          import zipfile
+
+          scripts = pathlib.Path('scripts').resolve()
+          sys.path.insert(0, str(scripts))
+          spec = importlib.util.spec_from_file_location('portable_align_test', scripts / 'inject_apk.py')
+          mod = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = mod
+          spec.loader.exec_module(mod)
+
+          with tempfile.TemporaryDirectory() as td:
+              root = pathlib.Path(td)
+              source = root / 'source.apk'
+              output = root / 'aligned.apk'
+
+              info = zipfile.ZipInfo('stored.bin')
+              info.compress_type = zipfile.ZIP_STORED
+              # One complete record plus three raw trailing padding bytes. Python
+              # accepts this source layout. The old portable aligner appended its
+              # 0xA11E record after the three zero bytes, creating bogus field
+              # 0000 with length 0x1e00 (7680).
+              info.extra = struct.pack('<HH', 0xCAFE, 0) + b'\0\0\0'
+              with zipfile.ZipFile(source, 'w') as zf:
+                  zf.writestr(info, b'payload')
+
+              with zipfile.ZipFile(source, 'r') as zf:
+                  assert zf.read('stored.bin') == b'payload'
+
+              mod._portable_zipalign(source, output)
+
+              with zipfile.ZipFile(output, 'r') as zf:
+                  assert zf.read('stored.bin') == b'payload'
+                  assert zf.getinfo('stored.bin').extra.startswith(
+                      struct.pack('<HH', 0xCAFE, 0)
+                  )
+              mod._verify_portable_zip_alignment(output)
+
+          print('Portable ZIP aligner trailing-extra regression: OK')
+          PY
