@@ -69,17 +69,21 @@ jobs:
         run: |
           DONOR_APK=$(find spd_src/android/build/outputs/apk/debug -name '*.apk' | head -1)
           DONOR_JAR=$(find spd_src/desktop/build/libs -name '*.jar' | head -1)
+          MOD_VER=$(python mod/scripts/extract_version.py mod/core/src/main/java/com/spd/mod/ModGame.java)
           test -n "$DONOR_APK" -a -f "$DONOR_APK"
           test -n "$DONOR_JAR" -a -f "$DONOR_JAR"
+          test -n "$MOD_VER"
           KIT_DIR="inject-kit"
+          KIT_NAME="SMM-m${MOD_VER}-InjectKit"
           python mod/scripts/package_inject_kit.py \
             "$DONOR_APK" "$DONOR_JAR" "$KIT_DIR" \
             --repo-root mod
           echo "kit_dir=$KIT_DIR" >> "$GITHUB_OUTPUT"
+          echo "kit_name=$KIT_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload injection kit
         uses: actions/upload-artifact@v4
         with:
-          name: SMM-InjectKit
+          name: ${{ steps.package.outputs.kit_name }}
           path: ${{ steps.package.outputs.kit_dir }}/*
           if-no-files-found: error
