@@ -1,0 +1,40 @@
+name: Diagnose beta item info metadata paths
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/diagnose-beta-item-info.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download binary baseline
+        run: curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/4.0.0-beta/ShatteredPD-v4.0.0-BETA-4-Java.jar -o spd4.jar
+      - name: Inspect metadata methods
+        run: |
+          for cls in \
+            com.shatteredpixel.shatteredpixeldungeon.items.Item \
+            com.shatteredpixel.shatteredpixeldungeon.items.quest.EscapeCrystal \
+            com.shatteredpixel.shatteredpixeldungeon.items.quest.ImpStatue \
+            com.shatteredpixel.shatteredpixeldungeon.items.quest.VaultBeacon \
+            com.shatteredpixel.shatteredpixeldungeon.items.weapon.curses.Pressurized \
+            com.shatteredpixel.shatteredpixeldungeon.items.weapon.curses.Wondrous \
+            com.shatteredpixel.shatteredpixeldungeon.items.weapon.enchantments.Crystal \
+            com.shatteredpixel.shatteredpixeldungeon.items.weapon.enchantments.Eldritch \
+            com.shatteredpixel.shatteredpixeldungeon.items.weapon.enchantments.Venomous \
+            com.shatteredpixel.shatteredpixeldungeon.items.weapon.enchantments.Vorpal; do
+            echo "===== $cls ====="
+            javap -classpath spd4.jar -p -c "$cls" | sed -n '/public java.lang.String info()/,/^[[:space:]]*public\|^[[:space:]]*protected\|^[[:space:]]*private/p' || true
+            javap -classpath spd4.jar -p -c "$cls" | sed -n '/public java.lang.String desc()/,/^[[:space:]]*public\|^[[:space:]]*protected\|^[[:space:]]*private/p' || true
+            javap -classpath spd4.jar -p -c "$cls" | sed -n '/public java.lang.String name()/,/^[[:space:]]*public\|^[[:space:]]*protected\|^[[:space:]]*private/p' || true
+            javap -classpath spd4.jar -p -c "$cls" | sed -n '/public com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite[$]Glowing glowing()/,/^[[:space:]]*public\|^[[:space:]]*protected\|^[[:space:]]*private/p' || true
+          done
