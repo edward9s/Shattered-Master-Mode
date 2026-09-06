@@ -16,18 +16,14 @@ Mod items are development aids and not official in-game items. If future updates
 
 ## Full SMM binary injection
 
-SMM can be injected into compatible SPD-derived APK/JAR builds without rebuilding the target from source. The target remains the base artifact; the injector adds the compiled `com.spd.mod` payload, rebases SPD package references when necessary, applies compatibility checks/adaptations, and patches the target `WndGame` menu so SMM opens through the normal game menu.
-
-Use the `SMM-m<version>-InjectKit.zip` artifact produced by **Build SMM Injection Kit**. The kit contains dedicated donor binaries and the public injector scripts:
+Use the `SMM-m<version>-InjectKit.zip` artifact produced by **Build SMM Injection Kit**.
 
 ```bash
 python inject_apk.py smm-inject-donor.apk TARGET.apk --out TARGET-SMM.apk
 python inject_jar.py smm-inject-donor.jar TARGET.jar --out TARGET-SMM.jar
 ```
 
-`inject_apk.py` and `inject_jar.py` are the only public injection entry points. Their `_inject_apk_core.py` and `_inject_jar_core.py` files are internal implementation modules and must stay beside the public scripts.
-
-The APK donor is intentionally a **non-minified debug APK**. Do not replace it with the normal release APK: R8 may outline or rebind SMM bytecode into donor-only obfuscated helpers that are unsafe to transplant. The donor's SPD source version is only a build baseline; the InjectKit is versioned by SMM itself, e.g. `SMM-m0.3.0-InjectKit.zip`.
+The kit includes dedicated APK/JAR donors, the public injector scripts, and their required `_inject_*_core.py` modules. Use the included non-minified APK donor for APK injection.
 
 See [Binary injection rules](docs/smm_injection_rules.md) | [正體中文](docs/smm_injection_rules.zh-TW.md).
 
