@@ -12,6 +12,7 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
+import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.input.PointerEvent;
 import com.watabou.noosa.Camera;
 import com.watabou.noosa.Game;
@@ -19,6 +20,7 @@ import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
 import com.watabou.noosa.PointerArea;
+import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
 import com.watabou.utils.PointF;
 import com.watabou.utils.Signal;
@@ -28,6 +30,8 @@ import java.lang.reflect.Field;
 /** Permanent Hero buff that exposes Mod Assassin through a map long press. */
 public class ModAssassinBuff extends Buff {
 
+    private static final String INSTANT_KILL = "instant_kill";
+
     private static LongPressLayer inputLayer;
     private static boolean installPending;
 
@@ -35,10 +39,36 @@ public class ModAssassinBuff extends Buff {
     private static Field defaultCellListenerField;
     private static Field selectorEventField;
 
+    private boolean instantKill;
+
     {
         type = buffType.POSITIVE;
         announced = true;
         revivePersists = true;
+    }
+
+    /** Stable across supported SPD forks; avoids Char.buff(Class) ABI variance. */
+    public static ModAssassinBuff find(Char ch) {
+        if (ch == null) {
+            return null;
+        }
+        for (ModAssassinBuff buff : ch.buffs(ModAssassinBuff.class)) {
+            return buff;
+        }
+        return null;
+    }
+
+    public boolean instantKillEnabled() {
+        return instantKill;
+    }
+
+    public void setInstantKillEnabled(boolean enabled) {
+        instantKill = enabled;
+        BuffIndicator.refreshHero();
+    }
+
+    public void toggleInstantKill() {
+        setInstantKillEnabled(!instantKill);
     }
 
     @Override
@@ -46,19 +76,25 @@ public class ModAssassinBuff extends Buff {
         if (!(target instanceof Hero)) {
             return false;
         }
-        return super.attachTo(target);
+        if (!super.attachTo(target)) {
+            return false;
+        }
+        ModTotalInfoOverlay.ensureInstalled();
+        return true;
     }
 
     @Override
     public void fx(boolean on) {
         if (on) {
             ensureInputLayer();
+            ModTotalInfoOverlay.ensureInstalled();
         }
     }
 
     @Override
     public boolean act() {
         ensureInputLayer();
+        ModTotalInfoOverlay.ensureInstalled();
         spend(TICK);
         return true;
     }
@@ -92,7 +128,20 @@ public class ModAssassinBuff extends Buff {
     @Override
     public String desc() {
         return "Permanent Master Mode buff for the Hero. Press and hold a normal map cell or character for about half a second to invoke Mod Assassin on that cell. "
-                + "Dragging, pinching, ordinary taps, and other targeting modes keep their original controls.";
+                + "Dragging, pinching, ordinary taps, and other targeting modes keep their original controls. Instant Kill is "
+                + (instantKill ? "ON." : "OFF.");
+    }
+
+    @Override
+    public void storeInBundle(Bundle bundle) {
+        super.storeInBundle(bundle);
+        bundle.put(INSTANT_KILL, instantKill);
+    }
+
+    @Override
+    public void restoreFromBundle(Bundle bundle) {
+        super.restoreFromBundle(bundle);
+        instantKill = bundle.getBoolean(INSTANT_KILL);
     }
 
     private static void ensureInputLayer() {
@@ -117,7 +166,7 @@ public class ModAssassinBuff extends Buff {
                 installPending = false;
                 if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
                         || Dungeon.hero == null
-                        || Dungeon.hero.buffs(ModAssassinBuff.class).isEmpty()) {
+                        || find(Dungeon.hero) == null) {
                     return;
                 }
 
@@ -292,14 +341,15 @@ public class ModAssassinBuff extends Buff {
             clearPress();
 
             // Reuse the exact dispatcher already used by ModAssassin.cast().
-            new ModAssassin.Selector(hero).onSelect(cell);
+            ModAssassinBuff buff = find(hero);
+            new ModAssassin.Selector(hero, buff != null && buff.instantKillEnabled()).onSelect(cell);
             GameScene.ready();
         }
 
         private boolean activeForHero() {
             return ShatteredPixelDungeon.scene() instanceof GameScene
                     && Dungeon.hero != null
-                    && !Dungeon.hero.buffs(ModAssassinBuff.class).isEmpty();
+                    && find(Dungeon.hero) != null;
         }
 
         private boolean movedTooFar() {
