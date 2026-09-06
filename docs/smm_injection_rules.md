@@ -37,13 +37,15 @@ It contains:
 Use:
 
 ```bash
-python inject_apk.py smm-inject-donor.apk TARGET.apk --out TARGET-SMM.apk
-python inject_jar.py smm-inject-donor.jar TARGET.jar --out TARGET-SMM.jar
+python inject_apk.py TARGET.apk
+python inject_jar.py TARGET.jar
 ```
+
+The injectors resolve their matching donor from the same directory. Default outputs are `<target>-SMM.apk` and `<target>-SMM.jar`; use `--out` to override them.
 
 ## Donors
 
-The APK donor must be the dedicated non-minified build produced by the Injection Kit workflow. R8/minification can create donor-only obfuscated dependencies that are unsafe to transplant.
+The APK donor is the dedicated non-minified build produced by the Injection Kit workflow. R8/minification can create donor-only obfuscated dependencies that are unsafe to transplant.
 
 The JAR donor is built from the desktop release output.
 
@@ -56,7 +58,7 @@ The SPD source version used to compile the donors is only a build baseline. The 
 - SPD package references are rebased to the target fork package when required.
 - `com.spd.mod.*` names are preserved.
 - The target `WndGame` constructor is patched to call `com.spd.mod.ModGame.installInjectedMenu(Object)`.
-- The injector must stop on unresolved payload self-containment or target compatibility failures.
+- The injector stops on unresolved payload self-containment or target compatibility failures.
 
 ### APK
 
@@ -76,17 +78,18 @@ The SPD source version used to compile the donors is only a build baseline. The 
 - Treat binary API differences between SPD forks as expected.
 - Compare compiled descriptors, not only Java source signatures.
 - Prefer APIs stable across supported targets.
-- Use deliberate adapters or narrow reflection/capability checks for fork-sensitive APIs.
+- Use deliberate adapters or member-name-independent reflection/capability checks for fork- or minifier-sensitive APIs.
 - Do not copy arbitrary donor-only or obfuscated classes to bypass compatibility errors.
 - Do not weaken validation to ignore missing executable references.
 
 ## Validation
 
-Injection-sensitive changes must be tested using freshly built donors and the packaged Injection Kit layout.
+Injection-sensitive changes are tested using freshly built donors and the packaged Injection Kit layout.
 
-Current CI validates both APK and JAR injection against:
+Current CI validates:
 
-- official Shattered Pixel Dungeon
-- Rat King Adventure
+- official Shattered Pixel Dungeon 3.3.8 APK/JAR
+- official Shattered Pixel Dungeon 4.0 beta APK
+- Rat King Adventure 2.3.3 APK/JAR
 
 Runtime testing is still required for behavior that static packaging checks cannot exercise.
