@@ -4,13 +4,14 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.Potion;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.spd.mod.mechanics.ModItemCompat;
 import com.watabou.utils.Bundle;
 
 public class ModPotionOfWeakness extends Potion {
 
     public ModPotionOfWeakness() {
         super();
-        this.level(-1);
+        ModItemCompat.setLevel(this, -1);
     }
     
     @Override
@@ -30,7 +31,7 @@ public class ModPotionOfWeakness extends Potion {
     @Override
     public void restoreFromBundle(Bundle bundle) {
         // 在讀取存檔前將等級歸零，抵消建構子的預設值，避免 Item 原生機制的 upgrade 疊加
-        this.level(0);
+        ModItemCompat.setLevel(this, 0);
         super.restoreFromBundle(bundle);
         reset();
     }
