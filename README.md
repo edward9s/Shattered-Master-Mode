@@ -5,6 +5,30 @@
  * Designed for in-game sandbox testing, rapid editing, and easily creating meme images.
  * **Preserves Vanilla Mechanics:** This editor strictly does not alter any underlying logic of the official vanilla game.
 
+## How to build from source
+
+SMM is an overlay for a compatible Shattered Pixel Dungeon source tree, not a standalone project. Use the SPD version that matches the SMM release you are building. You will need Git, Python 3, JDK 17, and the Android SDK if you want to build the APK.
+
+The following commands assume a Bash-compatible shell and that `mod/` and `spd_src/` are sibling directories:
+
+```bash
+git clone https://github.com/edward9s/Shattered-Master-Mode.git mod
+git clone --branch v3.3.8 --depth 1 https://github.com/00-Evan/shattered-pixel-dungeon.git spd_src
+
+python mod/scripts/patch_android.py
+python mod/scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGame.java
+cp -a mod/core spd_src/
+cp -a mod/android spd_src/ 2>/dev/null || true
+cp -a mod/desktop spd_src/ 2>/dev/null || true
+cp -a mod/assets spd_src/ 2>/dev/null || true
+python mod/scripts/patch_depth.py 26
+
+cd spd_src
+./gradlew android:assembleDebug :desktop:release
+```
+
+Replace `v3.3.8` with the SPD version corresponding to the SMM release when necessary. The Android APK is produced under `android/build/outputs/apk/`, and the desktop JAR under `desktop/build/libs/`. The repository's [`build.yml`](.github/workflows/build.yml) is the canonical reference for the current build process.
+
 **⚠️ Known Limitations & Warnings**
  * **Boss Floor Binding (High Crash Risk):** Bosses with multi-stage transformations (e.g., Tengu, DM-300) have their scripts deeply bound to their specific floors. Forcing them to spawn on non-designated floors will immediately crash the game.
  * **Event NPC Spawning:** Spawning event characters (e.g., Troll Blacksmith) on non-quest floors will not advance their quests or trigger events (at most, you can grab an early pickaxe).
