@@ -95,13 +95,24 @@ _full_donor_payload: dict[str, injector.SmaliClass] = {}
 _current_abi_profile: AbiProfile | None = None
 
 
-def _has_method(
+def _member_accessible_from_modankh(flags: frozenset[str]) -> bool:
+    # ModAnkh is a subclass of Item through Ankh, but lives in another package.
+    return "public" in flags or "protected" in flags
+
+
+def _resolve_accessible_method(
     index: dict[str, injector.SmaliClass],
     owner: str,
     name: str,
     proto: str,
-) -> bool:
-    return injector.resolve_member(index, owner, (name, proto), method=True) is not None
+):
+    resolved = injector.resolve_member(index, owner, (name, proto), method=True)
+    if resolved is None:
+        return None
+    resolved_owner, flags = resolved
+    if not _member_accessible_from_modankh(flags):
+        return None
+    return resolved_owner, flags
 
 
 def _unique_declared_field(
@@ -109,13 +120,19 @@ def _unique_declared_field(
     typ: str,
     *,
     require_static: bool,
+    require_modankh_access: bool = False,
 ) -> str | None:
     if item is None:
         return None
     names = [
         name
         for (name, field_type), flags in item.fields.items()
-        if field_type == typ and (("static" in flags) == require_static)
+        if field_type == typ
+        and (("static" in flags) == require_static)
+        and (
+            not require_modankh_access
+            or _member_accessible_from_modankh(flags)
+        )
     ]
     return names[0] if len(names) == 1 else None
 
@@ -128,11 +145,16 @@ def _probe_item_set_current(
     hero_descriptor = injector.game_descriptor(game_prefix, "actors/hero/Hero")
     proto = f"({hero_descriptor})V"
 
-    if _has_method(target_index, item_descriptor, "setCurrent", proto):
+    if _resolve_accessible_method(
+        target_index,
+        item_descriptor,
+        "setCurrent",
+        proto,
+    ) is not None:
         return AbiCapability(
             "item.setCurrent",
             ABI_DIRECT,
-            "Item.setCurrent(Hero) is available",
+            "accessible Item.setCurrent(Hero) is available",
         )
 
     item = target_index.get(item_descriptor)
@@ -150,11 +172,13 @@ def _probe_item_set_current(
         and named_item is not None
         and "static" in named_user
         and "static" in named_item
+        and _member_accessible_from_modankh(named_user)
+        and _member_accessible_from_modankh(named_item)
     ):
         return AbiCapability(
             "item.setCurrent",
             ABI_REWRITE,
-            "use Item.curUser and Item.curItem",
+            "use accessible Item.curUser and Item.curItem",
             data={"user_field": "curUser", "item_field": "curItem"},
         )
 
@@ -162,24 +186,26 @@ def _probe_item_set_current(
         item,
         hero_descriptor,
         require_static=True,
+        require_modankh_access=True,
     )
     item_field = _unique_declared_field(
         item,
         item_descriptor,
         require_static=True,
+        require_modankh_access=True,
     )
     if user_field is not None and item_field is not None:
         return AbiCapability(
             "item.setCurrent",
             ABI_STRUCTURAL,
-            "use unique static Hero/Item state fields",
+            "use unique accessible static Hero/Item state fields",
             data={"user_field": user_field, "item_field": item_field},
         )
 
     return AbiCapability(
         "item.setCurrent",
         ABI_UNSUPPORTED,
-        "no method or unambiguous static Hero/Item state fields",
+        "no accessible method or unambiguous accessible static Hero/Item state fields",
     )
 
 
@@ -226,6 +252,7 @@ def _probe_duelist_combo(
         game_prefix,
         "items/weapon/melee/Sai$ComboStrikeTracker",
     )
+    char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
     tracker = target_index.get(tracker_descriptor)
     if tracker is None:
         return AbiCapability(
@@ -234,38 +261,51 @@ def _probe_duelist_combo(
             "Sai.ComboStrikeTracker class is missing",
         )
 
-    if ("addHit", "()V") in tracker.methods:
+    supported_protos = ("()V", f"({char_descriptor})V")
+    exact = [
+        (name, proto)
+        for (name, proto), flags in tracker.methods.items()
+        if name == "addHit"
+        and proto in supported_protos
+        and "static" not in flags
+    ]
+    if len(exact) == 1:
+        name, proto = exact[0]
         return AbiCapability(
             "duelist.comboHit",
             ABI_DIRECT,
-            "ComboStrikeTracker.addHit() is declared",
+            f"ComboStrikeTracker.{name}{proto} is declared",
+            data={"method": name, "proto": proto},
         )
 
-    # ModCombatCompat can call an R8-renamed addHit() when the tracker has one
-    # unambiguous declared instance ()V method. Constructors are not Methods
-    # and therefore must not be counted here.
-    noarg_void = [
-        name
+    # R8 may rename a small method while retaining its descriptor. Match only
+    # the two known semantic signatures and require a unique declared method.
+    candidates = [
+        (name, proto)
         for (name, proto), flags in tracker.methods.items()
-        if proto == "()V"
+        if proto in supported_protos
         and "static" not in flags
         and not name.startswith("<")
     ]
-    if len(noarg_void) == 1:
+    if len(candidates) == 1:
+        name, proto = candidates[0]
         return AbiCapability(
             "duelist.comboHit",
             ABI_RUNTIME,
-            "unique declared non-static ()V method can be invoked independent of its name",
-            data={"method": noarg_void[0]},
+            f"unique compatible method {name}{proto} can be invoked independent of its name",
+            data={"method": name, "proto": proto},
         )
 
+    # Last-resort support for the older inlined implementation. The old shape
+    # has exactly one instance int counter and one instance float timer. More
+    # complex layouts have different semantics and must not be guessed.
     int_field = _unique_declared_field(tracker, "I", require_static=False)
     float_field = _unique_declared_field(tracker, "F", require_static=False)
     if int_field is not None and float_field is not None:
         return AbiCapability(
             "duelist.comboHit",
             ABI_STRUCTURAL,
-            "runtime adapter can identify the unique int counter and float timer",
+            "old tracker shape has one int counter and one float timer",
             data={"hits_field": int_field, "time_field": float_field},
         )
 
@@ -274,11 +314,21 @@ def _probe_duelist_combo(
         for (name, typ), flags in tracker.fields.items()
         if "static" not in flags
     )
+    method_shape = sorted(
+        f"{name}{proto}"
+        for (name, proto), flags in tracker.methods.items()
+        if "static" not in flags and not name.startswith("<")
+    )
+    details = []
+    if method_shape:
+        details.append("methods: " + ", ".join(method_shape))
+    if instance_shape:
+        details.append("fields: " + ", ".join(instance_shape))
     return AbiCapability(
         "duelist.comboHit",
         ABI_UNSUPPORTED,
-        "no exact/unique runtime method and tracker state is ambiguous"
-        + (" (instance fields: " + ", ".join(instance_shape) + ")" if instance_shape else ""),
+        "no exact/unique semantic method and tracker state is ambiguous"
+        + (" (" + "; ".join(details) + ")" if details else ""),
     )
 
 
