@@ -1,5 +1,6 @@
 package com.spd.mod.mechanics;
 
+import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.Sai;
@@ -14,7 +15,7 @@ final class ModCombatCompat {
     private ModCombatCompat() {
     }
 
-    static void addDuelistComboHit(Hero hero) {
+    static void addDuelistComboHit(Hero hero, Char hitTarget) {
         if (hero == null) {
             return;
         }
@@ -28,13 +29,19 @@ final class ModCombatCompat {
             Method method = findComboAddHitMethod(tracker.getClass());
             if (method != null) {
                 method.setAccessible(true);
-                method.invoke(tracker);
+                if (method.getParameterTypes().length == 0) {
+                    method.invoke(tracker);
+                } else if (hitTarget != null) {
+                    method.invoke(tracker, hitTarget);
+                }
                 return;
             }
 
-            // R8 may inline/remove the tiny addHit() method. The tracker has one
-            // instance int counter and one instance float timer; update those by
-            // shape rather than by member name.
+            // Older/minified targets can inline the old no-argument addHit()
+            // implementation. Only reproduce that old state update when the
+            // tracker shape is unambiguous: one instance int counter and one
+            // instance float timer. More complex tracker layouts are left to
+            // the inject-time ABI profile rather than guessed here.
             Field hits = null;
             Field time = null;
             for (Field field : tracker.getClass().getDeclaredFields()) {
@@ -70,10 +77,17 @@ final class ModCombatCompat {
         Method fallback = null;
         for (Method method : trackerClass.getDeclaredMethods()) {
             if (Modifier.isStatic(method.getModifiers())
-                    || method.getReturnType() != Void.TYPE
-                    || method.getParameterTypes().length != 0) {
+                    || method.getReturnType() != Void.TYPE) {
                 continue;
             }
+
+            Class<?>[] params = method.getParameterTypes();
+            boolean supported = params.length == 0
+                    || (params.length == 1 && params[0] == Char.class);
+            if (!supported) {
+                continue;
+            }
+
             if ("addHit".equals(method.getName())) {
                 return method;
             }
