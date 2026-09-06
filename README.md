@@ -19,11 +19,13 @@ Mod items are development aids and not official in-game items. If future updates
 Use the `SMM-m<version>-InjectKit.zip` artifact produced by **Build SMM Injection Kit**.
 
 ```bash
-python inject_apk.py smm-inject-donor.apk TARGET.apk --out TARGET-SMM.apk
-python inject_jar.py smm-inject-donor.jar TARGET.jar --out TARGET-SMM.jar
+python inject_apk.py TARGET.apk
+python inject_jar.py TARGET.jar
 ```
 
-The kit includes dedicated APK/JAR donors, the public injector scripts, and their required `_inject_*_core.py` modules. Use the included non-minified APK donor for APK injection.
+The default outputs are `TARGET-SMM.apk` and `TARGET-SMM.jar`. Use `--out` to choose another path.
+
+Keep the kit files together. APK injection uses the included non-minified donor.
 
 See [Binary injection rules](docs/smm_injection_rules.md) | [正體中文](docs/smm_injection_rules.zh-TW.md).
 
