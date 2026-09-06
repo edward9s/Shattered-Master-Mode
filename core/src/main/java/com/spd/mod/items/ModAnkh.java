@@ -1,7 +1,6 @@
 package com.spd.mod.items;
 
 import com.spd.mod.mechanics.ModDebug$Console;
-import com.spd.mod.mechanics.ModItemCompat;
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
@@ -47,25 +46,8 @@ public class ModAnkh extends Ankh {
 
     public ModAnkh() {
         super();
-        bindStore();
         reset();
-        syncCount();
-    }
-
-    private void bindStore() {
-        // Keep level synchronized with the number of stored item entries, matching Scroll of Loot.
-        // Use an explicit kept inner class instead of a lambda/method reference so injection does
-        // not depend on an R8-generated donor-global synthetic helper.
-        store.setChangeListener(new Runnable() {
-            @Override
-            public void run() {
-                syncCount();
-            }
-        });
-    }
-
-    private void syncCount() {
-        ModItemCompat.setLevel(this, store == null ? 0 : store.size());
+        store.bindOwner(this);
     }
 
     @Override
@@ -102,15 +84,12 @@ public class ModAnkh extends Ankh {
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
-        // Item.level(int) changed return type in SPD 4.0 beta; keep the storage count authoritative
-        // through the same ABI-safe helper used by Scroll of Loot.
-        ModItemCompat.setLevel(this, 0);
         super.restoreFromBundle(bundle);
         timesRevived     = bundle.getInt(TIMES_REVIVED);
         timesResurrected = bundle.getInt(TIMES_RESURRECTED);
         store.restoreFromBundle(bundle);
         reset();
-        syncCount();
+        store.syncLevel();
     }
 
     @Override
