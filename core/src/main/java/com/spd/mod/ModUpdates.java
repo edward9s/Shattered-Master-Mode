@@ -18,7 +18,6 @@ public final class ModUpdates {
     private static long lastCheck = 0L;
     private static boolean checking = false;
     private static String latestVersion;
-    private static String latestReleaseName;
     private static String latestReleaseUrl;
 
     private ModUpdates() {
@@ -41,7 +40,6 @@ public final class ModUpdates {
                 public void handleHttpResponse(Net.HttpResponse response) {
                     try {
                         String bestVersion = null;
-                        String bestName = null;
                         String bestUrl = null;
 
                         for (Bundle release : Bundle.read(response.getResultAsStream()).getBundleArray()) {
@@ -58,7 +56,6 @@ public final class ModUpdates {
                             String version = matcher.group(1);
                             if (bestVersion == null || compareVersions(version, bestVersion) > 0) {
                                 bestVersion = version;
-                                bestName = release.getString("name");
                                 bestUrl = release.getString("html_url");
                             }
                         }
@@ -66,7 +63,6 @@ public final class ModUpdates {
                         synchronized (ModUpdates.class) {
                             if (bestVersion != null && compareVersions(bestVersion, ModGame.version()) > 0) {
                                 latestVersion = bestVersion;
-                                latestReleaseName = bestName;
                                 latestReleaseUrl = bestUrl;
                             } else {
                                 clearAvailableUpdate();
@@ -75,36 +71,32 @@ public final class ModUpdates {
                             checking = false;
                         }
                     } catch (Exception e) {
-                        finishFailedCheck(e);
+                        finishFailedCheck();
                     }
                 }
 
                 @Override
                 public void failed(Throwable t) {
-                    finishFailedCheck(t);
+                    finishFailedCheck();
                 }
 
                 @Override
                 public void cancelled() {
-                    finishFailedCheck(null);
+                    finishFailedCheck();
                 }
             });
         } catch (Throwable t) {
-            finishFailedCheck(t);
+            finishFailedCheck();
         }
     }
 
-    private static synchronized void finishFailedCheck(Throwable error) {
+    private static synchronized void finishFailedCheck() {
         checking = false;
         // Leave lastCheck unset so a later menu opening can retry.
-        if (error != null) {
-            Game.reportException(error);
-        }
     }
 
     private static void clearAvailableUpdate() {
         latestVersion = null;
-        latestReleaseName = null;
         latestReleaseUrl = null;
     }
 
@@ -114,10 +106,6 @@ public final class ModUpdates {
 
     public static synchronized String latestVersion() {
         return latestVersion;
-    }
-
-    public static synchronized String latestReleaseName() {
-        return latestReleaseName;
     }
 
     public static synchronized void openReleasePage() {
