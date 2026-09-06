@@ -94,7 +94,7 @@ public class ModLootBuff extends Buff {
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(0xFFD45A);
+        icon.hardlight(0xDDEEFF);
     }
 
     @Override
