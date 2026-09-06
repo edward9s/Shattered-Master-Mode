@@ -241,7 +241,7 @@ jobs:
       - name: Package Injection Kit Release ZIP
         if: steps.check.outputs.skip == 'false' && github.event_name == 'schedule'
         run: |
-          (cd inject-kit && zip -q -r ../out/SMM-InjectKit.zip .)
+          (cd inject-kit && zip -q -r "../out/SMM-m${MOD_VER}-InjectKit.zip" .)
 
       - name: Upload Artifacts (Manual Only)
         if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
@@ -254,7 +254,7 @@ jobs:
         if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: SMM-InjectKit
+          name: SMM-m${{ env.MOD_VER }}-InjectKit
           path: inject-kit/*
           if-no-files-found: error
 
