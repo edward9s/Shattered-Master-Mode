@@ -4,10 +4,12 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndOptions;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTitledMessage;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 
 import com.spd.mod.ModGame;
+import com.spd.mod.ModUpdates;
 
 public class ModToolsWindow extends WndTitledMessage {
 
@@ -90,9 +92,29 @@ public class ModToolsWindow extends WndTitledMessage {
     }
 
     public static class OpenBtn extends RedButton {
+
+        private boolean updateLabel;
+
         public OpenBtn() {
             super("Tools");
             textColor(0xffff44);
+        }
+
+        @Override
+        public void update() {
+            super.update();
+
+            boolean available = ModUpdates.updateAvailable();
+            if (available != updateLabel) {
+                updateLabel = available;
+                if (available) {
+                    text("Tools (Update!)");
+                    textColor(0xffaa00);
+                } else {
+                    text("Tools");
+                    textColor(0xffff44);
+                }
+            }
         }
 
         @Override
@@ -101,7 +123,28 @@ public class ModToolsWindow extends WndTitledMessage {
             if (parent instanceof Window) {
                 ((Window) parent).hide();
             }
-            GameScene.show(new ModToolsWindow());
+
+            if (ModUpdates.updateAvailable()) {
+                String latest = ModUpdates.latestVersion();
+                GameScene.show(new WndOptions(
+                        Icons.CHANGES.get(),
+                        "SMM Update",
+                        "Shattered Master Mode v" + latest + " is available.\n\n"
+                                + "Installed: v" + ModGame.version(),
+                        "Release Page",
+                        "Continue") {
+                    @Override
+                    protected void onSelect(int index) {
+                        if (index == 0) {
+                            ModUpdates.openReleasePage();
+                        } else if (index == 1) {
+                            GameScene.show(new ModToolsWindow());
+                        }
+                    }
+                });
+            } else {
+                GameScene.show(new ModToolsWindow());
+            }
         }
     }
 }
