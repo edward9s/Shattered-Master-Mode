@@ -6,6 +6,7 @@ import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.exotic.ExoticPotion;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.spd.mod.mechanics.ModItemCompat;
 import com.watabou.utils.Bundle;
 import java.util.Map;
 
@@ -23,7 +24,7 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
     // 唯一建構子：private 確保外部只能透過內部類別實體化
     private ModPotionOfResetTier(int tier) {
         this.tier = tier;
-        this.level(tier);
+        ModItemCompat.setLevel(this, tier);
         reset();
     }
     
@@ -71,7 +72,7 @@ public abstract class ModPotionOfResetTier extends ExoticPotion {
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
-        this.level(0);
+        ModItemCompat.setLevel(this, 0);
         super.restoreFromBundle(bundle);
         this.tier = bundle.getInt(TIER);
         reset();
