@@ -1,0 +1,86 @@
+name: Probe beta mod item level compatibility
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/diagnose-beta-moditem-level.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v3
+
+      - name: Build 3.3.8 donor JAR
+        run: |
+          git clone --depth 1 --branch v3.3.8 https://github.com/00-Evan/shattered-pixel-dungeon.git spd_src
+          python mod/scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGame.java
+          cp -a mod/core spd_src/
+          cp -a mod/desktop spd_src/ 2>/dev/null || true
+          cp -a mod/assets spd_src/ 2>/dev/null || true
+          python mod/scripts/patch_depth.py 26
+          chmod +x spd_src/gradlew
+          (cd spd_src && ./gradlew :desktop:release)
+          DONOR_JAR=$(find spd_src/desktop/build/libs -name '*.jar' | head -1)
+          test -n "$DONOR_JAR"
+          cp "$DONOR_JAR" mod/scripts/smm-inject-donor.jar
+
+      - name: Inject official BETA-4 JAR
+        run: |
+          curl -fL https://github.com/00-Evan/shattered-pixel-dungeon/releases/download/4.0.0-beta/ShatteredPD-v4.0.0-BETA-4-Java.jar -o beta.jar
+          python mod/scripts/inject_jar.py beta.jar --out beta-smm.jar
+
+      - name: Instantiate level-sensitive Mod items
+        run: |
+          cat > Probe.java <<'JAVA'
+          import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+          import java.lang.reflect.Method;
+
+          public class Probe {
+              private static int level(Item item) throws Exception {
+                  for (Class<?> c = Item.class; c != null; c = c.getSuperclass()) {
+                      for (Method m : c.getDeclaredMethods()) {
+                          if (m.getName().equals("level") && m.getParameterCount() == 0
+                                  && m.getReturnType() == int.class) {
+                              m.setAccessible(true);
+                              return (Integer) m.invoke(item);
+                          }
+                      }
+                  }
+                  throw new IllegalStateException("No Item.level() getter");
+              }
+
+              public static void main(String[] args) throws Exception {
+                  String[] classes = {
+                      "com.spd.mod.items.ModScrollOfLoot",
+                      "com.spd.mod.items.ModPotionOfResetTier$Tier1",
+                      "com.spd.mod.items.ModPotionOfResetTier$Tier2",
+                      "com.spd.mod.items.ModPotionOfResetTier$Tier3",
+                      "com.spd.mod.items.ModPotionOfResetTier$Tier4",
+                      "com.spd.mod.items.ModPotionOfWeakness"
+                  };
+                  int[] expected = {0, 1, 2, 3, 4, -1};
+                  for (int i = 0; i < classes.length; i++) {
+                      Item item = (Item) Class.forName(classes[i]).getDeclaredConstructor().newInstance();
+                      int actual = level(item);
+                      System.out.println(classes[i] + " level=" + actual);
+                      if (actual != expected[i]) {
+                          throw new AssertionError(classes[i] + " expected level " + expected[i] + " but got " + actual);
+                      }
+                  }
+              }
+          }
+          JAVA
+          javac -cp beta-smm.jar Probe.java
+          java -cp beta-smm.jar:. Probe
