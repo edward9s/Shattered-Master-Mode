@@ -85,7 +85,7 @@ public class ModAssassin {
                 Buff.affect(hero, Combo.class).hit(target);
             }
             if (hero.heroClass == HeroClass.DUELIST) {
-                ModCombatCompat.addDuelistComboHit(hero);
+                ModCombatCompat.addDuelistComboHit(hero, target);
             }
         }
 
