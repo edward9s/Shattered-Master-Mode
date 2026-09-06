@@ -100,6 +100,43 @@ if _is_termux():
 FULL_SMM_PREFIX = "Lcom/spd/mod/"
 MOD_ANKH_STORE_PREFIX = injector.MOD_ANKH_STORE[:-1]
 DEFAULT_DONOR = Path(__file__).resolve().with_name("smm-inject-donor.apk")
+DEFAULT_KEYSTORE = DEFAULT_DONOR.with_name("smm-inject.keystore")
+
+
+def ensure_inject_keystore(java: injector.JavaTools, _cache: Path) -> Path:
+    if DEFAULT_KEYSTORE.is_file():
+        return DEFAULT_KEYSTORE
+
+    injector.step("Creating persistent signing key beside donor APK")
+    try:
+        injector.run([
+            java.keytool,
+            "-genkeypair",
+            "-v",
+            "-keystore",
+            DEFAULT_KEYSTORE,
+            "-storepass",
+            "android",
+            "-alias",
+            "androiddebugkey",
+            "-keypass",
+            "android",
+            "-keyalg",
+            "RSA",
+            "-keysize",
+            "2048",
+            "-validity",
+            "10000",
+            "-dname",
+            "CN=SMM Injector,O=Android,C=US",
+        ])
+    except OSError as exc:
+        raise injector.InjectError(
+            f"Unable to create signing key beside donor APK: {DEFAULT_KEYSTORE}\n{exc}"
+        ) from exc
+    injector.log(f"Signing key: {DEFAULT_KEYSTORE}")
+    return DEFAULT_KEYSTORE
+
 
 ABI_DIRECT = "direct"
 ABI_REWRITE = "rewrite"
@@ -799,7 +836,7 @@ def print_help() -> None:
         "  --cache PATH        injector tool cache\n"
         "  --offline           do not download missing tools\n"
         "  --keep-work         keep temporary work files\n"
-        "  --keystore PATH     signing keystore\n"
+        "  --keystore PATH     signing keystore (default: smm-inject.keystore beside donor)\n"
         "  --keystore-pass S   keystore password\n"
         "  --key-alias NAME    signing key alias\n"
         "  --key-pass S        signing key password\n"
@@ -828,6 +865,7 @@ injector.payload_compatibility_errors = full_payload_compatibility_errors
 injector.adapt_modankh = adapt_modankh
 injector.find_class = find_wndgame_instead_of_dungeon
 injector.patch_dungeon = patch_wndgame
+injector.ensure_debug_keystore = ensure_inject_keystore
 injector.sign_apk = portable_sign_apk
 injector.output_path = output_path
 
