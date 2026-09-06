@@ -10,6 +10,9 @@ temp_win/
 # 本機若把上游原始碼放進 repo 內
 spd_src/
 
+# Injector signing key (local only; never commit private keys)
+/scripts/smm-inject.keystore
+
 # 編輯器與系統檔
 .idea/
 .vscode/
