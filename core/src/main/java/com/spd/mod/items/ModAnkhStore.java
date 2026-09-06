@@ -51,6 +51,7 @@ public final class ModAnkhStore {
     private static final String STORED = "stored";
 
     private final ArrayList<Item> stored = new ArrayList<>();
+    private transient Runnable changeListener;
 
     // UI-only state. Deliberately not serialized.
     private float takeScrollY = 0f;
@@ -67,6 +68,17 @@ public final class ModAnkhStore {
         }
     }
 
+    public void setChangeListener(Runnable listener) {
+        changeListener = listener;
+        changed();
+    }
+
+    private void changed() {
+        if (changeListener != null) {
+            changeListener.run();
+        }
+    }
+
     public void storeInBundle(Bundle bundle) {
         bundle.put(STORED, stored);
     }
@@ -79,6 +91,7 @@ public final class ModAnkhStore {
                 stored.add((Item) value);
             }
         }
+        changed();
     }
 
     public boolean isEmpty() {
@@ -349,6 +362,7 @@ public final class ModAnkhStore {
         if (stored.isEmpty()) {
             takeScrollY = 0f;
         }
+        changed();
         Sample.INSTANCE.play(Assets.Sounds.ITEM);
         Item.updateQuickslot();
         return true;
@@ -359,11 +373,13 @@ public final class ModAnkhStore {
             for (Item existing : stored) {
                 if (existing.isSimilar(item)) {
                     existing.merge(item);
+                    changed();
                     return;
                 }
             }
         }
         stored.add(item);
+        changed();
     }
 
     /** TAKE-only counterpart of WndModLoot, kept inside ModAnkhStore's injectable class family. */
