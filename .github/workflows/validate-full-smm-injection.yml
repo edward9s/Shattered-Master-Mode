@@ -10,8 +10,8 @@ on:
       - 'core/src/main/java/com/spd/mod/**'
       - 'scripts/inject_apk.py'
       - 'scripts/_inject_apk_core.py'
-      - 'scripts/inject_smm_jar.py'
       - 'scripts/inject_jar.py'
+      - 'scripts/_inject_jar_core.py'
       - 'scripts/package_inject_kit.py'
       - 'scripts/patch_android.py'
 
@@ -71,8 +71,8 @@ jobs:
               'smm-inject-donor.jar',
               'inject_apk.py',
               '_inject_apk_core.py',
-              'inject_smm_jar.py',
               'inject_jar.py',
+              '_inject_jar_core.py',
               'modankh_payload_rules.md',
               'README.txt',
           }
@@ -80,11 +80,14 @@ jobs:
           missing = sorted(required - names)
           if missing:
               raise SystemExit('Injection kit is missing: ' + ', '.join(missing))
-          if 'inject_smm_apk.py' in names:
-              raise SystemExit('Obsolete inject_smm_apk.py leaked into injection kit')
+          obsolete = {'inject_smm_apk.py', 'inject_smm_jar.py'}.intersection(names)
+          if obsolete:
+              raise SystemExit('Obsolete injector leaked into injection kit: ' + ', '.join(sorted(obsolete)))
           print('Flat injection kit packaging: OK')
           PY
-          python -m py_compile "$KIT_DIR/inject_apk.py" "$KIT_DIR/_inject_apk_core.py"
+          python -m py_compile \
+            "$KIT_DIR/inject_apk.py" "$KIT_DIR/_inject_apk_core.py" \
+            "$KIT_DIR/inject_jar.py" "$KIT_DIR/_inject_jar_core.py"
           echo "KIT_DIR=$KIT_DIR" >> "$GITHUB_ENV"
           echo "KIT_DONOR_APK=$KIT_DIR/smm-inject-donor.apk" >> "$GITHUB_ENV"
           echo "KIT_DONOR_JAR=$KIT_DIR/smm-inject-donor.jar" >> "$GITHUB_ENV"
@@ -153,12 +156,12 @@ jobs:
       - name: Validate official SPD JAR full injection from packaged kit
         id: spd_jar
         continue-on-error: true
-        run: python "$KIT_DIR/inject_smm_jar.py" "$KIT_DONOR_JAR" targets/spd.jar --out /tmp/spd-SMM.jar
+        run: python "$KIT_DIR/inject_jar.py" "$KIT_DONOR_JAR" targets/spd.jar --out /tmp/spd-SMM.jar
 
       - name: Validate RKA JAR full injection from packaged kit
         id: rka_jar
         continue-on-error: true
-        run: python "$KIT_DIR/inject_smm_jar.py" "$KIT_DONOR_JAR" targets/rka.jar --out /tmp/rka-SMM.jar
+        run: python "$KIT_DIR/inject_jar.py" "$KIT_DONOR_JAR" targets/rka.jar --out /tmp/rka-SMM.jar
 
       - name: Fail if any full injection target failed
         if: always()
