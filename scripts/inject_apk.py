@@ -96,7 +96,6 @@ _current_abi_profile: AbiProfile | None = None
 
 
 def _member_accessible_from_modankh(flags: frozenset[str]) -> bool:
-    # ModAnkh is a subclass of Item through Ankh, but lives in another package.
     return "public" in flags or "protected" in flags
 
 
@@ -278,8 +277,6 @@ def _probe_duelist_combo(
             data={"method": name, "proto": proto},
         )
 
-    # R8 may rename a small method while retaining its descriptor. Match only
-    # the two known semantic signatures and require a unique declared method.
     candidates = [
         (name, proto)
         for (name, proto), flags in tracker.methods.items()
@@ -296,9 +293,6 @@ def _probe_duelist_combo(
             data={"method": name, "proto": proto},
         )
 
-    # Last-resort support for the older inlined implementation. The old shape
-    # has exactly one instance int counter and one instance float timer. More
-    # complex layouts have different semantics and must not be guessed.
     int_field = _unique_declared_field(tracker, "I", require_static=False)
     float_field = _unique_declared_field(tracker, "F", require_static=False)
     if int_field is not None and float_field is not None:
@@ -512,6 +506,21 @@ def print_help() -> None:
     )
 
 
+def _translate_core_error(exc: injector.InjectError) -> injector.InjectError:
+    message = str(exc)
+    if message.startswith("Donor debug payload is not self-contained for this target"):
+        return injector.InjectError(
+            "Target ABI has unresolved SMM payload references; "
+            "no reliable compatibility adapter is available."
+        )
+    if message.startswith("Donor ModAnkhStore payload is not self-contained for this target"):
+        return injector.InjectError(
+            "Target ABI has unresolved ModAnkhStore references; "
+            "no reliable compatibility adapter is available."
+        )
+    return exc
+
+
 injector.detect_target_game_prefix = detect_target_game_prefix
 injector.build_debug_payload = build_full_debug_payload
 injector.payload_compatibility_errors = full_payload_compatibility_errors
@@ -528,7 +537,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if args else 2
     if not DEFAULT_DONOR.is_file():
         raise injector.InjectError(f"SMM donor APK not found beside injector: {DEFAULT_DONOR}")
-    return injector.main([str(DEFAULT_DONOR), *args])
+    try:
+        return injector.main([str(DEFAULT_DONOR), *args])
+    except injector.InjectError as exc:
+        translated = _translate_core_error(exc)
+        if translated is exc:
+            raise
+        raise translated from exc
 
 
 if __name__ == "__main__":
