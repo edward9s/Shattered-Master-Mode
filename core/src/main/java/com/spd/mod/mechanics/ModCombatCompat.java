@@ -86,9 +86,15 @@ final class ModCombatCompat {
         }
 
         try {
-            Method method = findDieMethod(target.getClass(), cause, true);
+            Method method = findNamedDieMethod(target.getClass(), cause, true);
             if (method == null) {
-                method = findDieMethod(target.getClass(), cause, false);
+                // R8/minified targets may rename die(Object). A single
+                // instance void(Object) method on one hierarchy level is a
+                // sufficiently narrow structural match; ambiguity is rejected.
+                method = findStructuralDieWithCause(target.getClass(), cause);
+            }
+            if (method == null) {
+                method = findNamedDieMethod(target.getClass(), cause, false);
             }
             if (method == null) {
                 return false;
@@ -106,7 +112,7 @@ final class ModCombatCompat {
         }
     }
 
-    private static Method findDieMethod(Class<?> targetClass, Object cause, boolean withCause) {
+    private static Method findNamedDieMethod(Class<?> targetClass, Object cause, boolean withCause) {
         for (Class<?> type = targetClass; type != null; type = type.getSuperclass()) {
             for (Method method : type.getDeclaredMethods()) {
                 if (!"die".equals(method.getName())
@@ -124,6 +130,38 @@ final class ModCombatCompat {
                 } else if (params.length == 0) {
                     return method;
                 }
+            }
+        }
+        return null;
+    }
+
+    private static Method findStructuralDieWithCause(Class<?> targetClass, Object cause) {
+        for (Class<?> type = targetClass; type != null; type = type.getSuperclass()) {
+            Method candidate = null;
+            boolean ambiguous = false;
+
+            for (Method method : type.getDeclaredMethods()) {
+                if (Modifier.isStatic(method.getModifiers())
+                        || method.getReturnType() != Void.TYPE) {
+                    continue;
+                }
+
+                Class<?>[] params = method.getParameterTypes();
+                if (params.length != 1
+                        || params[0] != Object.class
+                        || (cause != null && !params[0].isInstance(cause))) {
+                    continue;
+                }
+
+                if (candidate != null) {
+                    ambiguous = true;
+                    break;
+                }
+                candidate = method;
+            }
+
+            if (!ambiguous && candidate != null) {
+                return candidate;
             }
         }
         return null;
