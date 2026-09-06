@@ -229,7 +229,7 @@ public class ModParryRiposte extends ChampionEnemy {
                     Buff.affect(hero, Combo.class).hit(attacker);
                 }
                 if (hero.heroClass == HeroClass.DUELIST) {
-                    ModCombatCompat.addDuelistComboHit(hero);
+                    ModCombatCompat.addDuelistComboHit(hero, attacker);
                 }
             }
         }
