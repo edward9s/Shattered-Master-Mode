@@ -37,6 +37,9 @@ public class ModBuffTab extends Component {
             @Override public ModGridEntry create() { return new ModGridAssassinBuff(); }
         });
         addPinned(new PinnedFactory() {
+            @Override public ModGridEntry create() { return new ModGridInstantKillBuff(); }
+        });
+        addPinned(new PinnedFactory() {
             @Override public ModGridEntry create() { return new ModGridLoot(); }
         });
 

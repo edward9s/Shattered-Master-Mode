@@ -23,18 +23,10 @@ import java.util.ArrayList;
 public class ModAssassin {
 
     public static void cast(Hero hero) {
-        cast(hero, false);
-    }
-
-    public static void cast(Hero hero, boolean instantKill) {
-        GameScene.selectCell(new Selector(hero, instantKill));
+        GameScene.selectCell(new Selector(hero));
     }
 
     public static void perform(Hero hero, Char target) {
-        perform(hero, target, false);
-    }
-
-    public static void perform(Hero hero, Char target, boolean instantKill) {
         if (target == null || target == hero || !target.isAlive()) {
             GLog.w("No valid target", new Object[0]);
             return;
@@ -62,16 +54,6 @@ public class ModAssassin {
         }
 
         Wound.hit(target);
-
-        if (instantKill && ModCombatCompat.kill(target, hero)) {
-            CharSprite sprite = hero.sprite;
-            int targetPos = target.pos;
-            if (sprite != null) {
-                sprite.attack(targetPos);
-            }
-            hero.spendToWhole();
-            return;
-        }
 
         int originalInvisible = hero.invisible;
         int originalStrength = hero.STR;
@@ -299,16 +281,10 @@ public class ModAssassin {
     }
 
     public static class Selector extends CellSelector.Listener {
-        private final Hero hero;
-        private final boolean instantKill;
+        private Hero hero;
 
         public Selector(Hero hero) {
-            this(hero, false);
-        }
-
-        public Selector(Hero hero, boolean instantKill) {
             this.hero = hero;
-            this.instantKill = instantKill;
         }
 
         @Override
@@ -332,7 +308,7 @@ public class ModAssassin {
                 // 任何合法地圖點位皆可閃現；落點合理性只有暗殺分支才考慮
                 ModFlash.perform(this.hero, cell);
             } else {
-                ModAssassin.perform(this.hero, target, instantKill);
+                ModAssassin.perform(this.hero, target);
             }
         }
 

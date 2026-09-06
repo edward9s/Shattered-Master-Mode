@@ -3,11 +3,9 @@ package com.spd.mod.journal;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
-import com.spd.mod.mechanics.ModAssassinBuff;
 import com.spd.mod.mechanics.ModParryRiposte;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
@@ -22,13 +20,13 @@ import java.util.Map;
 import java.util.WeakHashMap;
 
 /**
- * Installs transparent click layers over configurable Master Mode buff icons.
+ * Installs a transparent click layer over Total's normal BuffIndicator icon.
  * SPD's BuffIndicator hardcodes WndInfoBuff, so this mod-side overlay is the
- * only way to open extended information windows without modifying vanilla
- * source files.
+ * only way to open Total's extended information window without modifying any
+ * vanilla source file.
  *
- * The overlays are visual-free: the original SPD buff icons are still rendered
- * and laid out normally. Only their click actions are replaced.
+ * The overlay is visual-free: the original SPD buff icon is still rendered and
+ * laid out normally. Only its click action is replaced for Total.
  */
 public class ModTotalInfoOverlay extends Gizmo {
 
@@ -39,7 +37,7 @@ public class ModTotalInfoOverlay extends Gizmo {
     private static Field buffButtonsField;
     private static Field needsRefreshField;
 
-    private final WeakHashMap<Component, ConfigInfoButton> overlays = new WeakHashMap<>();
+    private final WeakHashMap<Component, TotalInfoButton> overlays = new WeakHashMap<>();
 
     public static void ensureInstalled() {
         if (!(ShatteredPixelDungeon.scene() instanceof GameScene)) {
@@ -74,7 +72,7 @@ public class ModTotalInfoOverlay extends Gizmo {
         });
     }
 
-    /** Refreshes every currently visible BuffIndicator after a mod buff state changes. */
+    /** Refreshes every currently visible BuffIndicator after the Total state changes. */
     public static void refreshIndicators() {
         ShatteredPixelDungeon.runOnRenderThread(new Callback() {
             @Override
@@ -107,7 +105,7 @@ public class ModTotalInfoOverlay extends Gizmo {
 
         if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
                 || parent != ShatteredPixelDungeon.scene()
-                || !hasConfigurableUser()) {
+                || !hasTotalUser()) {
             killAndErase();
             if (instance == this) {
                 instance = null;
@@ -124,9 +122,9 @@ public class ModTotalInfoOverlay extends Gizmo {
         }
     }
 
-    private static boolean hasConfigurableUser() {
+    private static boolean hasTotalUser() {
         for (Char ch : Actor.chars()) {
-            if (ModParryRiposte.find(ch) != null || ModAssassinBuff.find(ch) != null) {
+            if (ModParryRiposte.find(ch) != null) {
                 return true;
             }
         }
@@ -134,11 +132,11 @@ public class ModTotalInfoOverlay extends Gizmo {
     }
 
     private void cleanupDeadOverlays() {
-        Iterator<Map.Entry<Component, ConfigInfoButton>> iterator = overlays.entrySet().iterator();
+        Iterator<Map.Entry<Component, TotalInfoButton>> iterator = overlays.entrySet().iterator();
         while (iterator.hasNext()) {
-            Map.Entry<Component, ConfigInfoButton> entry = iterator.next();
+            Map.Entry<Component, TotalInfoButton> entry = iterator.next();
             Component source = entry.getKey();
-            ConfigInfoButton overlay = entry.getValue();
+            TotalInfoButton overlay = entry.getValue();
             if (source == null || source.parent == null || overlay == null || overlay.parent == null) {
                 if (overlay != null && overlay.parent != null) {
                     overlay.killAndErase();
@@ -161,17 +159,14 @@ public class ModTotalInfoOverlay extends Gizmo {
 
             for (Map.Entry<Object, Object> entry : buffButtons.entrySet()) {
                 if (!(entry.getKey() instanceof ModParryRiposte)
-                        && !(entry.getKey() instanceof ModAssassinBuff)) {
-                    continue;
-                }
-                if (!(entry.getValue() instanceof Component)) {
+                        || !(entry.getValue() instanceof Component)) {
                     continue;
                 }
 
                 Component source = (Component) entry.getValue();
                 if (!overlays.containsKey(source)) {
-                    ConfigInfoButton overlay = new ConfigInfoButton(
-                            (Buff) entry.getKey(), source);
+                    TotalInfoButton overlay = new TotalInfoButton(
+                            (ModParryRiposte) entry.getKey(), source);
                     indicator.addToFront(overlay);
                     overlays.put(source, overlay);
                 }
@@ -204,19 +199,21 @@ public class ModTotalInfoOverlay extends Gizmo {
         }
     }
 
-    private static class ConfigInfoButton extends Button {
+    private static class TotalInfoButton extends Button {
 
-        private final Buff buff;
+        private final ModParryRiposte buff;
         private final Component source;
 
-        ConfigInfoButton(Buff buff, Component source) {
+        TotalInfoButton(ModParryRiposte buff, Component source) {
             this.buff = buff;
             this.source = source;
         }
 
         @Override
         public void update() {
-            if (source.parent == null || !isCurrentBuff()) {
+            if (source.parent == null
+                    || buff.target == null
+                    || ModParryRiposte.find(buff.target) != buff) {
                 killAndErase();
                 return;
             }
@@ -229,26 +226,9 @@ public class ModTotalInfoOverlay extends Gizmo {
             givePointerPriority();
         }
 
-        private boolean isCurrentBuff() {
-            if (buff.target == null) {
-                return false;
-            }
-            if (buff instanceof ModParryRiposte) {
-                return ModParryRiposte.find(buff.target) == buff;
-            }
-            if (buff instanceof ModAssassinBuff) {
-                return ModAssassinBuff.find(buff.target) == buff;
-            }
-            return false;
-        }
-
         @Override
         protected void onClick() {
-            if (buff instanceof ModParryRiposte) {
-                GameScene.show(new WndTotalBuffInfo((ModParryRiposte) buff));
-            } else if (buff instanceof ModAssassinBuff) {
-                GameScene.show(new WndAssassinBuffInfo((ModAssassinBuff) buff));
-            }
+            GameScene.show(new WndTotalBuffInfo(buff));
         }
 
         @Override

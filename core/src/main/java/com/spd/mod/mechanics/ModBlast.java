@@ -19,10 +19,6 @@ import java.util.ArrayList;
 public class ModBlast {
 
     public static void castBlast(Char ch) {
-        castBlast(ch, false);
-    }
-
-    public static void castBlast(Char ch, boolean instantKill) {
         if (Dungeon.level == null) {
             return;
         }
@@ -68,10 +64,6 @@ public class ModBlast {
         for (Mob mob : targets) {
             if (mob.sprite != null) {
                 mob.sprite.flash();
-            }
-
-            if (instantKill && ModCombatCompat.kill(mob, ch)) {
-                continue;
             }
 
             int damage = (mob.HT + mob.shielding()) * 100;

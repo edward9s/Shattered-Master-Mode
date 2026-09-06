@@ -10,17 +10,11 @@ import com.watabou.utils.Bundle;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.ScrollHolder;
-import java.util.ArrayList;
 import java.util.Collections;
 
 import com.spd.mod.mechanics.ModAssassin;
 
 public class ModScrollOfAssassin extends Scroll implements ModReusable {
-
-    public static final String AC_INSTANT_KILL = "INSTANT_KILL";
-    private static final String INSTANT_KILL = "instant_kill";
-
-    private boolean instantKill;
 
     /**
      * 關鍵修正：快捷欄的自動瞄準 (QuickSlotButton.autoAim) 會先測
@@ -66,15 +60,8 @@ public class ModScrollOfAssassin extends Scroll implements ModReusable {
     }
 
     @Override
-    public void storeInBundle(Bundle bundle) {
-        super.storeInBundle(bundle);
-        bundle.put(INSTANT_KILL, instantKill);
-    }
-
-    @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
-        instantKill = bundle.getBoolean(INSTANT_KILL);
         this.level(0);
         reset();
     }
@@ -85,35 +72,16 @@ public class ModScrollOfAssassin extends Scroll implements ModReusable {
     }
 
     @Override
-    public ArrayList<String> actions(Hero hero) {
-        ArrayList<String> actions = super.actions(hero);
-        if (!actions.contains(AC_INSTANT_KILL)) {
-            actions.add(AC_INSTANT_KILL);
-        }
-        return actions;
-    }
-
-    @Override
-    public String actionName(String action, Hero hero) {
-        if (AC_INSTANT_KILL.equals(action)) {
-            return instantKill ? "Instant Kill: ON" : "Instant Kill: OFF";
-        }
-        return super.actionName(action, hero);
-    }
-
-    @Override
     public void execute(Hero hero, String action) {
         if ("READ".equals(action)) {
             doRead();
-        } else if (AC_INSTANT_KILL.equals(action)) {
-            instantKill = !instantKill;
         } else {
             super.execute(hero, action);
         }
     }
 
     public void doRead() {
-        ModAssassin.cast(Dungeon.hero, instantKill);
+        ModAssassin.cast(Dungeon.hero);
     }
 
     @Override

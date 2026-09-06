@@ -10,17 +10,11 @@ import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfRetributio
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.watabou.utils.Bundle;
 
-import java.util.ArrayList;
 import java.util.Collections;
 
 import com.spd.mod.mechanics.ModBlast;
 
 public class ModScrollOfBlast extends Scroll implements ModReusable {
-
-    public static final String AC_INSTANT_KILL = "INSTANT_KILL";
-    private static final String INSTANT_KILL = "instant_kill";
-
-    private boolean instantKill;
 
     @Override
     public boolean keptThroughLostInventory() {
@@ -46,17 +40,10 @@ public class ModScrollOfBlast extends Scroll implements ModReusable {
         this.keptThoughLostInvent = true;
         this.unique = true;
     }
-
-    @Override
-    public void storeInBundle(Bundle bundle) {
-        super.storeInBundle(bundle);
-        bundle.put(INSTANT_KILL, instantKill);
-    }
     
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
-        instantKill = bundle.getBoolean(INSTANT_KILL);
         // Older saves stored these reusable mod scrolls at +1. They are not
         // upgradeable tools, so normalize them to level 0 on load.
         this.level(0);
@@ -69,35 +56,16 @@ public class ModScrollOfBlast extends Scroll implements ModReusable {
     }
 
     @Override
-    public ArrayList<String> actions(Hero hero) {
-        ArrayList<String> actions = super.actions(hero);
-        if (!actions.contains(AC_INSTANT_KILL)) {
-            actions.add(AC_INSTANT_KILL);
-        }
-        return actions;
-    }
-
-    @Override
-    public String actionName(String action, Hero hero) {
-        if (AC_INSTANT_KILL.equals(action)) {
-            return instantKill ? "Instant Kill: ON" : "Instant Kill: OFF";
-        }
-        return super.actionName(action, hero);
-    }
-
-    @Override
     public void execute(Hero hero, String action) {
         if ("READ".equals(action)) {
             doRead();
-        } else if (AC_INSTANT_KILL.equals(action)) {
-            instantKill = !instantKill;
         } else {
             super.execute(hero, action);
         }
     }
 
     public void doRead() {
-        ModBlast.castBlast(Dungeon.hero, instantKill);
+        ModBlast.castBlast(Dungeon.hero);
     }
 
     @Override

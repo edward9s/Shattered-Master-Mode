@@ -6,7 +6,7 @@ import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModParryRiposte;
 
 /**
- * Total's live buff information window. Configuration switches belong here so
+ * Total's live buff information window. The riposte switch belongs here so
  * inspecting/configuring Total never requires choosing a second journal buff.
  */
 public class WndTotalBuffInfo extends WndInfoBuff {
@@ -17,55 +17,30 @@ public class WndTotalBuffInfo extends WndInfoBuff {
     public WndTotalBuffInfo(final ModParryRiposte buff) {
         super(buff);
 
-        final RedButton riposteButton = new RedButton(riposteButtonText(buff), 8) {
+        final RedButton riposteButton = new RedButton(buttonText(buff), 8) {
             @Override
             protected void onClick() {
-                if (!valid(buff)) {
+                if (buff.target == null || ModParryRiposte.find(buff.target) != buff) {
                     WndTotalBuffInfo.this.hide();
                     return;
                 }
 
                 buff.toggleRiposte();
-                rebuild(buff);
+                ModTotalInfoOverlay.refreshIndicators();
+
+                // Rebuild the same info window so its description, icon and
+                // button state immediately reflect the new setting.
+                WndTotalBuffInfo.this.hide();
+                GameScene.show(new WndTotalBuffInfo(buff));
             }
         };
 
         riposteButton.setRect(0, height + GAP, width, BUTTON_HEIGHT);
         add(riposteButton);
-
-        final RedButton instantKillButton = new RedButton(instantKillButtonText(buff), 8) {
-            @Override
-            protected void onClick() {
-                if (!valid(buff)) {
-                    WndTotalBuffInfo.this.hide();
-                    return;
-                }
-
-                buff.toggleInstantKill();
-                rebuild(buff);
-            }
-        };
-
-        instantKillButton.setRect(0, riposteButton.bottom() + GAP, width, BUTTON_HEIGHT);
-        add(instantKillButton);
-        resize(width, (int) instantKillButton.bottom() + 2);
+        resize(width, (int) riposteButton.bottom() + 2);
     }
 
-    private boolean valid(ModParryRiposte buff) {
-        return buff.target != null && ModParryRiposte.find(buff.target) == buff;
-    }
-
-    private void rebuild(ModParryRiposte buff) {
-        ModTotalInfoOverlay.refreshIndicators();
-        hide();
-        GameScene.show(new WndTotalBuffInfo(buff));
-    }
-
-    private static String riposteButtonText(ModParryRiposte buff) {
+    private static String buttonText(ModParryRiposte buff) {
         return buff.riposteEnabled() ? "Riposte: ON" : "Riposte: OFF";
-    }
-
-    private static String instantKillButtonText(ModParryRiposte buff) {
-        return buff.instantKillEnabled() ? "Instant Kill: ON" : "Instant Kill: OFF";
     }
 }

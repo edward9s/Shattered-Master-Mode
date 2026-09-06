@@ -23,12 +23,10 @@ import java.util.HashSet;
 public class ModParryRiposte extends ChampionEnemy {
 
     private static final String RIPOSTE_ENABLED = "riposte_enabled";
-    private static final String INSTANT_KILL = "instant_kill";
 
     private static Field currentActorField;
 
     private boolean riposteEnabled;
-    private boolean instantKill;
 
     {
         announced = true;
@@ -59,19 +57,6 @@ public class ModParryRiposte extends ChampionEnemy {
 
     public void toggleRiposte() {
         setRiposteEnabled(!riposteEnabled);
-    }
-
-    public boolean instantKillEnabled() {
-        return instantKill;
-    }
-
-    public void setInstantKillEnabled(boolean enabled) {
-        instantKill = enabled;
-        BuffIndicator.refreshHero();
-    }
-
-    public void toggleInstantKill() {
-        setInstantKillEnabled(!instantKill);
     }
 
     @Override
@@ -132,16 +117,13 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public String desc() {
-        String killState = instantKill ? " Instant Kill is ON." : " Instant Kill is OFF.";
         if (riposteEnabled) {
             return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
                     + "Riposte is ON: every attack parried by Total Parry immediately triggers a guaranteed-hit "
-                    + "counterattack, regardless of distance, attempted as a surprise attack. Use the buttons below to configure it."
-                    + killState;
+                    + "counterattack, regardless of distance, attempted as a surprise attack. Use the button below to turn riposte off.";
         } else {
             return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
-                    + "Riposte is OFF, so the buff only parries. Use the buttons below to configure it."
-                    + killState;
+                    + "Riposte is OFF, so the buff only parries. Use the button below to turn riposte on.";
         }
     }
 
@@ -149,14 +131,12 @@ public class ModParryRiposte extends ChampionEnemy {
     public void storeInBundle(Bundle bundle) {
         super.storeInBundle(bundle);
         bundle.put(RIPOSTE_ENABLED, riposteEnabled);
-        bundle.put(INSTANT_KILL, instantKill);
     }
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
         riposteEnabled = bundle.getBoolean(RIPOSTE_ENABLED);
-        instantKill = bundle.getBoolean(INSTANT_KILL);
     }
 
     @Override
@@ -211,16 +191,10 @@ public class ModParryRiposte extends ChampionEnemy {
                 && buff.riposteEnabled
                 && riposter.isAlive()
                 && attacker.isAlive()) {
-            Hero hero = riposter instanceof Hero ? (Hero) riposter : null;
-
-            if (buff.instantKill
-                    && ModCombatCompat.kill(attacker, hero != null ? hero : riposter)) {
-                return;
-            }
-
             // Intentionally no canAttack/range check. Total Riposte must always
             // be able to answer an attack that Total Parry intercepted.
             boolean hit;
+            Hero hero = riposter instanceof Hero ? (Hero) riposter : null;
 
             if (hero != null) {
                 int originalInvisible = hero.invisible;
