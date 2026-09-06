@@ -2,8 +2,14 @@
 """Inject the compiled SMM payload into an SPD-derived APK."""
 from __future__ import annotations
 
+import copy
+import errno
+import platform
 import re
+import shutil
+import struct
 import sys
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
@@ -20,6 +26,10 @@ ABI_REWRITE = "rewrite"
 ABI_STRUCTURAL = "structural"
 ABI_RUNTIME = "runtime"
 ABI_UNSUPPORTED = "unsupported"
+
+PORTABLE_ZIPALIGN_EXTRA_ID = 0xA11E
+PORTABLE_ZIPALIGN_DEFAULT = 4
+PORTABLE_ZIPALIGN_SO = 4096
 
 
 @dataclass
@@ -485,6 +495,195 @@ def patch_wndgame(text: str, *_unused: str) -> str:
     return text[:start] + patched + text[end:]
 
 
+def _host_elf_machines() -> set[int] | None:
+    machine = platform.machine().lower()
+    if machine in {"x86_64", "amd64"}:
+        return {62}
+    if machine in {"aarch64", "arm64"}:
+        return {183}
+    if machine in {"arm", "armv7l", "armv8l"}:
+        return {40}
+    if machine in {"x86", "i386", "i486", "i586", "i686"}:
+        return {3}
+    return None
+
+
+def _elf_machine(path: Path) -> int | None:
+    try:
+        header = path.read_bytes()[:20]
+    except OSError:
+        return None
+    if len(header) < 20 or header[:4] != b"\x7fELF":
+        return None
+    if header[5] == 1:
+        endian = "<"
+    elif header[5] == 2:
+        endian = ">"
+    else:
+        return None
+    return struct.unpack(endian + "H", header[18:20])[0]
+
+
+def _native_tool_matches_host(path: Path) -> bool:
+    machine = _elf_machine(path)
+    accepted = _host_elf_machines()
+    return machine is None or accepted is None or machine in accepted
+
+
+def _alignment_for_entry(info: zipfile.ZipInfo) -> int:
+    if info.compress_type != zipfile.ZIP_STORED:
+        return 1
+    if info.filename.lower().endswith(".so"):
+        return PORTABLE_ZIPALIGN_SO
+    return PORTABLE_ZIPALIGN_DEFAULT
+
+
+def _add_alignment_extra(
+    info: zipfile.ZipInfo,
+    header_offset: int,
+    alignment: int,
+) -> None:
+    if alignment <= 1:
+        return
+    base_data_offset = header_offset + len(info.FileHeader(zip64=False))
+    needed = (-base_data_offset) % alignment
+    if needed == 0:
+        return
+
+    # A ZIP extra-field record needs a four-byte id/length header. If the exact
+    # padding is smaller than that, add one complete alignment unit; modulo is
+    # unchanged and the resulting extra record remains structurally valid.
+    total = needed if needed >= 4 else needed + alignment
+    payload_size = total - 4
+    padding = (
+        struct.pack("<HH", PORTABLE_ZIPALIGN_EXTRA_ID, payload_size)
+        + (b"\0" * payload_size)
+    )
+    if len(info.extra) + len(padding) > 0xFFFF:
+        raise injector.InjectError(
+            f"Cannot align ZIP entry with oversized extra field: {info.filename}"
+        )
+    info.extra += padding
+
+
+def _verify_portable_zip_alignment(path: Path) -> None:
+    with zipfile.ZipFile(path, "r") as zf, path.open("rb") as raw:
+        bad = zf.testzip()
+        if bad:
+            raise injector.InjectError(f"Portable zipalign produced corrupt entry: {bad}")
+        for info in zf.infolist():
+            alignment = _alignment_for_entry(info)
+            if alignment <= 1:
+                continue
+            raw.seek(info.header_offset + 26)
+            lengths = raw.read(4)
+            if len(lengths) != 4:
+                raise injector.InjectError(
+                    f"Portable zipalign cannot read local header: {info.filename}"
+                )
+            name_len, extra_len = struct.unpack("<HH", lengths)
+            data_offset = info.header_offset + 30 + name_len + extra_len
+            if data_offset % alignment:
+                raise injector.InjectError(
+                    f"Portable zipalign failed for {info.filename}: "
+                    f"offset {data_offset} is not {alignment}-byte aligned"
+                )
+
+
+def _portable_zipalign(source: Path, output: Path) -> None:
+    output.unlink(missing_ok=True)
+    with zipfile.ZipFile(source, "r") as zin, zipfile.ZipFile(
+        output,
+        "w",
+        allowZip64=True,
+    ) as zout:
+        zout.comment = zin.comment
+        for source_info in zin.infolist():
+            info = copy.copy(source_info)
+            alignment = _alignment_for_entry(info)
+            if alignment > 1:
+                _add_alignment_extra(info, zout.fp.tell(), alignment)
+            zout.writestr(info, zin.read(source_info))
+    _verify_portable_zip_alignment(output)
+
+
+def _apksigner_jar(apksigner: Path) -> Path | None:
+    candidate = apksigner.parent / "lib" / "apksigner.jar"
+    return candidate if candidate.is_file() else None
+
+
+def _run_apksigner(tools: injector.AndroidTools, args: Sequence[object]) -> None:
+    try:
+        injector.run([tools.apksigner, *args])
+        return
+    except OSError as exc:
+        if exc.errno not in {errno.ENOEXEC, errno.EACCES}:
+            raise
+
+    jar = _apksigner_jar(tools.apksigner)
+    java = shutil.which("java")
+    if jar is None or java is None:
+        raise injector.InjectError(
+            "apksigner launcher cannot execute on this host and no usable "
+            "lib/apksigner.jar + java fallback is available"
+        )
+    injector.log("apksigner launcher is not executable on this host; using its Java JAR")
+    injector.run([java, "-jar", jar, *args])
+
+
+def portable_sign_apk(
+    tools: injector.AndroidTools,
+    unsigned: Path,
+    output: Path,
+    keystore: Path,
+    storepass: str,
+    alias: str,
+    keypass: str,
+) -> None:
+    aligned = output.with_suffix(".aligned.apk")
+    aligned.unlink(missing_ok=True)
+
+    native_zipalign = _native_tool_matches_host(tools.zipalign)
+    if native_zipalign:
+        try:
+            injector.run([tools.zipalign, "-p", "-f", "4", unsigned, aligned])
+        except OSError as exc:
+            if exc.errno not in {errno.ENOEXEC, errno.EACCES}:
+                raise
+            native_zipalign = False
+            aligned.unlink(missing_ok=True)
+
+    if not native_zipalign:
+        machine = _elf_machine(tools.zipalign)
+        host = platform.machine() or "unknown"
+        detail = f" ELF machine {machine}" if machine is not None else ""
+        injector.log(
+            f"Native zipalign{detail} cannot execute on host {host}; "
+            "using built-in portable ZIP aligner"
+        )
+        _portable_zipalign(unsigned, aligned)
+
+    sign_args: list[object] = [
+        "sign",
+        "--ks",
+        keystore,
+        "--ks-pass",
+        f"pass:{storepass}",
+        "--ks-key-alias",
+        alias,
+        "--key-pass",
+        f"pass:{keypass}",
+        "--v4-signing-enabled",
+        "false",
+        "--out",
+        output,
+        aligned,
+    ]
+    _run_apksigner(tools, sign_args)
+    aligned.unlink(missing_ok=True)
+    _run_apksigner(tools, ["verify", "--verbose", output])
+
+
 def output_path(target: Path) -> Path:
     return target.with_name(target.stem + "-SMM" + (target.suffix or ".apk"))
 
@@ -527,6 +726,7 @@ injector.payload_compatibility_errors = full_payload_compatibility_errors
 injector.adapt_modankh = adapt_modankh
 injector.find_class = find_wndgame_instead_of_dungeon
 injector.patch_dungeon = patch_wndgame
+injector.sign_apk = portable_sign_apk
 injector.output_path = output_path
 
 
