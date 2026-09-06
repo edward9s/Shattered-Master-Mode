@@ -35,6 +35,9 @@ import com.watabou.utils.Bundlable;
 import com.watabou.utils.Bundle;
 import com.watabou.utils.PointF;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Iterator;
 
@@ -51,7 +54,8 @@ public final class ModAnkhStore {
     private static final String STORED = "stored";
 
     private final ArrayList<Item> stored = new ArrayList<>();
-    private transient Runnable changeListener;
+    private transient Item owner;
+    private static Method levelSetter;
 
     // UI-only state. Deliberately not serialized.
     private float takeScrollY = 0f;
@@ -68,15 +72,77 @@ public final class ModAnkhStore {
         }
     }
 
-    public void setChangeListener(Runnable listener) {
-        changeListener = listener;
-        changed();
+    public void bindOwner(Item owner) {
+        this.owner = owner;
+        syncLevel();
+    }
+
+    public void syncLevel() {
+        setOwnerLevel(stored.size());
     }
 
     private void changed() {
-        if (changeListener != null) {
-            changeListener.run();
+        syncLevel();
+    }
+
+    /**
+     * Item.level(int) returns void in older SPD and Item in SPD 4.0 beta. Resolve it at runtime so
+     * the standalone ModAnkh payload keeps the same stored-count semantics on both ABIs.
+     */
+    private void setOwnerLevel(int level) {
+        if (owner == null) {
+            return;
         }
+
+        Method setter = levelSetter();
+        try {
+            setter.invoke(owner, level);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("Item.level(int) is not accessible", e);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            }
+            if (cause instanceof Error) {
+                throw (Error) cause;
+            }
+            throw new IllegalStateException("Item.level(int) failed", cause);
+        }
+    }
+
+    private static synchronized Method levelSetter() {
+        if (levelSetter != null) {
+            return levelSetter;
+        }
+
+        for (Class<?> cls = Item.class; cls != null; cls = cls.getSuperclass()) {
+            for (Method method : cls.getDeclaredMethods()) {
+                if (!"level".equals(method.getName()) || Modifier.isStatic(method.getModifiers())) {
+                    continue;
+                }
+
+                Class<?>[] parameters = method.getParameterTypes();
+                if (parameters.length != 1 || parameters[0] != int.class) {
+                    continue;
+                }
+
+                Class<?> result = method.getReturnType();
+                if (result != void.class && !Item.class.isAssignableFrom(result)) {
+                    continue;
+                }
+
+                try {
+                    method.setAccessible(true);
+                } catch (RuntimeException ignored) {
+                    // Public/protected target methods remain invokable without this.
+                }
+                levelSetter = method;
+                return method;
+            }
+        }
+
+        throw new IllegalStateException("No compatible Item.level(int) method found in target");
     }
 
     public void storeInBundle(Bundle bundle) {
