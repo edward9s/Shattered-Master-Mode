@@ -36,66 +36,88 @@ public class ModBlobClass {
             Object[] dexElements = (Object[]) dexElementsField.get(pathList);
 
             for (Object element : dexElements) {
-                Field dexFileField = element.getClass().getDeclaredField("dexFile");
-                dexFileField.setAccessible(true);
-                Object dexFile = dexFileField.get(element);
+                try {
+                    Field dexFileField = element.getClass().getDeclaredField("dexFile");
+                    dexFileField.setAccessible(true);
+                    Object dexFile = dexFileField.get(element);
 
-                if (dexFile != null) {
-                    Method entriesMethod = dexFile.getClass().getMethod("entries");
-                    Enumeration<String> entries = (Enumeration<String>) entriesMethod.invoke(dexFile);
-                    
-                    while (entries.hasMoreElements()) {
-                        String entry = entries.nextElement();
-                        if (entry.startsWith("com.shatteredpixel.shatteredpixeldungeon.actors.blobs")) {
-                            try {
-                                Class<?> clazz = Class.forName(entry, false, classLoader);
-                                if (Blob.class.isAssignableFrom(clazz) && !Blob.class.equals(clazz)) {
-                                    if ((clazz.getModifiers() & 0x400) == 0) {
-                                        if (!clazz.isMemberClass() || (clazz.getModifiers() & 0x8) != 0) {
-                                            if (!cachedBlobs.contains(clazz)) {
-                                                cachedBlobs.add((Class<? extends Blob>) clazz);
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (Exception ignore) {}
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // JVM Desktop JAR 掃描邏輯
-            try {
-                String cp = System.getProperty("java.class.path");
-                String[] paths = cp.split(System.getProperty("path.separator"));
-                for (String path : paths) {
-                    if (path.endsWith(".jar")) {
-                        java.util.zip.ZipFile zip = new java.util.zip.ZipFile(path);
-                        Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                    if (dexFile != null) {
+                        Method entriesMethod = dexFile.getClass().getMethod("entries");
+                        Enumeration<String> entries = (Enumeration<String>) entriesMethod.invoke(dexFile);
+
                         while (entries.hasMoreElements()) {
-                            String entry = entries.nextElement().getName();
-                            if (entry.endsWith(".class")) {
-                                String className = entry.replace('/', '.').substring(0, entry.length() - 6);
-                                if (className.startsWith("com.shatteredpixel.shatteredpixeldungeon.actors.blobs")) {
-                                    try {
-                                        Class<?> clazz = Class.forName(className);
-                                        if (Blob.class.isAssignableFrom(clazz) && !Blob.class.equals(clazz)) {
-                                            if ((clazz.getModifiers() & 0x400) == 0) {
-                                                if (!clazz.isMemberClass() || (clazz.getModifiers() & 0x8) != 0) {
-                                                    if (!cachedBlobs.contains(clazz)) {
-                                                        cachedBlobs.add((Class<? extends Blob>) clazz);
-                                                    }
+                            String entry = entries.nextElement();
+                            if (entry.startsWith("com.shatteredpixel.shatteredpixeldungeon.actors.blobs")) {
+                                try {
+                                    Class<?> clazz = Class.forName(entry, false, classLoader);
+                                    if (Blob.class.isAssignableFrom(clazz) && !Blob.class.equals(clazz)) {
+                                        if ((clazz.getModifiers() & 0x400) == 0) {
+                                            if (!clazz.isMemberClass() || (clazz.getModifiers() & 0x8) != 0) {
+                                                if (!cachedBlobs.contains(clazz)) {
+                                                    cachedBlobs.add((Class<? extends Blob>) clazz);
                                                 }
                                             }
                                         }
-                                    } catch (Exception ignore) {}
+                                    }
+                                } catch (Throwable ignore) {
+                                    // Some target classes cannot be linked in every runtime state.
                                 }
                             }
                         }
-                        zip.close();
+                    }
+                } catch (Throwable ignore) {
+                    // Continue scanning the remaining dex elements.
+                }
+            }
+        } catch (Throwable e) {
+            // JVM Desktop JAR 掃描邏輯
+            try {
+                String cp = System.getProperty("java.class.path");
+                String separator = System.getProperty("path.separator");
+                if (cp == null || cp.length() == 0 || separator == null || separator.length() == 0) {
+                    return cachedBlobs;
+                }
+                String[] paths = cp.split(java.util.regex.Pattern.quote(separator));
+                for (String path : paths) {
+                    if (path.endsWith(".jar")) {
+                        java.util.zip.ZipFile zip = null;
+                        try {
+                            zip = new java.util.zip.ZipFile(path);
+                            Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                            while (entries.hasMoreElements()) {
+                                String entry = entries.nextElement().getName();
+                                if (entry.endsWith(".class")) {
+                                    String className = entry.replace('/', '.').substring(0, entry.length() - 6);
+                                    if (className.startsWith("com.shatteredpixel.shatteredpixeldungeon.actors.blobs")) {
+                                        try {
+                                            Class<?> clazz = Class.forName(className, false, ModBlobClass.class.getClassLoader());
+                                            if (Blob.class.isAssignableFrom(clazz) && !Blob.class.equals(clazz)) {
+                                                if ((clazz.getModifiers() & 0x400) == 0) {
+                                                    if (!clazz.isMemberClass() || (clazz.getModifiers() & 0x8) != 0) {
+                                                        if (!cachedBlobs.contains(clazz)) {
+                                                            cachedBlobs.add((Class<? extends Blob>) clazz);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } catch (Throwable ignore) {
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (Throwable ignore) {
+                        } finally {
+                            if (zip != null) {
+                                try {
+                                    zip.close();
+                                } catch (Throwable ignore) {
+                                }
+                            }
+                        }
                     }
                 }
-            } catch (Exception ignore) {}
+            } catch (Throwable ignore) {
+            }
         }
 
         return cachedBlobs;
