@@ -4,12 +4,10 @@ import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.items.Dewdrop;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
-import com.shatteredpixel.shatteredpixeldungeon.items.Waterskin;
 import com.shatteredpixel.shatteredpixeldungeon.items.armor.Armor;
 import com.shatteredpixel.shatteredpixeldungeon.items.bombs.Bomb;
 import com.shatteredpixel.shatteredpixeldungeon.items.keys.Key;
 import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
-import com.shatteredpixel.shatteredpixeldungeon.journal.Notes;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
@@ -68,23 +66,14 @@ public class ModRich {
             newItem.cursed = false;
             newItem.identify();
 
-            if (newItem instanceof Key) {
-                // Keys live in the journal/Notes system, not in the backpack.
-                Notes.add((Key) newItem);
-                GameScene.updateKeyDisplay();
-
-            } else if (newItem instanceof Dewdrop) {
-                // A generated dewdrop should enter an available waterskin, but
-                // must not simulate Dewdrop.doPickUp(): that can consume the dew
-                // for healing and spend a turn. If it cannot be stored, leave it
-                // on the floor so the player can decide what happens to it.
-                Waterskin waterskin = Dungeon.hero.belongings.getItem(Waterskin.class);
-                if (waterskin != null && !waterskin.isFull()) {
-                    waterskin.collectDew((Dewdrop) newItem);
-                } else {
+            if (newItem instanceof Key || newItem instanceof Dewdrop) {
+                // These items have special pickup behavior which must not be
+                // bypassed by collecting them directly into the backpack.
+                // Keys move into Notes, while dew interacts with Waterskin or
+                // its normal consume behavior through their own doPickUp().
+                if (!newItem.doPickUp(Dungeon.hero)) {
                     Dungeon.level.drop(newItem, Dungeon.hero.pos);
                 }
-
             } else {
                 boolean collected = newItem.collect(Dungeon.hero.belongings.backpack);
                 if (!collected) {
