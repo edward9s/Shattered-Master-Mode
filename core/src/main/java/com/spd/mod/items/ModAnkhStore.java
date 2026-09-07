@@ -10,8 +10,10 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.items.Dewdrop;
 import com.shatteredpixel.shatteredpixeldungeon.items.EquipableItem;
+import com.shatteredpixel.shatteredpixeldungeon.items.Generator;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
 import com.shatteredpixel.shatteredpixeldungeon.items.wands.WandOfRegrowth;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
@@ -39,7 +41,11 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 
 /**
  * Self-contained storage and Put/Take/Loot support for ModAnkh.
@@ -52,6 +58,21 @@ import java.util.Iterator;
 public final class ModAnkhStore {
 
     private static final String STORED = "stored";
+
+    // Keep a local copy of ModItemOrder's policy instead of depending on that mod class. ModAnkhStore
+    // is also used as a standalone injection payload, so every helper needed here must stay inside
+    // the ModAnkhStore class family.
+    private static final String[] ORDER_BAG_GROUPS = {
+            "MagicalHolster",
+            "PotionBandolier",
+            "ScrollHolder",
+            "VelvetPouch",
+    };
+    private static final int ORDER_GROUP_MOD = 0;
+    private static final int ORDER_GROUP_FIRST_BAG = 1;
+    private static final int ORDER_GROUP_OTHER = ORDER_GROUP_FIRST_BAG + ORDER_BAG_GROUPS.length;
+    private static final Map<String, Bag> ORDER_PROBES = new HashMap<>();
+    private static final Comparator<Item> ITEM_ORDER = new ItemOrderComparator();
 
     private final ArrayList<Item> stored = new ArrayList<>();
     private transient Item owner;
@@ -69,6 +90,95 @@ public final class ModAnkhStore {
                 pickedIntoBags += other.pickedIntoBags;
                 absorbed += other.absorbed;
             }
+        }
+    }
+
+    private static final class ItemOrderComparator implements Comparator<Item> {
+        @Override
+        public int compare(Item lhs, Item rhs) {
+            int group = orderGroup(lhs) - orderGroup(rhs);
+            if (group != 0) {
+                return group;
+            }
+
+            int nativeOrder = Generator.Category.order(lhs) - Generator.Category.order(rhs);
+            if (nativeOrder != 0) {
+                return nativeOrder;
+            }
+
+            int generatorOrder = generatorClassOrder(lhs) - generatorClassOrder(rhs);
+            if (generatorOrder != 0) {
+                return generatorOrder;
+            }
+
+            return lhs.getClass().getName().compareTo(rhs.getClass().getName());
+        }
+    }
+
+    private static int orderGroup(Item item) {
+        if (item != null && item.getClass().getName().startsWith("com.spd.mod.")) {
+            return ORDER_GROUP_MOD;
+        }
+        if (item == null || item instanceof Bag) {
+            return ORDER_GROUP_OTHER;
+        }
+        for (int i = 0; i < ORDER_BAG_GROUPS.length; i++) {
+            Bag probe = orderProbe(ORDER_BAG_GROUPS[i]);
+            if (probe != null && probe.canHold(item)) {
+                return ORDER_GROUP_FIRST_BAG + i;
+            }
+        }
+        return ORDER_GROUP_OTHER;
+    }
+
+    private static int generatorClassOrder(Item item) {
+        if (item == null) {
+            return Integer.MAX_VALUE;
+        }
+        int categoryBase = 0;
+        for (Generator.Category category : Generator.Category.values()) {
+            Class<?>[] classes = category.classes;
+            if (classes != null) {
+                for (int i = 0; i < classes.length; i++) {
+                    if (classes[i] == item.getClass()) {
+                        return categoryBase + i;
+                    }
+                }
+                categoryBase += classes.length + 1;
+            } else {
+                categoryBase++;
+            }
+        }
+        return Integer.MAX_VALUE;
+    }
+
+    private static Bag orderProbe(String simpleName) {
+        if (ORDER_PROBES.containsKey(simpleName)) {
+            return ORDER_PROBES.get(simpleName);
+        }
+
+        String bagClass = Bag.class.getName();
+        String pkg = bagClass.substring(0, bagClass.lastIndexOf('.') + 1);
+        Bag probe = null;
+        try {
+            Class<?> cls = Class.forName(pkg + simpleName);
+            if (Bag.class.isAssignableFrom(cls)) {
+                Object instance = cls.getDeclaredConstructor().newInstance();
+                if (instance instanceof Bag) {
+                    probe = (Bag) instance;
+                }
+            }
+        } catch (ReflectiveOperationException e) {
+            // Missing/renamed bag classes simply remove that grouping on this fork.
+        }
+
+        ORDER_PROBES.put(simpleName, probe);
+        return probe;
+    }
+
+    private void sortStored() {
+        if (stored.size() > 1) {
+            Collections.sort(stored, ITEM_ORDER);
         }
     }
 
@@ -157,6 +267,7 @@ public final class ModAnkhStore {
                 stored.add((Item) value);
             }
         }
+        sortStored();
         changed();
     }
 
@@ -182,6 +293,7 @@ public final class ModAnkhStore {
         result.add(collectHeaps(owner, hero));
 
         if (result.absorbed > 0) {
+            sortStored();
             GLog.i("Absorbed " + result.absorbed + " item(s) into the ankh.");
             if (result.pickedIntoBags == 0) {
                 Sample.INSTANCE.play(Assets.Sounds.ITEM);
@@ -374,6 +486,7 @@ public final class ModAnkhStore {
             takeScrollY = 0f;
             return;
         }
+        sortStored();
         GameScene.show(new WndTake(owner, hero));
     }
 
@@ -403,6 +516,7 @@ public final class ModAnkhStore {
         }
 
         absorb(detached);
+        sortStored();
         GLog.i("Stored item in the ankh.");
         Sample.INSTANCE.play(Assets.Sounds.ITEM);
         Item.updateQuickslot();
