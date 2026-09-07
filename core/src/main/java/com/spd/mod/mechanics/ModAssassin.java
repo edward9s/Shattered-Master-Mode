@@ -58,6 +58,8 @@ public class ModAssassin {
         int originalInvisible = hero.invisible;
         int originalStrength = hero.STR;
         KindOfWeapon attackingWeapon = hero.belongings.attackingWeapon();
+        boolean bypassInfiniteEvasion = !target.isInvulnerable(hero.getClass())
+                && ModCombatCompat.hasInfiniteEvasionAgainst(target, hero);
         boolean hit;
 
         try {
@@ -73,19 +75,16 @@ public class ModAssassin {
                 }
             }
 
-            hit = hero.attack(target, 1f, 0f, Char.INFINITE_ACCURACY);
+            // Some defenders consume their INFINITE_EVASION inside defenseVerb()
+            // after the native miss (Monk Focus does exactly this). Snapshot the
+            // condition before attack() and bypass the miss path entirely so
+            // Assassin's promised absolute accuracy cannot be converted to parry.
+            hit = bypassInfiniteEvasion
+                    ? ModCombatCompat.forceHeroHit(hero, target, 1f, 0f)
+                    : hero.attack(target, 1f, 0f, Char.INFINITE_ACCURACY);
         } finally {
             hero.invisible = originalInvisible;
             hero.STR = originalStrength;
-        }
-
-        if (!hit
-                && target.isAlive()
-                && ModCombatCompat.hasInfiniteEvasionAgainst(target, hero)) {
-            // Engine-level INFINITE_EVASION beats even the normal infinite
-            // accuracy constant. Re-run only the successful-hit side in mod
-            // code so Assassin's own accuracy remains absolute for that case.
-            hit = ModCombatCompat.forceHeroHit(hero, target, 1f, 0f);
         }
 
         if (!hit && target.isAlive()) {
