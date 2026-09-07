@@ -37,7 +37,6 @@ public class ModCatalogTab extends Component {
         addModItem(ModScrollOfAssassin.class);
         addModItem(ModScrollOfBlast.class);
         addModItem(ModScrollOfSight.class);
-        addModItem(ModScrollOfLoot.class);
         addModItem(ModScrollOfDisplacement.class);
         addModItem(ModPotionOfResetTier.Tier1.class);
         addModItem(ModPotionOfResetTier.Tier2.class);
