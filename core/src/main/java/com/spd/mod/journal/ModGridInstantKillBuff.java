@@ -1,17 +1,17 @@
 package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon;
-import com.spd.mod.mechanics.ModInstantKillBuff;
+import com.spd.mod.mechanics.ModInstantKill;
 
 /** Journal entry for the permanent Instant Kill Master Mode buff. */
 public class ModGridInstantKillBuff extends ModGridEntry {
 
     private static final String TITLE = "Instant Kill";
     private static final String DESCRIPTION =
-            "Permanent configurable combat buff for the Hero. Attach it here, then tap its live buff icon to toggle Instant Kill and Infinite Accuracy independently. Both settings default to OFF and persist with the buff.";
+            "Permanent configurable combat buff for the Hero. Attach it here, then tap its live buff icon to toggle Instant Kill and Infinite Accuracy independently. Infinite Accuracy uses an extreme accuracy multiplier and also recovers ordinary attacks rejected specifically by engine-level infinite evasion. Both settings default to OFF and persist with the buff.";
 
     public ModGridInstantKillBuff() {
-        super(new BuffIcon(new ModInstantKillBuff(), true), TITLE, DESCRIPTION);
+        super(new BuffIcon(new ModInstantKill(), true), TITLE, DESCRIPTION);
     }
 
     @Override
@@ -20,7 +20,7 @@ public class ModGridInstantKillBuff extends ModGridEntry {
             return false;
         }
 
-        ModCharSelector.startHeroOnly(ModInstantKillBuff.class);
+        ModCharSelector.startHeroOnly(ModInstantKill.class);
         return true;
     }
 }
