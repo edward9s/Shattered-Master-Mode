@@ -116,7 +116,8 @@ public class ModScrollOfLoot extends Scroll {
                 + " so you can eat, read, drink or zap them straight out of the scroll."
                 + "\n\nLoot makes the hero trample all high-grass and loot all heaps."
                 + " Items that don't fit in your bags are absorbed into the scroll."
-                + " You can also Put items from your bags into the scroll for safekeeping.";
+                + " You can also Put items from your bags into the scroll for safekeeping."
+                + " Console opens the Master Mode debug console.";
         if (storage.size() <= 0) {
             return base;
         }
@@ -126,7 +127,7 @@ public class ModScrollOfLoot extends Scroll {
         return new StringBuilder(base)
                 .append("\n\nCurrently holding ")
                 .append(storage.size())
-                .append(" item(s). Use Take to retrieve them one at a time, or Dump to empty the scroll at once.")
+                .append(" item(s). Use Take to retrieve them one at a time; Dump in the Take window empties the scroll at once.")
                 .toString();
     }
 
