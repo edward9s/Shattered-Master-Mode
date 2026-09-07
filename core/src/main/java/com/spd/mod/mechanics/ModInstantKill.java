@@ -42,6 +42,7 @@ public class ModInstantKill extends ChampionEnemy {
     // Render-side observer state for one ordinary animated Hero attack.
     private transient Char observedAttackTarget;
     private transient boolean observedAttackWasInvulnerable;
+    private transient boolean observedAttackHadInfiniteEvasion;
 
     {
         announced = true;
@@ -148,7 +149,7 @@ public class ModInstantKill extends ChampionEnemy {
                 + (instantKill ? "ON" : "OFF")
                 + "; when enabled, every successful normal attack invokes the target's native death behavior regardless of alignment or invulnerability. Invulnerable targets still require a successful hit roll when Infinite Accuracy is OFF. Infinite Accuracy is "
                 + (infiniteAccuracy ? "ON" : "OFF")
-                + "; when enabled, normal accuracy receives an extreme multiplier and engine-level INFINITE_EVASION misses receive one Mod-side successful-hit pass. Explicit Mod attack paths may report an engine-blocked attack here, but this buff alone decides whether invulnerability is bypassed and whether native death is invoked. The two switches remain independent, and vanilla combat classes are not patched.";
+                + "; when enabled, normal accuracy receives an extreme multiplier and engine-level INFINITE_EVASION present at attack start is remembered even if the defender consumes that state during its native parry/miss response, then recovered with one Mod-side successful-hit pass. Explicit Mod attack paths may report an engine-blocked attack here, but this buff alone decides whether invulnerability is bypassed and whether native death is invoked. The two switches remain independent, and vanilla combat classes are not patched.";
     }
 
     @Override
@@ -269,8 +270,19 @@ public class ModInstantKill extends ChampionEnemy {
 
         if (currentTarget != null) {
             if (currentTarget != hero && currentTarget.isAlive()) {
-                observedAttackTarget = currentTarget;
-                observedAttackWasInvulnerable = currentTarget.isInvulnerable(hero.getClass());
+                if (observedAttackTarget != currentTarget) {
+                    observedAttackTarget = currentTarget;
+                    observedAttackWasInvulnerable = currentTarget.isInvulnerable(hero.getClass());
+                    observedAttackHadInfiniteEvasion =
+                            ModCombatCompat.hasInfiniteEvasionAgainst(currentTarget, hero);
+                } else {
+                    // Never overwrite a true snapshot after a consumable defense
+                    // response (such as Monk Focus) removes its own evasion state.
+                    observedAttackWasInvulnerable |=
+                            currentTarget.isInvulnerable(hero.getClass());
+                    observedAttackHadInfiniteEvasion |=
+                            ModCombatCompat.hasInfiniteEvasionAgainst(currentTarget, hero);
+                }
             } else {
                 clearObservedAttack();
             }
@@ -279,6 +291,7 @@ public class ModInstantKill extends ChampionEnemy {
 
         Char attackedTarget = observedAttackTarget;
         boolean wasInvulnerable = observedAttackWasInvulnerable;
+        boolean hadInfiniteEvasion = observedAttackHadInfiniteEvasion;
         clearObservedAttack();
 
         if (attackedTarget == null
@@ -300,10 +313,11 @@ public class ModInstantKill extends ChampionEnemy {
         }
 
         // Engine-level infinite evasion beats even Char.INFINITE_ACCURACY before
-        // ChampionEnemy accuracy factors are applied. Infinite Accuracy therefore
-        // replays only the successful-hit side for that specific forced-miss case.
+        // ChampionEnemy accuracy factors are applied. Some defenders (notably
+        // Monk Focus) consume that state from defenseVerb() after the native miss,
+        // so use the pre-miss snapshot instead of asking defenseSkill again here.
         if (infiniteAccuracy
-                && ModCombatCompat.hasInfiniteEvasionAgainst(attackedTarget, hero)
+                && hadInfiniteEvasion
                 && ModCombatCompat.forceHeroHit(hero, attackedTarget, 1f, 0f)) {
             if (hero.subClass == HeroSubClass.GLADIATOR) {
                 Buff.affect(hero, Combo.class).hit(attackedTarget);
@@ -317,6 +331,7 @@ public class ModInstantKill extends ChampionEnemy {
     private void clearObservedAttack() {
         observedAttackTarget = null;
         observedAttackWasInvulnerable = false;
+        observedAttackHadInfiniteEvasion = false;
     }
 
     private static class AccuracyObserver extends Gizmo {
