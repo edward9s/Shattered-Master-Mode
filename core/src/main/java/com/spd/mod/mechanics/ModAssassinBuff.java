@@ -2,6 +2,7 @@ package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
+import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
@@ -92,7 +93,8 @@ public class ModAssassinBuff extends Buff {
     @Override
     public String desc() {
         return "Permanent Master Mode buff for the Hero. Press and hold a normal map cell or character for about half a second to invoke Mod Assassin on that cell. "
-                + "Dragging, pinching, ordinary taps, and other targeting modes keep their original controls.";
+                + "If the selected target uses engine-level INFINITE_EVASION, Assassin Instinct follows the native forced miss with one Mod-side successful-hit pass. "
+                + "Dragging, pinching, ordinary taps, and other targeting modes keep their original controls. Vanilla combat classes are not patched.";
     }
 
     private static void ensureInputLayer() {
@@ -287,12 +289,28 @@ public class ModAssassinBuff extends Buff {
                 return;
             }
 
+            Char selectedTarget = Actor.findChar(cell);
+            boolean infiniteEvasionTarget = selectedTarget != null
+                    && selectedTarget != hero
+                    && selectedTarget.isAlive()
+                    && ModCombatCompat.hasInfiniteEvasionAgainst(selectedTarget, hero);
+
             // Cancel the ordinary CellSelector click before invoking Assassin.
             selector.reset();
             clearPress();
 
             // Reuse the exact dispatcher already used by ModAssassin.cast().
             new ModAssassin.Selector(hero).onSelect(cell);
+
+            // Char.hit() intentionally lets INFINITE_EVASION beat
+            // INFINITE_ACCURACY. Only that explicit engine-level forced miss is
+            // recovered here; all other Assassin combat behavior stays native.
+            if (infiniteEvasionTarget
+                    && selectedTarget.isAlive()
+                    && hero.canAttack(selectedTarget)) {
+                ModCombatCompat.forceHeroHit(hero, selectedTarget, 1f, 0f);
+            }
+
             GameScene.ready();
         }
 
