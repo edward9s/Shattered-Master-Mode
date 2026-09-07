@@ -64,6 +64,24 @@ public class ModParryRiposte extends ChampionEnemy {
         return null;
     }
 
+    /**
+     * Returns only the exact native Monk Focus helper, without relying on the
+     * fork-sensitive Char.buff(Class) ABI.
+     */
+    private static MonkEnergy.MonkAbility.Focus.FocusBuff findExactFocus(Char ch) {
+        if (ch == null) {
+            return null;
+        }
+        for (MonkEnergy.MonkAbility.Focus.FocusBuff focus
+                : ch.buffs(MonkEnergy.MonkAbility.Focus.FocusBuff.class)) {
+            if (focus != null
+                    && focus.getClass() == MonkEnergy.MonkAbility.Focus.FocusBuff.class) {
+                return focus;
+            }
+        }
+        return null;
+    }
+
     /** True only for the exact native Focus instance maintained by Total Parry. */
     public static boolean isParryFocus(Buff buff) {
         return buff != null && PARRY_FOCUS_OWNERS.containsKey(buff);
@@ -122,8 +140,7 @@ public class ModParryRiposte extends ChampionEnemy {
             return;
         }
 
-        MonkEnergy.MonkAbility.Focus.FocusBuff focus =
-                target.buff(MonkEnergy.MonkAbility.Focus.FocusBuff.class);
+        MonkEnergy.MonkAbility.Focus.FocusBuff focus = findExactFocus(target);
 
         if (focus == null) {
             focus = new MonkEnergy.MonkAbility.Focus.FocusBuff();
@@ -146,8 +163,7 @@ public class ModParryRiposte extends ChampionEnemy {
             return;
         }
 
-        MonkEnergy.MonkAbility.Focus.FocusBuff focus =
-                target.buff(MonkEnergy.MonkAbility.Focus.FocusBuff.class);
+        MonkEnergy.MonkAbility.Focus.FocusBuff focus = findExactFocus(target);
         if (focus == null || PARRY_FOCUS_OWNERS.get(focus) != this) {
             return;
         }
