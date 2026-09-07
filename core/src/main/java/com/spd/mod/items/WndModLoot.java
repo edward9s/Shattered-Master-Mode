@@ -19,6 +19,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoItem;
+import com.spd.mod.mechanics.ModDebug$Console;
 import com.spd.mod.mechanics.ModLootStorage;
 import com.watabou.input.PointerEvent;
 import com.watabou.noosa.BitmapText;
@@ -41,6 +42,7 @@ public class WndModLoot extends Window {
     private static final int SLOT_BASE = 28;
     private static final int SLOT_MARGIN = 1;
     private static final int TITLE_HEIGHT = 14;
+    private static final int TITLE_DUMP_WIDTH = 34;
     private static final int BTN_HEIGHT = 16;
     private static final int BTN_MARGIN = 1;
     private static final int UI_RESERVE_VER = 100;
@@ -160,17 +162,17 @@ public class WndModLoot extends Window {
         take.enable(stored > 0);
         add(take);
 
-        RedButton dump = new RedButton("Dump (" + stored + ")", 8) {
+        RedButton console = new RedButton("Console", 8) {
             @Override
             protected void onClick() {
                 hide();
-                storage.dump(Dungeon.hero);
+                GameScene.cancel();
+                ModDebug$Console.open();
             }
         };
-        dump.setSize(half, BTN_HEIGHT);
-        dump.setPos(half, top);
-        dump.enable(stored > 0);
-        add(dump);
+        console.setSize(half, BTN_HEIGHT);
+        console.setPos(half, top);
+        add(console);
     }
 
     private void showPutSelector() {
@@ -309,12 +311,28 @@ public class WndModLoot extends Window {
             titleWidth = Math.min(titleWidth, amt.x);
         }
 
+        if (mode == Mode.TAKE) {
+            float dumpX = titleWidth - TITLE_DUMP_WIDTH;
+            RedButton dump = new RedButton("Dump", 7) {
+                @Override
+                protected void onClick() {
+                    hide();
+                    storage.dump(Dungeon.hero);
+                }
+            };
+            dump.setSize(TITLE_DUMP_WIDTH, TITLE_HEIGHT);
+            dump.setPos(dumpX, 0);
+            dump.enable(storage.size() > 0);
+            add(dump);
+            titleWidth = dumpX - BTN_MARGIN;
+        }
+
         String displayTitle = mode == Mode.USE
                 ? title
                 : title + " (" + storage.size() + ")";
         RenderedTextBlock txtTitle = PixelScene.renderTextBlock(Messages.titleCase(displayTitle), 8);
         txtTitle.hardlight(TITLE_COLOR);
-        txtTitle.maxWidth((int) titleWidth - 2);
+        txtTitle.maxWidth(Math.max(1, (int) titleWidth - 2));
         txtTitle.setPos(1, (TITLE_HEIGHT - txtTitle.height()) / 2f - 1);
         PixelScene.align(txtTitle);
         add(txtTitle);
