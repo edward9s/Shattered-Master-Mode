@@ -120,10 +120,10 @@ public class ModParryRiposte extends ChampionEnemy {
         if (riposteEnabled) {
             return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
                     + "Riposte is ON: every attack parried by Total Parry immediately triggers a guaranteed-hit "
-                    + "counterattack, regardless of distance, attempted as a surprise attack. Engine-level INFINITE_EVASION is bypassed before consumable parry/miss hooks can turn that riposte into a miss. Use the button below to turn riposte off.";
+                    + "counterattack, regardless of distance, attempted as a surprise attack. Engine-level INFINITE_EVASION is bypassed before consumable parry/miss hooks can turn that riposte into a miss. Open this buff's information window to turn riposte off.";
         } else {
             return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
-                    + "Riposte is OFF, so the buff only parries. Use the button below to turn riposte on.";
+                    + "Riposte is OFF, so the buff only parries. Open this buff's information window to turn riposte on.";
         }
     }
 
