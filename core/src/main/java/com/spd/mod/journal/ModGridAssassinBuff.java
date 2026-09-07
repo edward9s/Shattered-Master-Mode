@@ -7,8 +7,15 @@ import com.spd.mod.mechanics.ModAssassinBuff;
 public class ModGridAssassinBuff extends ModGridEntry {
 
     public ModGridAssassinBuff() {
-        ModAssassinBuff buff = new ModAssassinBuff();
-        super(new BuffIcon(buff, true), buff.name(), buff.desc());
+        super(new BuffIcon(new ModAssassinBuff(), true), title(), description());
+    }
+
+    private static String title() {
+        return new ModAssassinBuff().name();
+    }
+
+    private static String description() {
+        return new ModAssassinBuff().desc();
     }
 
     @Override
