@@ -39,8 +39,9 @@ public class ModInstantKill extends ChampionEnemy {
     private boolean instantKill;
     private boolean infiniteAccuracy;
 
-    // Only used by the render-side observer for ordinary animated Hero attacks.
-    private transient Char observedInfiniteEvasionTarget;
+    // Render-side observer state for one ordinary animated Hero attack.
+    private transient Char observedAttackTarget;
+    private transient boolean observedAttackWasInvulnerable;
 
     {
         announced = true;
@@ -69,14 +70,15 @@ public class ModInstantKill extends ChampionEnemy {
 
     public void toggleInstantKill() {
         instantKill = !instantKill;
+        if (!instantKill) {
+            clearObservedAttack();
+        }
+        ensureAccuracyObserver();
         BuffIndicator.refreshHero();
     }
 
     public void toggleInfiniteAccuracy() {
         infiniteAccuracy = !infiniteAccuracy;
-        if (!infiniteAccuracy) {
-            observedInfiniteEvasionTarget = null;
-        }
         ensureAccuracyObserver();
         BuffIndicator.refreshHero();
     }
@@ -115,7 +117,7 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public void detach() {
-        observedInfiniteEvasionTarget = null;
+        clearObservedAttack();
         super.detach();
         BuffIndicator.refreshHero();
     }
@@ -144,9 +146,9 @@ public class ModInstantKill extends ChampionEnemy {
     public String desc() {
         return "Permanent Master Mode combat buff for the Hero. Instant Kill is "
                 + (instantKill ? "ON" : "OFF")
-                + "; when enabled, every successful normal attack invokes the target's native death behavior, regardless of alignment, with the Assassin's execution hit effect and status text. Infinite Accuracy is "
+                + "; when enabled, every successful normal attack invokes the target's native death behavior regardless of alignment or invulnerability. Invulnerable targets still require a successful hit roll when Infinite Accuracy is OFF. Infinite Accuracy is "
                 + (infiniteAccuracy ? "ON" : "OFF")
-                + "; when enabled, normal accuracy receives an extreme multiplier. For ordinary animated Hero attacks, targets whose defense is engine-level INFINITE_EVASION are detected after the native forced miss and receive one Mod-side successful-hit pass instead. Vanilla combat classes are not patched.";
+                + "; when enabled, normal accuracy receives an extreme multiplier and engine-level INFINITE_EVASION misses receive one Mod-side successful-hit pass. The two switches are independent, and vanilla combat classes are not patched.";
     }
 
     @Override
@@ -156,13 +158,28 @@ public class ModInstantKill extends ChampionEnemy {
                 && enemy != null
                 && enemy != target
                 && enemy.isAlive()) {
-            Wound.hit(enemy);
-            if (ModCombatCompat.kill(enemy, target) && enemy.sprite != null) {
-                enemy.sprite.showStatus(
-                        CharSprite.NEGATIVE,
-                        Messages.get(Preparation.class, "assassinated"));
-            }
+            executeInstantKill(enemy);
         }
+    }
+
+    private boolean executeInstantKill(Char enemy) {
+        if (!(target instanceof Hero)
+                || enemy == null
+                || enemy == target
+                || !enemy.isAlive()) {
+            return false;
+        }
+
+        Wound.hit(enemy);
+        if (!ModCombatCompat.kill(enemy, target)) {
+            return false;
+        }
+        if (enemy.sprite != null) {
+            enemy.sprite.showStatus(
+                    CharSprite.NEGATIVE,
+                    Messages.get(Preparation.class, "assassinated"));
+        }
+        return true;
     }
 
     @Override
@@ -225,35 +242,55 @@ public class ModInstantKill extends ChampionEnemy {
         Char currentTarget = ModCombatCompat.heroAttackTarget(hero);
 
         if (currentTarget != null) {
-            if (infiniteAccuracy
-                    && currentTarget != hero
-                    && currentTarget.isAlive()
-                    && ModCombatCompat.hasInfiniteEvasionAgainst(currentTarget, hero)) {
-                observedInfiniteEvasionTarget = currentTarget;
+            if (currentTarget != hero && currentTarget.isAlive()) {
+                observedAttackTarget = currentTarget;
+                observedAttackWasInvulnerable = currentTarget.isInvulnerable(hero.getClass());
             } else {
-                observedInfiniteEvasionTarget = null;
+                clearObservedAttack();
             }
             return;
         }
 
-        Char missedTarget = observedInfiniteEvasionTarget;
-        observedInfiniteEvasionTarget = null;
-        if (!infiniteAccuracy
-                || missedTarget == null
+        Char attackedTarget = observedAttackTarget;
+        boolean wasInvulnerable = observedAttackWasInvulnerable;
+        clearObservedAttack();
+
+        if (attackedTarget == null
                 || !hero.isAlive()
-                || !missedTarget.isAlive()
-                || !ModCombatCompat.hasInfiniteEvasionAgainst(missedTarget, hero)) {
+                || !attackedTarget.isAlive()) {
             return;
         }
 
-        if (ModCombatCompat.forceHeroHit(hero, missedTarget, 1f, 0f)) {
+        // Vanilla Char.attack checks invulnerability before it performs hit(), so
+        // an invulnerable target never receives a native hit roll. Preserve normal
+        // misses by explicitly rolling Char.hit when Infinite Accuracy is OFF.
+        // Only a confirmed hit may invoke Instant Kill through invulnerability.
+        if (wasInvulnerable) {
+            if (instantKill
+                    && (infiniteAccuracy || ModCombatCompat.rollNormalHeroHit(hero, attackedTarget))) {
+                executeInstantKill(attackedTarget);
+            }
+            return;
+        }
+
+        // Engine-level infinite evasion beats even Char.INFINITE_ACCURACY before
+        // ChampionEnemy accuracy factors are applied. Infinite Accuracy therefore
+        // replays only the successful-hit side for that specific forced-miss case.
+        if (infiniteAccuracy
+                && ModCombatCompat.hasInfiniteEvasionAgainst(attackedTarget, hero)
+                && ModCombatCompat.forceHeroHit(hero, attackedTarget, 1f, 0f)) {
             if (hero.subClass == HeroSubClass.GLADIATOR) {
-                Buff.affect(hero, Combo.class).hit(missedTarget);
+                Buff.affect(hero, Combo.class).hit(attackedTarget);
             }
             if (hero.heroClass == HeroClass.DUELIST) {
-                ModCombatCompat.addDuelistComboHit(hero, missedTarget);
+                ModCombatCompat.addDuelistComboHit(hero, attackedTarget);
             }
         }
+    }
+
+    private void clearObservedAttack() {
+        observedAttackTarget = null;
+        observedAttackWasInvulnerable = false;
     }
 
     private static class AccuracyObserver extends Gizmo {
@@ -296,7 +333,7 @@ public class ModInstantKill extends ChampionEnemy {
         super.restoreFromBundle(bundle);
         instantKill = bundle.getBoolean(INSTANT_KILL);
         infiniteAccuracy = bundle.getBoolean(INFINITE_ACCURACY);
-        observedInfiniteEvasionTarget = null;
+        clearObservedAttack();
     }
 
     @Override
