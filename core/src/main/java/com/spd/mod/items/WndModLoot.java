@@ -259,8 +259,6 @@ public class WndModLoot extends Window {
     }
 
     private void placeTitle(int width) {
-        float titleWidth;
-
         if (Dungeon.energy == 0) {
             ItemSprite gold = new ItemSprite(ItemSpriteSheet.GOLD, null);
             gold.x = width - gold.width();
@@ -275,8 +273,6 @@ public class WndModLoot extends Window {
             amt.y = (TITLE_HEIGHT - amt.baseLine()) / 2f - 1;
             PixelScene.align(amt);
             add(amt);
-
-            titleWidth = amt.x;
         } else {
             Image gold = Icons.get(Icons.COIN_SML);
             gold.x = width - gold.width() - 0.5f;
@@ -292,8 +288,6 @@ public class WndModLoot extends Window {
             PixelScene.align(amt);
             add(amt);
 
-            titleWidth = amt.x;
-
             Image energy = Icons.get(Icons.ENERGY_SML);
             energy.x = width - energy.width();
             energy.y = gold.height();
@@ -307,12 +301,9 @@ public class WndModLoot extends Window {
             amt.y = energy.y;
             PixelScene.align(amt);
             add(amt);
-
-            titleWidth = Math.min(titleWidth, amt.x);
         }
 
         if (mode == Mode.TAKE) {
-            float dumpX = titleWidth - TITLE_DUMP_WIDTH;
             RedButton dump = new RedButton("Dump", 7) {
                 @Override
                 protected void onClick() {
@@ -321,21 +312,10 @@ public class WndModLoot extends Window {
                 }
             };
             dump.setSize(TITLE_DUMP_WIDTH, TITLE_HEIGHT);
-            dump.setPos(dumpX, 0);
+            dump.setPos(0, 0);
             dump.enable(storage.size() > 0);
             add(dump);
-            titleWidth = dumpX - BTN_MARGIN;
         }
-
-        String displayTitle = mode == Mode.USE
-                ? title
-                : title + " (" + storage.size() + ")";
-        RenderedTextBlock txtTitle = PixelScene.renderTextBlock(Messages.titleCase(displayTitle), 8);
-        txtTitle.hardlight(TITLE_COLOR);
-        txtTitle.maxWidth(Math.max(1, (int) titleWidth - 2));
-        txtTitle.setPos(1, (TITLE_HEIGHT - txtTitle.height()) / 2f - 1);
-        PixelScene.align(txtTitle);
-        add(txtTitle);
     }
 
     private class LootPane extends ScrollPane {
