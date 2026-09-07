@@ -5,6 +5,7 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Combo;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.MonkEnergy;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
@@ -65,6 +66,7 @@ public class ModParryRiposte extends ChampionEnemy {
             return false;
         }
         timeToNow();
+        ensureParryFocus();
         ModTotalInfoOverlay.ensureInstalled();
         return true;
     }
@@ -80,15 +82,30 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public boolean act() {
-        // Total needs no periodic runtime plumbing.
+        // Old saves may contain Total Parry without the hidden Focus bridge.
+        ensureParryFocus();
         diactivate();
         return true;
     }
 
     @Override
     public void detach() {
+        if (target != null) {
+            for (TotalParryFocus focus : target.buffs(TotalParryFocus.class)) {
+                focus.removeForTotalParry();
+            }
+        }
         super.detach();
         BuffIndicator.refreshHero();
+    }
+
+    private void ensureParryFocus() {
+        if (!(target instanceof Hero) || !target.isAlive()) {
+            return;
+        }
+        if (target.buffs(TotalParryFocus.class).isEmpty()) {
+            new TotalParryFocus().attachTo(target);
+        }
     }
 
     @Override
@@ -118,11 +135,11 @@ public class ModParryRiposte extends ChampionEnemy {
     @Override
     public String desc() {
         if (riposteEnabled) {
-            return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
-                    + "Riposte is ON: every attack parried by Total Parry immediately triggers a guaranteed-hit "
-                    + "counterattack, regardless of distance, attempted as a surprise attack. Engine-level INFINITE_EVASION is bypassed before consumable parry/miss hooks can turn that riposte into a miss. Open this buff's information window to turn riposte off.";
+            return "Permanent Master Mode buff. Total Parry uses the Monk Focus parry path on the Hero, so every incoming attack handled by the normal hit check is parried, including attacks with engine-level infinite accuracy. "
+                    + "Riposte is ON: every attack parried by Total Parry immediately triggers a guaranteed-hit counterattack, regardless of distance, attempted as a surprise attack. "
+                    + "Enemy Focus and other engine-level INFINITE_EVASION are bypassed before consumable parry/miss hooks can turn that riposte into a miss. Open this buff's information window to turn riposte off.";
         } else {
-            return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
+            return "Permanent Master Mode buff. Total Parry uses the Monk Focus parry path on the Hero, so every incoming attack handled by the normal hit check is parried, including attacks with engine-level infinite accuracy. "
                     + "Riposte is OFF, so the buff only parries. Open this buff's information window to turn riposte on.";
         }
     }
@@ -144,7 +161,7 @@ public class ModParryRiposte extends ChampionEnemy {
         Char attacker = currentAttackSource();
 
         // If Total's owner is the current attack source, this is the attacker's
-        // accuracy pass. Total must not modify its own accuracy.
+        // accuracy pass. Total must never modify its own outgoing accuracy.
         if (attacker == null || attacker == target) {
             return 1f;
         }
@@ -153,12 +170,24 @@ public class ModParryRiposte extends ChampionEnemy {
             return 1f;
         }
 
+        // Normally TotalParryFocus is detected by Char.hit before ChampionEnemy
+        // factors are consulted. Keep this as a fallback for unusual forks where
+        // the Focus check does not recognize subclasses.
         if (riposteEnabled && attacker.isAlive()) {
             scheduleRiposte(target, attacker);
         }
-
-        // Defender pass: make the normal hit check fail.
         return Float.POSITIVE_INFINITY;
+    }
+
+    /** Called when Hero.defenseVerb() tries to consume the hidden Focus bridge. */
+    private void onFocusParry() {
+        if (!riposteEnabled || target == null || !target.isAlive()) {
+            return;
+        }
+        Char attacker = currentAttackSource();
+        if (attacker != null && attacker != target && attacker.isAlive()) {
+            scheduleRiposte(target, attacker);
+        }
     }
 
     private static Char currentAttackSource() {
@@ -215,8 +244,8 @@ public class ModParryRiposte extends ChampionEnemy {
                         }
                     }
 
-                    // Snapshot INFINITE_EVASION before the native miss path can
-                    // consume it through defenseVerb() (e.g. Monk Focus).
+                    // Outgoing ripostes remain absolutely accurate. Enemy Focus is
+                    // an enemy-side defense and must not override this Mod feature.
                     hit = bypassInfiniteEvasion
                             ? ModCombatCompat.forceHeroHit(hero, attacker, 1f, 0f)
                             : hero.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
@@ -238,6 +267,42 @@ public class ModParryRiposte extends ChampionEnemy {
                     ModCombatCompat.addDuelistComboHit(hero, attacker);
                 }
             }
+        }
+    }
+
+    /**
+     * Hidden permanent variant of Monk Focus. Char.hit sees this subclass through
+     * Char.buff(FocusBuff.class), which gives the Hero INFINITE_EVASION before the
+     * engine evaluates INFINITE_ACCURACY. Hero.defenseVerb() then calls detach(),
+     * plays the native HIT_PARRY sound and displays the native Monk parry verb.
+     * We intercept that detach so the Focus remains for the next incoming attack.
+     */
+    public static class TotalParryFocus extends MonkEnergy.MonkAbility.Focus.FocusBuff {
+
+        private boolean forceDetach;
+
+        {
+            revivePersists = true;
+        }
+
+        @Override
+        public void detach() {
+            ModParryRiposte total = ModParryRiposte.find(target);
+            if (!forceDetach && total != null && target != null && target.isAlive()) {
+                total.onFocusParry();
+                return;
+            }
+            super.detach();
+        }
+
+        void removeForTotalParry() {
+            forceDetach = true;
+            super.detach();
+        }
+
+        @Override
+        public int icon() {
+            return BuffIndicator.NONE;
         }
     }
 
