@@ -138,12 +138,13 @@ public class ModLastStand extends Buff {
 
     @Override
     public int icon() {
+        // Keep this already-supported icon index for cross-fork injection compatibility.
         return BuffIndicator.BERSERK;
     }
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(1f, 0.8f, 0.2f);
+        icon.hardlight(0xFFF0A8);
     }
 
     @Override
