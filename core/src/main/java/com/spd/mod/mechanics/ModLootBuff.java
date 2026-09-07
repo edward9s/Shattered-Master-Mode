@@ -109,7 +109,8 @@ public class ModLootBuff extends Buff {
 
     @Override
     public String desc() {
-        return "Permanent Master Mode buff for the Hero. Tap its buff icon to open Loot / Put / Take / Dump and directly use stored items. "
+        return "Permanent Master Mode buff for the Hero. Tap its buff icon to open Loot / Put / Take / Console and directly use stored items. "
+                + "Dump is available from the Take window and empties all stored items at once. "
                 + "It uses the same shared Loot storage mechanics as Scroll of Loot. Removing the buff first returns every stored item to the Hero's bags, or drops it at the Hero's feet if the bags are full. "
                 + "Long-press or right-click the buff icon to view this description.";
     }
