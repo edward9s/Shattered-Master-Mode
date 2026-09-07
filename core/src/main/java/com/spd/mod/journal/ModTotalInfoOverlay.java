@@ -156,20 +156,6 @@ public class ModTotalInfoOverlay extends Gizmo {
                     (LinkedHashMap<Object, Object>) buffButtonsField.get(indicator);
 
             for (Map.Entry<Object, Object> entry : buffButtons.entrySet()) {
-                if (entry.getKey() instanceof Buff
-                        && ModParryRiposte.isParryFocus((Buff) entry.getKey())) {
-                    // Total Parry has to keep an exact native Monk FocusBuff in
-                    // the Hero's buff set because Char.buff(Class) is exact-class
-                    // lookup. Hide that implementation-only icon; the visible
-                    // Total Parry / Riposte icon remains the user-facing control.
-                    if (entry.getValue() instanceof Component) {
-                        Component source = (Component) entry.getValue();
-                        source.visible = false;
-                        source.active = false;
-                    }
-                    continue;
-                }
-
                 if (!(entry.getKey() instanceof ModParryRiposte)
                         && !(entry.getKey() instanceof ModInstantKill)) {
                     continue;
