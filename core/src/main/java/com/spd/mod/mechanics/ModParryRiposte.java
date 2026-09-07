@@ -120,7 +120,7 @@ public class ModParryRiposte extends ChampionEnemy {
         if (riposteEnabled) {
             return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
                     + "Riposte is ON: every attack parried by Total Parry immediately triggers a guaranteed-hit "
-                    + "counterattack, regardless of distance, attempted as a surprise attack. Use the button below to turn riposte off.";
+                    + "counterattack, regardless of distance, attempted as a surprise attack. Engine-level INFINITE_EVASION is bypassed before consumable parry/miss hooks can turn that riposte into a miss. Use the button below to turn riposte off.";
         } else {
             return "Permanent Master Mode buff. Total Parry always parries incoming attacks handled by the normal hit check. "
                     + "Riposte is OFF, so the buff only parries. Use the button below to turn riposte on.";
@@ -200,6 +200,8 @@ public class ModParryRiposte extends ChampionEnemy {
                 int originalInvisible = hero.invisible;
                 int originalStrength = hero.STR;
                 KindOfWeapon attackingWeapon = hero.belongings.attackingWeapon();
+                boolean bypassInfiniteEvasion = !attacker.isInvulnerable(hero.getClass())
+                        && ModCombatCompat.hasInfiniteEvasionAgainst(attacker, hero);
 
                 try {
                     // Mirror ModAssassin: make the riposte qualify for the normal
@@ -213,7 +215,11 @@ public class ModParryRiposte extends ChampionEnemy {
                         }
                     }
 
-                    hit = hero.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
+                    // Snapshot INFINITE_EVASION before the native miss path can
+                    // consume it through defenseVerb() (e.g. Monk Focus).
+                    hit = bypassInfiniteEvasion
+                            ? ModCombatCompat.forceHeroHit(hero, attacker, 1f, 0f)
+                            : hero.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
                 } finally {
                     hero.invisible = originalInvisible;
                     hero.STR = originalStrength;
