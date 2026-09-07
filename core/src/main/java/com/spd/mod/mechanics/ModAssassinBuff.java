@@ -93,7 +93,7 @@ public class ModAssassinBuff extends Buff {
     @Override
     public String desc() {
         return "Permanent Master Mode buff for the Hero. Press and hold a normal map cell or character for about half a second to invoke Mod Assassin on that cell. "
-                + "Mod Assassin treats engine-level INFINITE_EVASION as a successful hit. If an attempted Assassin strike is blocked by class-level invulnerability while Instant Kill is enabled, the target is passed directly to Instant Kill's native death path. "
+                + "Mod Assassin handles movement and its own absolute-accuracy strike. If the selected target starts that strike with engine-level INFINITE_EVASION, the native miss/parry path is bypassed and the Mod-side successful-hit pipeline is used directly. "
                 + "Dragging, pinching, ordinary taps, and other targeting modes keep their original controls. Vanilla combat classes are not patched.";
     }
 
