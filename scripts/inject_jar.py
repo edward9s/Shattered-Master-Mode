@@ -184,6 +184,141 @@ public class SmmWndGamePatcher {
 }
 '''
 
+CHAR_HELPER = r'''
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.jar.*;
+import jdk.internal.org.objectweb.asm.*;
+
+public class SmmCharAttackPatcher {
+    static final int API = Opcodes.ASM8;
+    static final String CHAR = "__CHAR__";
+    static final String MOD_PARRY_RIPOSTE = "com/spd/mod/mechanics/ModParryRiposte";
+    static final String ATTACK_DESC = "(L" + CHAR + ";FFF)Z";
+    static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
+
+    static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
+        try (JarFile jar = new JarFile(jarPath.toFile())) {
+            JarEntry entry = jar.getJarEntry(entryName);
+            if (entry == null) throw new IOException("Missing JAR entry: " + entryName);
+            try (InputStream in = jar.getInputStream(entry)) {
+                return in.readAllBytes();
+            }
+        }
+    }
+
+    static void validateHook(Path payloadJar) throws IOException {
+        byte[] bytes = readJarEntry(payloadJar, MOD_PARRY_RIPOSTE + ".class");
+        final int[] hooks = {0};
+        final int[] validHooks = {0};
+        new ClassReader(bytes).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if ("onIncomingAttack".equals(name) && INCOMING_DESC.equals(desc)) {
+                    hooks[0]++;
+                    if ((access & Opcodes.ACC_PUBLIC) != 0
+                            && (access & Opcodes.ACC_STATIC) != 0) {
+                        validHooks[0]++;
+                    }
+                }
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        if (hooks[0] != 1 || validHooks[0] != 1) {
+            throw new IllegalStateException(
+                    "SMM donor ModParryRiposte lacks public static onIncomingAttack(Char, Char)");
+        }
+        System.out.println("ModParryRiposte incoming-attack hook API: OK");
+    }
+
+    static byte[] patch(byte[] original) {
+        ClassReader reader = new ClassReader(original);
+        ClassWriter writer = new ClassWriter(0);
+        final int[] attackMethods = {0};
+        final boolean[] alreadyInjected = {false};
+
+        ClassVisitor visitor = new ClassVisitor(API, writer) {
+            @Override
+            public void visit(int version, int access, String name, String signature,
+                              String parent, String[] interfaces) {
+                if (!CHAR.equals(name)) {
+                    throw new IllegalStateException("Target class is not Char: " + name);
+                }
+                super.visit(version, access, name, signature, parent, interfaces);
+            }
+
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
+                if (!"attack".equals(name)
+                        || !ATTACK_DESC.equals(desc)
+                        || (access & Opcodes.ACC_STATIC) != 0) {
+                    return base;
+                }
+                attackMethods[0]++;
+                return new MethodVisitor(API, base) {
+                    @Override
+                    public void visitCode() {
+                        super.visitCode();
+                        super.visitVarInsn(Opcodes.ALOAD, 0);
+                        super.visitVarInsn(Opcodes.ALOAD, 1);
+                        super.visitMethodInsn(
+                                Opcodes.INVOKESTATIC,
+                                MOD_PARRY_RIPOSTE,
+                                "onIncomingAttack",
+                                INCOMING_DESC,
+                                false);
+                    }
+
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean isInterface) {
+                        if (MOD_PARRY_RIPOSTE.equals(owner)
+                                && "onIncomingAttack".equals(methodName)
+                                && INCOMING_DESC.equals(methodDesc)) {
+                            alreadyInjected[0] = true;
+                        }
+                        super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+                    }
+
+                    @Override
+                    public void visitMaxs(int maxStack, int maxLocals) {
+                        super.visitMaxs(maxStack + 2, maxLocals);
+                    }
+                };
+            }
+        };
+        reader.accept(visitor, 0);
+
+        if (alreadyInjected[0]) {
+            throw new IllegalStateException("Char.attack already contains SMM incoming-attack hook");
+        }
+        if (attackMethods[0] != 1) {
+            throw new IllegalStateException(
+                    "Expected one Char.attack(Char,float,float,float), found " + attackMethods[0]);
+        }
+        System.out.println("Char.attack incoming-attack patch: OK");
+        return writer.toByteArray();
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length != 3) {
+            throw new IllegalArgumentException(
+                    "Usage: SmmCharAttackPatcher <target.jar> <payload.jar> <out-Char.class>");
+        }
+        Path target = Paths.get(args[0]);
+        Path payload = Paths.get(args[1]);
+        Path output = Paths.get(args[2]);
+        validateHook(payload);
+        byte[] original = readJarEntry(target, CHAR + ".class");
+        Files.write(output, patch(original));
+    }
+}
+'''
+
 
 def patch_full_classes(
     java: Path,
@@ -215,22 +350,43 @@ def patch_full_classes(
     ])
     if not out_wnd.is_file() or not out_wnd.read_bytes().startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("WndGame bytecode helper did not produce a valid class")
-    return patched_modankh, out_wnd
+
+    char_name = target_game_root + "/actors/Char"
+    char_helper = work / "SmmCharAttackPatcher.java"
+    char_helper.write_text(CHAR_HELPER.replace("__CHAR__", char_name), encoding="utf-8")
+    out_char = work / "Char.class"
+    injector.run([
+        java,
+        "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
+        char_helper,
+        target,
+        helper_payload,
+        out_char,
+    ])
+    if not out_char.is_file() or not out_char.read_bytes().startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError("Char bytecode helper did not produce a valid class")
+    return patched_modankh, out_wnd, out_char
 
 
 def rebuild_full_jar(
     target: Path,
     patched_wndgame: Path,
+    patched_char: Path,
     patched_modankh: Path,
     payload: dict[str, bytes],
     output: Path,
     dungeon_entry: str = injector.DUNGEON_ENTRY,
 ) -> None:
-    wnd_entry = dungeon_entry[:-len("Dungeon.class")] + "windows/WndGame.class"
+    root = dungeon_entry[:-len("Dungeon.class")]
+    wnd_entry = root + "windows/WndGame.class"
+    char_entry = root + "actors/Char.class"
     wnd_bytes = patched_wndgame.read_bytes()
+    char_bytes = patched_char.read_bytes()
     modankh_bytes = patched_modankh.read_bytes()
     if not wnd_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched WndGame.class is invalid")
+    if not char_bytes.startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError("Patched Char.class is invalid")
     if not modankh_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched ModAnkh.class is invalid")
     for name, data in payload.items():
@@ -241,6 +397,8 @@ def rebuild_full_jar(
         names = zin.namelist()
         if wnd_entry not in names:
             raise injector.InjectError(f"Target JAR has no {wnd_entry}")
+        if char_entry not in names:
+            raise injector.InjectError(f"Target JAR has no {char_entry}")
         if injector.MOD_ANKH_ENTRY in names:
             raise injector.InjectError("Target JAR already contains ModAnkh; refusing a second injection")
 
@@ -260,7 +418,12 @@ def rebuild_full_jar(
                 name = info.filename
                 if injector.stale_meta_entry(name):
                     continue
-                data = wnd_bytes if name == wnd_entry else zin.read(name)
+                if name == wnd_entry:
+                    data = wnd_bytes
+                elif name == char_entry:
+                    data = char_bytes
+                else:
+                    data = zin.read(name)
                 zout.writestr(injector.clone_zipinfo(info), data)
 
             zout.writestr(
@@ -315,6 +478,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         target_game_root = injector.detect_target_game_root(target_zip.namelist())
     dungeon_entry = target_game_root + "/Dungeon.class"
     wnd_entry = target_game_root + "/windows/WndGame.class"
+    char_entry = target_game_root + "/actors/Char.class"
     injector.log("Target SPD-family package: " + target_game_root.replace("/", "."))
     java = injector.ensure_java()
 
@@ -354,7 +518,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         injector.write_helper_payload_jar(helper_payload, payload)
 
         injector.step("Adapting and validating donor ModAnkh against target JAR")
-        patched_modankh, patched_wndgame = patch_full_classes(
+        patched_modankh, patched_wndgame, patched_char = patch_full_classes(
             java,
             target,
             helper_payload,
@@ -369,6 +533,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         rebuild_full_jar(
             target,
             patched_wndgame,
+            patched_char,
             patched_modankh,
             payload,
             unsigned_tmp,
@@ -376,7 +541,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         injector.validate_jar(
             unsigned_tmp,
-            [wnd_entry, injector.MOD_ANKH_ENTRY, *payload_names],
+            [wnd_entry, char_entry, injector.MOD_ANKH_ENTRY, *payload_names],
         )
         shutil.copy2(unsigned_tmp, output)
 
