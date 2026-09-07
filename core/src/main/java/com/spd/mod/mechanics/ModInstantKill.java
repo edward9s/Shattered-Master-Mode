@@ -148,7 +148,7 @@ public class ModInstantKill extends ChampionEnemy {
                 + (instantKill ? "ON" : "OFF")
                 + "; when enabled, every successful normal attack invokes the target's native death behavior regardless of alignment or invulnerability. Invulnerable targets still require a successful hit roll when Infinite Accuracy is OFF. Infinite Accuracy is "
                 + (infiniteAccuracy ? "ON" : "OFF")
-                + "; when enabled, normal accuracy receives an extreme multiplier and engine-level INFINITE_EVASION misses receive one Mod-side successful-hit pass. The two switches are independent, and vanilla combat classes are not patched.";
+                + "; when enabled, normal accuracy receives an extreme multiplier and engine-level INFINITE_EVASION misses receive one Mod-side successful-hit pass. Mod Assassin has its own absolute-accuracy path and can pass an invulnerable target directly to Instant Kill after the native attack is blocked. The two switches remain independent for ordinary attacks, and vanilla combat classes are not patched.";
     }
 
     @Override
@@ -162,7 +162,12 @@ public class ModInstantKill extends ChampionEnemy {
         }
     }
 
-    private boolean executeInstantKill(Char enemy) {
+    /**
+     * Runs the same native-death execution for normal attack procs and other
+     * explicit SMM attack paths such as Mod Assassin. Package-private on purpose:
+     * this is combat plumbing, not a general public kill API.
+     */
+    boolean executeInstantKill(Char enemy) {
         if (!(target instanceof Hero)
                 || enemy == null
                 || enemy == target
