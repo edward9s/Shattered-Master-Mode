@@ -15,7 +15,7 @@ import com.watabou.utils.Bundle;
 import java.util.ArrayList;
 
 /**
- * Shared state and behavior for Scroll of Loot and the permanent Loot buff.
+ * Shared state and behavior for ModAnkh and ModLastStand Loot storage.
  * This class owns the stored items; UI and item/buff identity live elsewhere.
  */
 public class ModLootStorage implements Bundlable {
@@ -24,7 +24,6 @@ public class ModLootStorage implements Bundlable {
     private static final String RECLAIM_TEMPLATE = "reclaim_template";
     private static final String RECLAIM_LIMIT = "reclaim_limit";
     private static final String MOD_ANKH_CLASS = "com.spd.mod.items.ModAnkh";
-    private static final String MOD_SCROLL_OF_LOOT_CLASS = "com.spd.mod.items.ModScrollOfLoot";
 
     private ArrayList<Item> stored = new ArrayList<>();
 
@@ -104,7 +103,6 @@ public class ModLootStorage implements Bundlable {
 
     public static boolean canStore(Item item) {
         return item != null
-                && !isClassOrSubclassNamed(item, MOD_SCROLL_OF_LOOT_CLASS)
                 && !isClassOrSubclassNamed(item, MOD_ANKH_CLASS);
     }
 
