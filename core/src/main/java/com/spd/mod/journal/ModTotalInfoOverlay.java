@@ -7,7 +7,7 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
-import com.spd.mod.mechanics.ModInstantKillBuff;
+import com.spd.mod.mechanics.ModInstantKill;
 import com.spd.mod.mechanics.ModParryRiposte;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
@@ -122,7 +122,7 @@ public class ModTotalInfoOverlay extends Gizmo {
 
     private static boolean hasConfigurableUser() {
         for (Char ch : Actor.chars()) {
-            if (ModParryRiposte.find(ch) != null || ModInstantKillBuff.find(ch) != null) {
+            if (ModParryRiposte.find(ch) != null || ModInstantKill.find(ch) != null) {
                 return true;
             }
         }
@@ -157,7 +157,7 @@ public class ModTotalInfoOverlay extends Gizmo {
 
             for (Map.Entry<Object, Object> entry : buffButtons.entrySet()) {
                 if (!(entry.getKey() instanceof ModParryRiposte)
-                        && !(entry.getKey() instanceof ModInstantKillBuff)) {
+                        && !(entry.getKey() instanceof ModInstantKill)) {
                     continue;
                 }
                 if (!(entry.getValue() instanceof Component)) {
@@ -231,8 +231,8 @@ public class ModTotalInfoOverlay extends Gizmo {
             if (buff instanceof ModParryRiposte) {
                 return ModParryRiposte.find(buff.target) == buff;
             }
-            if (buff instanceof ModInstantKillBuff) {
-                return ModInstantKillBuff.find(buff.target) == buff;
+            if (buff instanceof ModInstantKill) {
+                return ModInstantKill.find(buff.target) == buff;
             }
             return false;
         }
@@ -241,8 +241,8 @@ public class ModTotalInfoOverlay extends Gizmo {
         protected void onClick() {
             if (buff instanceof ModParryRiposte) {
                 GameScene.show(new WndTotalBuffInfo((ModParryRiposte) buff));
-            } else if (buff instanceof ModInstantKillBuff) {
-                GameScene.show(new WndInstantKillBuffInfo((ModInstantKillBuff) buff));
+            } else if (buff instanceof ModInstantKill) {
+                GameScene.show(new WndInstantKillBuffInfo((ModInstantKill) buff));
             }
         }
 
