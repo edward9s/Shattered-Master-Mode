@@ -24,7 +24,7 @@ import java.lang.reflect.Field;
  * The persistent Last Stand object remains a plain Buff. A hidden ShieldBuff
  * hook performs pre-damage interception after save restoration has completed.
  * If normal shield-handled damage would be lethal, the hook limits it to leave
- * 1 HP and schedules Last Stand to restore the bearer to 25% HP and cure the
+ * 1 HP and schedules Last Stand to restore the bearer to 50% HP and cure the
  * same status ailments as a blessed Ankh. Unlike a blessed Ankh, Last Stand
  * does not grant invulnerability. Last Stand also recovers any living bearer
  * that reaches exactly 1 HP through a mechanic which bypasses normal shielding.
@@ -124,7 +124,7 @@ public class ModLastStand extends Buff {
             return;
         }
 
-        int recoveredHP = Math.max(1, target.HT / 4);
+        int recoveredHP = Math.max(1, (target.HT + 1) / 2);
         int healed = Math.max(0, recoveredHP - target.HP);
         target.HP = recoveredHP;
 
@@ -197,7 +197,7 @@ public class ModLastStand extends Buff {
     public String desc() {
         return "Permanent Master Mode survival buff with built-in Loot storage. If damage handled by the normal shielding system would be lethal, "
                 + "Last Stand limits that damage to leave 1 HP. Whenever the bearer is alive at exactly 1 HP when Last Stand acts, "
-                + "it restores HP to 25% and cures the same status ailments as a blessed Ankh, but grants no invulnerability and does not reset hunger. "
+                + "it restores HP to 50% and cures the same status ailments as a blessed Ankh, but grants no invulnerability and does not reset hunger. "
                 + "When attached to the Hero, tap its buff icon to open Loot / Put / Take / Console and directly use stored items; Dump is available from the Take window. "
                 + "Removing the buff first returns every stored item to the Hero's bags, or drops it at the Hero's feet if the bags are full. "
                 + "This does not guarantee survival: damage that bypasses normal shielding can still kill if it skips past 1 HP, and direct death effects can also bypass Last Stand.";
