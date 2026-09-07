@@ -2,7 +2,12 @@
 """Inject the compiled SMM payload into an SPD-derived desktop JAR."""
 from __future__ import annotations
 
+import argparse
+import os
+import shutil
 import sys
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import Sequence
 
@@ -40,10 +45,33 @@ injector.ensure_java = _ensure_java
 
 
 DEFAULT_DONOR = Path(__file__).resolve().with_name("smm-inject-donor.jar")
-injector.MOD_ITEM_CLASS_PREFIX = "com/spd/mod/"
+FULL_SMM_CLASS_PREFIX = "com/spd/mod/"
+injector.MOD_ITEM_CLASS_PREFIX = FULL_SMM_CLASS_PREFIX
 
 _original_patch_classes = injector.patch_classes
-_original_rebuild_jar = injector.rebuild_jar
+
+# The legacy core validator used to load only ModAnkhStore and its inner classes.
+# SMM is now injected as one payload, so validate ModAnkh against every injected
+# com.spd.mod class instead of preserving a fake standalone-store boundary.
+injector.JAVA_HELPER = injector.JAVA_HELPER.replace(
+    '''    static boolean isStoreClass(String name) {
+        return MOD_ANKH_STORE.equals(name) || name.startsWith(MOD_ANKH_STORE_PREFIX);
+    }
+''',
+    '''    static boolean isStoreClass(String name) {
+        return name.startsWith("com/spd/mod/");
+    }
+''',
+).replace(
+    '''        if (!classes.containsKey(MOD_ANKH_STORE)) {
+            throw new IllegalStateException("Donor JAR has no ModAnkhStore class");
+        }
+''',
+    '',
+).replace(
+    'System.out.println("ModAnkhStore payload classes registered: " + storeClassCount);',
+    'System.out.println("SMM helper payload classes registered: " + storeClassCount);',
+)
 
 WND_HELPER = r'''
 import java.io.*;
@@ -194,21 +222,53 @@ def rebuild_full_jar(
     target: Path,
     patched_wndgame: Path,
     patched_modankh: Path,
-    store_payload: dict[str, bytes],
-    debug_payload: dict[str, bytes],
+    payload: dict[str, bytes],
     output: Path,
     dungeon_entry: str = injector.DUNGEON_ENTRY,
 ) -> None:
     wnd_entry = dungeon_entry[:-len("Dungeon.class")] + "windows/WndGame.class"
-    _original_rebuild_jar(
-        target,
-        patched_wndgame,
-        patched_modankh,
-        store_payload,
-        debug_payload,
-        output,
-        wnd_entry,
-    )
+    wnd_bytes = patched_wndgame.read_bytes()
+    modankh_bytes = patched_modankh.read_bytes()
+    if not wnd_bytes.startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError("Patched WndGame.class is invalid")
+    if not modankh_bytes.startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError("Patched ModAnkh.class is invalid")
+    for name, data in payload.items():
+        if not data.startswith(injector.CLASS_MAGIC):
+            raise injector.InjectError(f"Invalid SMM payload class: {name}")
+
+    with zipfile.ZipFile(target, "r") as zin:
+        names = zin.namelist()
+        if wnd_entry not in names:
+            raise injector.InjectError(f"Target JAR has no {wnd_entry}")
+        if injector.MOD_ANKH_ENTRY in names:
+            raise injector.InjectError("Target JAR already contains ModAnkh; refusing a second injection")
+
+        injected_names = set(payload)
+        injected_names.add(injector.MOD_ANKH_ENTRY)
+        collisions = sorted(name for name in injected_names if name in names)
+        if collisions:
+            raise injector.InjectError(
+                "Target JAR already contains injected payload classes: "
+                + ", ".join(collisions)
+            )
+
+        wnd_info = next(info for info in zin.infolist() if info.filename == wnd_entry)
+
+        with zipfile.ZipFile(output, "w", allowZip64=True) as zout:
+            for info in zin.infolist():
+                name = info.filename
+                if injector.stale_meta_entry(name):
+                    continue
+                data = wnd_bytes if name == wnd_entry else zin.read(name)
+                zout.writestr(injector.clone_zipinfo(info), data)
+
+            zout.writestr(
+                injector.clone_zipinfo(wnd_info, injector.MOD_ANKH_ENTRY),
+                modankh_bytes,
+            )
+            for name in sorted(payload):
+                zout.writestr(injector.clone_zipinfo(wnd_info, name), payload[name])
 
 
 def output_path(target: Path) -> Path:
@@ -226,11 +286,6 @@ def print_help() -> None:
     )
 
 
-injector.patch_classes = patch_full_classes
-injector.rebuild_jar = rebuild_full_jar
-injector.output_path_for = output_path
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or "-h" in args or "--help" in args:
@@ -238,7 +293,105 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if args else 2
     if not DEFAULT_DONOR.is_file():
         raise injector.InjectError(f"SMM donor JAR not found beside injector: {DEFAULT_DONOR}")
-    return injector.main([str(DEFAULT_DONOR), *args])
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("target")
+    parser.add_argument("--out")
+    parser.add_argument("--keep-work", action="store_true")
+    parsed = parser.parse_args(args)
+
+    source = DEFAULT_DONOR.resolve()
+    target = Path(os.path.expanduser(parsed.target)).resolve()
+    output = Path(os.path.expanduser(parsed.out)).resolve() if parsed.out else output_path(target)
+
+    if not target.is_file():
+        raise injector.InjectError(f"Target JAR not found: {target}")
+    if output in {source, target}:
+        raise injector.InjectError("Refusing to overwrite an input JAR")
+
+    injector.validate_jar(source, [injector.MOD_ANKH_ENTRY])
+    injector.validate_jar(target)
+    with zipfile.ZipFile(target) as target_zip:
+        target_game_root = injector.detect_target_game_root(target_zip.namelist())
+    dungeon_entry = target_game_root + "/Dungeon.class"
+    wnd_entry = target_game_root + "/windows/WndGame.class"
+    injector.log("Target SPD-family package: " + target_game_root.replace("/", "."))
+    java = injector.ensure_java()
+
+    if parsed.keep_work:
+        work = Path(tempfile.mkdtemp(prefix="smm-jar-inject-"))
+        cleanup = False
+    else:
+        temp = tempfile.TemporaryDirectory(prefix="smm-jar-inject-")
+        work = Path(temp.name)
+        cleanup = True
+    injector.log(f"Working directory: {work}")
+
+    try:
+        donor_modankh = work / "donor-ModAnkh.class"
+        with zipfile.ZipFile(source) as zf:
+            donor_modankh.write_bytes(
+                injector.rebase_class_bytes(
+                    zf.read(injector.MOD_ANKH_ENTRY),
+                    target_game_root,
+                )
+            )
+
+            payload_names = sorted(
+                name for name in zf.namelist()
+                if name.startswith(FULL_SMM_CLASS_PREFIX)
+                and name.endswith(".class")
+                and name != injector.MOD_ANKH_ENTRY
+            )
+            if not payload_names:
+                raise injector.InjectError("Donor JAR contains no SMM payload classes")
+            payload = {
+                name: injector.rebase_class_bytes(zf.read(name), target_game_root)
+                for name in payload_names
+            }
+
+        helper_payload = work / "rebased-smm-payload.jar"
+        injector.write_helper_payload_jar(helper_payload, payload)
+
+        injector.step("Adapting and validating donor ModAnkh against target JAR")
+        patched_modankh, patched_wndgame = patch_full_classes(
+            java,
+            target,
+            helper_payload,
+            donor_modankh,
+            work,
+            target_game_root,
+        )
+
+        injector.step("Repacking target JAR")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        unsigned_tmp = work / "output.jar"
+        rebuild_full_jar(
+            target,
+            patched_wndgame,
+            patched_modankh,
+            payload,
+            unsigned_tmp,
+            dungeon_entry,
+        )
+        injector.validate_jar(
+            unsigned_tmp,
+            [wnd_entry, injector.MOD_ANKH_ENTRY, *payload_names],
+        )
+        shutil.copy2(unsigned_tmp, output)
+
+        injector.step("Done")
+        injector.log(f"Output : {output}")
+        injector.log(f"SHA-256: {injector.sha256(output)}")
+        injector.log(
+            f"Injected: ModAnkh + full SMM payload ({len(payload)} additional classes)"
+        )
+        if parsed.keep_work:
+            injector.log(f"Work files kept at: {work}")
+        return 0
+    finally:
+        if cleanup:
+            temp.cleanup()
 
 
 if __name__ == "__main__":
