@@ -5,10 +5,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModParryRiposte;
 
-/**
- * Total's live buff information window. The riposte switch belongs here so
- * inspecting/configuring Total never requires choosing a second journal buff.
- */
+/** Total's live buff information window with independent Parry/Riposte controls. */
 public class WndTotalBuffInfo extends WndInfoBuff {
 
     private static final int GAP = 3;
@@ -17,30 +14,55 @@ public class WndTotalBuffInfo extends WndInfoBuff {
     public WndTotalBuffInfo(final ModParryRiposte buff) {
         super(buff);
 
-        final RedButton riposteButton = new RedButton(buttonText(buff), 8) {
+        final RedButton parryButton = new RedButton(parryButtonText(buff), 8) {
             @Override
             protected void onClick() {
-                if (buff.target == null || ModParryRiposte.find(buff.target) != buff) {
+                if (!isCurrent(buff)) {
+                    WndTotalBuffInfo.this.hide();
+                    return;
+                }
+
+                buff.toggleParry();
+                ModTotalInfoOverlay.refreshIndicators();
+                rebuild(buff);
+            }
+        };
+        parryButton.setRect(0, height + GAP, width, BUTTON_HEIGHT);
+        add(parryButton);
+
+        final RedButton riposteButton = new RedButton(riposteButtonText(buff), 8) {
+            @Override
+            protected void onClick() {
+                if (!isCurrent(buff)) {
                     WndTotalBuffInfo.this.hide();
                     return;
                 }
 
                 buff.toggleRiposte();
                 ModTotalInfoOverlay.refreshIndicators();
-
-                // Rebuild the same info window so its description, icon and
-                // button state immediately reflect the new setting.
-                WndTotalBuffInfo.this.hide();
-                GameScene.show(new WndTotalBuffInfo(buff));
+                rebuild(buff);
             }
         };
-
-        riposteButton.setRect(0, height + GAP, width, BUTTON_HEIGHT);
+        riposteButton.setRect(0, parryButton.bottom() + GAP, width, BUTTON_HEIGHT);
         add(riposteButton);
+
         resize(width, (int) riposteButton.bottom() + 2);
     }
 
-    private static String buttonText(ModParryRiposte buff) {
+    private boolean isCurrent(ModParryRiposte buff) {
+        return buff.target != null && ModParryRiposte.find(buff.target) == buff;
+    }
+
+    private void rebuild(ModParryRiposte buff) {
+        WndTotalBuffInfo.this.hide();
+        GameScene.show(new WndTotalBuffInfo(buff));
+    }
+
+    private static String parryButtonText(ModParryRiposte buff) {
+        return buff.parryEnabled() ? "Parry: ON" : "Parry: OFF";
+    }
+
+    private static String riposteButtonText(ModParryRiposte buff) {
         return buff.riposteEnabled() ? "Riposte: ON" : "Riposte: OFF";
     }
 }
