@@ -45,6 +45,7 @@ public class ModParryRiposte extends ChampionEnemy {
 
     private boolean riposteEnabled;
     private boolean ownsParryFocus;
+    private boolean restoringFromBundle;
 
     {
         announced = true;
@@ -106,7 +107,11 @@ public class ModParryRiposte extends ChampionEnemy {
             return false;
         }
         timeToNow();
-        ensureParryFocus();
+        // Saved buffs are restored one-by-one. If this buff restores before its
+        // saved Focus helper, creating one here would add another Focus every load.
+        if (!restoringFromBundle) {
+            ensureParryFocus();
+        }
         ModTotalInfoOverlay.ensureInstalled();
         return true;
     }
@@ -122,7 +127,9 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public boolean act() {
-        // Rebind restored Focus instances to the detach sink after save loading.
+        // By the time Actor processing resumes, Char.restoreFromBundle() has
+        // attached every saved buff. Reuse and rebind the restored Focus then.
+        restoringFromBundle = false;
         ensureParryFocus();
         diactivate();
         return true;
@@ -226,6 +233,9 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
+        // Bundle collection restoration constructs/restores each buff before Char
+        // attaches it. Mark this instance so attachTo() waits for sibling Focus.
+        restoringFromBundle = true;
         super.restoreFromBundle(bundle);
         riposteEnabled = bundle.getBoolean(RIPOSTE_ENABLED);
         ownsParryFocus = bundle.getBoolean(OWNS_PARRY_FOCUS);
