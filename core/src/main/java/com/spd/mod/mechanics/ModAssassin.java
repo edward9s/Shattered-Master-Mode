@@ -58,6 +58,7 @@ public class ModAssassin {
         int originalInvisible = hero.invisible;
         int originalStrength = hero.STR;
         KindOfWeapon attackingWeapon = hero.belongings.attackingWeapon();
+        boolean targetInvulnerable = target.isInvulnerable(hero.getClass());
         boolean hit;
 
         try {
@@ -77,6 +78,26 @@ public class ModAssassin {
         } finally {
             hero.invisible = originalInvisible;
             hero.STR = originalStrength;
+        }
+
+        if (!hit && target.isAlive()) {
+            if (targetInvulnerable) {
+                // Char.attack rejects invulnerable targets before Char.hit is even
+                // evaluated. Mod Assassin already owns an absolute-accuracy attack
+                // path, so when Instant Kill is enabled, pass this explicitly
+                // attempted Assassin strike straight to the same native die path.
+                // This is what makes class-level invulnerability (e.g. VaultSentry)
+                // killable without changing the vanilla class.
+                ModInstantKill instantKill = ModInstantKill.find(hero);
+                if (instantKill != null && instantKill.instantKillEnabled()) {
+                    hit = instantKill.executeInstantKill(target);
+                }
+            } else if (ModCombatCompat.hasInfiniteEvasionAgainst(target, hero)) {
+                // Engine-level INFINITE_EVASION beats even the normal infinite
+                // accuracy constant. Re-run only the successful-hit side in mod
+                // code so Assassin's accuracy remains absolute for that case.
+                hit = ModCombatCompat.forceHeroHit(hero, target, 1f, 0f);
+            }
         }
 
         // 比照 Hero.onAttackComplete() 的官方原版邏輯：近戰命中時觸發角鬥士連擊與決鬥者連擊計數
