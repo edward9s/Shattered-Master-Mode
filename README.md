@@ -10,8 +10,8 @@
  * **Event NPC Spawning:** Spawning event characters (e.g., Troll Blacksmith) on non-quest floors will not advance their quests or trigger events (at most, you can grab an early pickaxe).
  * **Special Rooms Disabled:** Special rooms (e.g., Sacrificial Fire) rely on global generation mechanics. The editor currently does not support manually spawning special terrains or rooms with fully functioning logic.
 
-**⚠️ Mod Items Save Upgrade Warning**
-Mod items are development aids and not official in-game items. If future updates modify the underlying structure of Mod Items, old save files containing them will fail to load.
+**⚠️ Mod Items and Buffs Save Upgrade Warning (VERY IMPORTANT!)**
+Mod items and Mod buffs are development aids and not official in-game items. If future updates modify the underlying structure of Mod Items, old save files containing them will fail to load.
  * **Proper Upgrade Procedure:** You **only** need to use the **Tools -> Alchemize** tool to completely remove all Mod Items from your inventory and the map **IF** the new version explicitly modifies Mod Items.
 
 ## How to build from source
