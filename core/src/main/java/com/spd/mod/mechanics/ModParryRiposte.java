@@ -18,16 +18,33 @@ import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
 
 import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 /** Permanent Master Mode combat buff. */
 public class ModParryRiposte extends ChampionEnemy {
 
     private static final String RIPOSTE_ENABLED = "riposte_enabled";
+    private static final String OWNS_PARRY_FOCUS = "owns_parry_focus";
 
     private static Field currentActorField;
 
+    /*
+     * Char.buff(Class) deliberately matches exact classes, not subclasses. Total
+     * Parry therefore has to keep a real Monk FocusBuff in the Hero's buff set.
+     * Hero.defenseVerb() tries to consume that Focus by calling detach(), whose
+     * implementation removes the buff from buff.target. We point the helper's
+     * target at this out-of-world sink instead, so the exact Focus remains in the
+     * real Hero's buff set and the native parry path can be reused indefinitely.
+     */
+    private static final ParryDetachSink PARRY_DETACH_SINK = new ParryDetachSink();
+    private static final Map<Buff, ModParryRiposte> PARRY_FOCUS_OWNERS =
+            Collections.synchronizedMap(new WeakHashMap<Buff, ModParryRiposte>());
+
     private boolean riposteEnabled;
+    private boolean ownsParryFocus;
 
     {
         announced = true;
@@ -45,6 +62,11 @@ public class ModParryRiposte extends ChampionEnemy {
             return buff;
         }
         return null;
+    }
+
+    /** True only for the exact native Focus instance maintained by Total Parry. */
+    public static boolean isParryFocus(Buff buff) {
+        return buff != null && PARRY_FOCUS_OWNERS.containsKey(buff);
     }
 
     public boolean riposteEnabled() {
@@ -82,7 +104,7 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public boolean act() {
-        // Old saves may contain Total Parry without the hidden Focus bridge.
+        // Rebind restored Focus instances to the detach sink after save loading.
         ensureParryFocus();
         diactivate();
         return true;
@@ -90,11 +112,7 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public void detach() {
-        if (target != null) {
-            for (TotalParryFocus focus : target.buffs(TotalParryFocus.class)) {
-                focus.removeForTotalParry();
-            }
-        }
+        releaseParryFocus();
         super.detach();
         BuffIndicator.refreshHero();
     }
@@ -103,9 +121,48 @@ public class ModParryRiposte extends ChampionEnemy {
         if (!(target instanceof Hero) || !target.isAlive()) {
             return;
         }
-        if (target.buffs(TotalParryFocus.class).isEmpty()) {
-            new TotalParryFocus().attachTo(target);
+
+        MonkEnergy.MonkAbility.Focus.FocusBuff focus =
+                target.buff(MonkEnergy.MonkAbility.Focus.FocusBuff.class);
+
+        if (focus == null) {
+            focus = new MonkEnergy.MonkAbility.Focus.FocusBuff();
+            focus.announced = false;
+            focus.revivePersists = true;
+            if (!focus.attachTo(target)) {
+                return;
+            }
+            ownsParryFocus = true;
         }
+
+        focus.announced = false;
+        focus.revivePersists = true;
+        PARRY_FOCUS_OWNERS.put(focus, this);
+        focus.target = PARRY_DETACH_SINK;
+    }
+
+    private void releaseParryFocus() {
+        if (!(target instanceof Hero)) {
+            return;
+        }
+
+        MonkEnergy.MonkAbility.Focus.FocusBuff focus =
+                target.buff(MonkEnergy.MonkAbility.Focus.FocusBuff.class);
+        if (focus == null || PARRY_FOCUS_OWNERS.get(focus) != this) {
+            return;
+        }
+
+        PARRY_FOCUS_OWNERS.remove(focus);
+        if (ownsParryFocus) {
+            // Remove from the actual Hero collection directly; focus.target points
+            // at the detach sink while Total Parry owns it.
+            target.remove(focus);
+        } else {
+            // A real Monk Focus that existed before Total Parry was attached is
+            // borrowed rather than destroyed. Restore normal detach semantics.
+            focus.target = target;
+        }
+        ownsParryFocus = false;
     }
 
     @Override
@@ -135,12 +192,12 @@ public class ModParryRiposte extends ChampionEnemy {
     @Override
     public String desc() {
         if (riposteEnabled) {
-            return "Permanent Master Mode buff. Total Parry uses the Monk Focus parry path on the Hero, so every incoming attack handled by the normal hit check is parried, including attacks with engine-level infinite accuracy. "
-                    + "Riposte is ON: every attack parried by Total Parry immediately triggers a guaranteed-hit counterattack, regardless of distance, attempted as a surprise attack. "
+            return "Permanent Master Mode buff. Total Parry keeps the Hero on the native Monk Focus parry path, so every incoming attack handled by the normal hit check is parried, including attacks with engine-level infinite accuracy. "
+                    + "The native Monk parry feedback is used rather than an ordinary dodge. Riposte is ON: every attack parried by Total Parry immediately triggers a guaranteed-hit counterattack, regardless of distance, attempted as a surprise attack. "
                     + "Enemy Focus and other engine-level INFINITE_EVASION are bypassed before consumable parry/miss hooks can turn that riposte into a miss. Open this buff's information window to turn riposte off.";
         } else {
-            return "Permanent Master Mode buff. Total Parry uses the Monk Focus parry path on the Hero, so every incoming attack handled by the normal hit check is parried, including attacks with engine-level infinite accuracy. "
-                    + "Riposte is OFF, so the buff only parries. Open this buff's information window to turn riposte on.";
+            return "Permanent Master Mode buff. Total Parry keeps the Hero on the native Monk Focus parry path, so every incoming attack handled by the normal hit check is parried, including attacks with engine-level infinite accuracy. "
+                    + "The native Monk parry feedback is used rather than an ordinary dodge. Riposte is OFF, so the buff only parries. Open this buff's information window to turn riposte on.";
         }
     }
 
@@ -148,12 +205,14 @@ public class ModParryRiposte extends ChampionEnemy {
     public void storeInBundle(Bundle bundle) {
         super.storeInBundle(bundle);
         bundle.put(RIPOSTE_ENABLED, riposteEnabled);
+        bundle.put(OWNS_PARRY_FOCUS, ownsParryFocus);
     }
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
         riposteEnabled = bundle.getBoolean(RIPOSTE_ENABLED);
+        ownsParryFocus = bundle.getBoolean(OWNS_PARRY_FOCUS);
     }
 
     @Override
@@ -170,16 +229,16 @@ public class ModParryRiposte extends ChampionEnemy {
             return 1f;
         }
 
-        // Normally TotalParryFocus is detected by Char.hit before ChampionEnemy
-        // factors are consulted. Keep this as a fallback for unusual forks where
-        // the Focus check does not recognize subclasses.
+        // Exact native Focus normally resolves the attack before ChampionEnemy
+        // factors are consulted. This remains a defensive fallback for forks or
+        // transient restore states where Focus has not yet been rebound.
         if (riposteEnabled && attacker.isAlive()) {
             scheduleRiposte(target, attacker);
         }
         return Float.POSITIVE_INFINITY;
     }
 
-    /** Called when Hero.defenseVerb() tries to consume the hidden Focus bridge. */
+    /** Called by the detach sink when native Hero.defenseVerb() consumes Focus. */
     private void onFocusParry() {
         if (!riposteEnabled || target == null || !target.isAlive()) {
             return;
@@ -271,38 +330,21 @@ public class ModParryRiposte extends ChampionEnemy {
     }
 
     /**
-     * Hidden permanent variant of Monk Focus. Char.hit sees this subclass through
-     * Char.buff(FocusBuff.class), which gives the Hero INFINITE_EVASION before the
-     * engine evaluates INFINITE_ACCURACY. Hero.defenseVerb() then calls detach(),
-     * plays the native HIT_PARRY sound and displays the native Monk parry verb.
-     * We intercept that detach so the Focus remains for the next incoming attack.
+     * Out-of-world target for the exact native Focus helper. FocusBuff.detach()
+     * calls target.remove(this); redirecting that call here leaves the same exact
+     * Focus object inside the real Hero's buff set while still notifying Total
+     * Riposte that a native parry occurred.
      */
-    public static class TotalParryFocus extends MonkEnergy.MonkAbility.Focus.FocusBuff {
-
-        private boolean forceDetach;
-
-        {
-            revivePersists = true;
-        }
-
+    private static class ParryDetachSink extends Hero {
         @Override
-        public void detach() {
-            ModParryRiposte total = ModParryRiposte.find(target);
-            if (!forceDetach && total != null && target != null && target.isAlive()) {
+        public synchronized boolean remove(Buff buff) {
+            ModParryRiposte total = PARRY_FOCUS_OWNERS.get(buff);
+            if (total != null) {
                 total.onFocusParry();
-                return;
+                Actor.remove(buff);
+                return true;
             }
-            super.detach();
-        }
-
-        void removeForTotalParry() {
-            forceDetach = true;
-            super.detach();
-        }
-
-        @Override
-        public int icon() {
-            return BuffIndicator.NONE;
+            return super.remove(buff);
         }
     }
 
