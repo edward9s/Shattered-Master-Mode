@@ -45,6 +45,15 @@ public class ModParryRiposte extends ChampionEnemy {
     private static final Map<Buff, ModParryRiposte> PARRY_FOCUS_OWNERS =
             Collections.synchronizedMap(new WeakHashMap<Buff, ModParryRiposte>());
 
+    /*
+     * Char.attack() and direct Char.hit() special attacks can describe the same
+     * incoming action. Keep at most one queued riposte per attacker until that
+     * counterattack runs, so the hit-resolution fallback never doubles ordinary
+     * attack ripostes.
+     */
+    private static final Map<Char, RiposteActor> PENDING_RIPOSTES =
+            Collections.synchronizedMap(new WeakHashMap<Char, RiposteActor>());
+
     private boolean parryEnabled = true;
     private boolean riposteEnabled;
     private boolean ownsParryFocus;
@@ -305,7 +314,7 @@ public class ModParryRiposte extends ChampionEnemy {
                 ? "Parry is ON: Total keeps the Hero on the native Monk Focus parry path, so incoming attacks handled by the normal hit check are parried, including engine-level infinite accuracy. "
                 : "Parry is OFF: Total does not maintain Focus and does not alter the Hero's incoming hit roll. ";
         String riposte = riposteEnabled
-                ? "Riposte is ON: every Char.attack attempt against the Hero queues a guaranteed-hit counterattack after that incoming attack finishes, independently of whether it hits, misses, is parried, or is stopped by another invulnerability effect. "
+                ? "Riposte is ON: direct attack attempts and hit-rolled special attacks against the Hero queue one guaranteed-hit counterattack, regardless of distance, hit/miss result, Parry, or defender invulnerability. "
                 : "Riposte is OFF: incoming attacks do not trigger Total counterattacks. ";
         return "Permanent Master Mode buff. " + parry + riposte
                 + "Parry and Riposte are independent switches. Enemy Focus and other engine-level INFINITE_EVASION are bypassed by the outgoing Riposte before consumable parry/miss hooks can turn it into a miss.";
@@ -333,11 +342,27 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public float evasionAndAccuracyFactor() {
+        Char attacker = currentAttackSource();
+
+        /*
+         * Some attacks never call Char.attack(). Eye.deathGaze(), for example,
+         * enters Char.hit() directly. Char.hit() still evaluates ChampionEnemy
+         * factors on its defender, so restore that path as a supplemental Riposte
+         * trigger. scheduleRiposte() deduplicates it against the normal attack hook.
+         * This must run even with Parry OFF because the two switches are independent.
+         */
+        if (riposteEnabled
+                && target instanceof Hero
+                && target.isAlive()
+                && attacker != null
+                && attacker != target
+                && attacker.isAlive()) {
+            scheduleRiposte(target, attacker);
+        }
+
         if (!parryEnabled) {
             return 1f;
         }
-
-        Char attacker = currentAttackSource();
 
         // If Total's owner is the current attack source, this is the attacker's
         // accuracy pass. Total Parry must never modify its own outgoing accuracy.
@@ -376,7 +401,24 @@ public class ModParryRiposte extends ChampionEnemy {
     }
 
     private static void scheduleRiposte(Char riposter, Char attacker) {
-        Actor.add(new RiposteActor(riposter, attacker));
+        synchronized (PENDING_RIPOSTES) {
+            RiposteActor pending = PENDING_RIPOSTES.get(attacker);
+            if (pending != null && pending.riposter == riposter) {
+                return;
+            }
+
+            RiposteActor actor = new RiposteActor(riposter, attacker);
+            PENDING_RIPOSTES.put(attacker, actor);
+            Actor.add(actor);
+        }
+    }
+
+    private static void clearPendingRiposte(RiposteActor actor) {
+        synchronized (PENDING_RIPOSTES) {
+            if (PENDING_RIPOSTES.get(actor.attacker) == actor) {
+                PENDING_RIPOSTES.remove(actor.attacker);
+            }
+        }
     }
 
     private static void performRiposte(Char riposter, Char attacker) {
@@ -386,7 +428,7 @@ public class ModParryRiposte extends ChampionEnemy {
                 && riposter.isAlive()
                 && attacker.isAlive()) {
             // Intentionally no canAttack/range check. Total Riposte answers the
-            // incoming Char.attack attempt regardless of distance or Parry state.
+            // incoming attack regardless of distance or Parry state.
             boolean hit;
             Hero hero = riposter instanceof Hero ? (Hero) riposter : null;
 
@@ -439,7 +481,7 @@ public class ModParryRiposte extends ChampionEnemy {
      * Out-of-world target for the exact native Focus helper. FocusBuff.detach()
      * calls target.remove(this); redirecting that call here leaves the same exact
      * Focus object inside the real Hero's buff set. Riposte is intentionally not
-     * triggered here; it has its own incoming-attack hook.
+     * triggered here; it has its own incoming-attack and hit-resolution paths.
      */
     private static class ParryDetachSink extends Hero {
         @Override
@@ -465,6 +507,11 @@ public class ModParryRiposte extends ChampionEnemy {
             actPriority = VFX_PRIO;
         }
 
+        private void removeSelf() {
+            clearPendingRiposte(this);
+            Actor.remove(this);
+        }
+
         @Override
         protected boolean act() {
             ModParryRiposte buff = find(riposter);
@@ -472,7 +519,7 @@ public class ModParryRiposte extends ChampionEnemy {
                     || !buff.riposteEnabled
                     || !riposter.isAlive()
                     || !attacker.isAlive()) {
-                Actor.remove(this);
+                removeSelf();
                 return true;
             }
 
@@ -491,15 +538,18 @@ public class ModParryRiposte extends ChampionEnemy {
                             performRiposte(riposter, attacker);
                         } finally {
                             RiposteActor.this.next();
-                            Actor.remove(RiposteActor.this);
+                            RiposteActor.this.removeSelf();
                         }
                     }
                 });
                 return false;
             }
 
-            performRiposte(riposter, attacker);
-            Actor.remove(this);
+            try {
+                performRiposte(riposter, attacker);
+            } finally {
+                removeSelf();
+            }
             return true;
         }
     }
