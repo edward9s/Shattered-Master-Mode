@@ -148,7 +148,7 @@ public class ModInstantKill extends ChampionEnemy {
                 + (instantKill ? "ON" : "OFF")
                 + "; when enabled, every successful normal attack invokes the target's native death behavior regardless of alignment or invulnerability. Invulnerable targets still require a successful hit roll when Infinite Accuracy is OFF. Infinite Accuracy is "
                 + (infiniteAccuracy ? "ON" : "OFF")
-                + "; when enabled, normal accuracy receives an extreme multiplier and engine-level INFINITE_EVASION misses receive one Mod-side successful-hit pass. Mod Assassin has its own absolute-accuracy path and can pass an invulnerable target directly to Instant Kill after the native attack is blocked. The two switches remain independent for ordinary attacks, and vanilla combat classes are not patched.";
+                + "; when enabled, normal accuracy receives an extreme multiplier and engine-level INFINITE_EVASION misses receive one Mod-side successful-hit pass. Explicit Mod attack paths may report an engine-blocked attack here, but this buff alone decides whether invulnerability is bypassed and whether native death is invoked. The two switches remain independent, and vanilla combat classes are not patched.";
     }
 
     @Override
@@ -163,11 +163,32 @@ public class ModInstantKill extends ChampionEnemy {
     }
 
     /**
-     * Runs the same native-death execution for normal attack procs and other
-     * explicit SMM attack paths such as Mod Assassin. Package-private on purpose:
-     * this is combat plumbing, not a general public kill API.
+     * Resolves an attack which an external Mod combat path attempted but the
+     * engine did not accept as a hit. The caller supplies no Instant Kill policy:
+     * this class alone decides whether the block was invulnerability and whether
+     * Instant Kill is enabled.
+     *
+     * @return true only when Instant Kill converted the blocked attack into a
+     * successful native death path.
      */
-    boolean executeInstantKill(Char enemy) {
+    static boolean resolveBlockedAttack(Hero hero, Char enemy) {
+        ModInstantKill buff = find(hero);
+        if (buff == null
+                || !buff.instantKill
+                || buff.target != hero
+                || hero == null
+                || enemy == null
+                || enemy == hero
+                || !hero.isAlive()
+                || !enemy.isAlive()
+                || !enemy.isInvulnerable(hero.getClass())) {
+            return false;
+        }
+        return buff.executeInstantKill(enemy);
+    }
+
+    /** Runs this buff's native-death execution after its own policy has accepted a hit. */
+    private boolean executeInstantKill(Char enemy) {
         if (!(target instanceof Hero)
                 || enemy == null
                 || enemy == target
