@@ -10,14 +10,16 @@ import com.spd.mod.mechanics.ModParryRiposte;
  */
 public class ModGridParryRiposte extends ModGridEntry {
 
-    private static final String TITLE = "Total Parry / Riposte";
-    private static final String DESCRIPTION =
-            "Permanent Master Mode combat buff. Total Parry always parries incoming attacks handled by the normal hit check. "
-                    + "Open the applied buff's information window to turn riposte on or off. When riposte is enabled, "
-                    + "every parried attack triggers a guaranteed counterattack after the counterattack animation completes.";
-
     public ModGridParryRiposte() {
-        super(new BuffIcon(new ModParryRiposte(), true), TITLE, DESCRIPTION);
+        super(new BuffIcon(new ModParryRiposte(), true), title(), description());
+    }
+
+    private static String title() {
+        return new ModParryRiposte().name();
+    }
+
+    private static String description() {
+        return new ModParryRiposte().desc();
     }
 
     @Override
