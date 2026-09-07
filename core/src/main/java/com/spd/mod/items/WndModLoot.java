@@ -5,7 +5,6 @@ import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
-import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite;
@@ -14,7 +13,6 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.InventorySlot;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
-import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
 import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
@@ -42,7 +40,7 @@ public class WndModLoot extends Window {
     private static final int SLOT_BASE = 28;
     private static final int SLOT_MARGIN = 1;
     private static final int TITLE_HEIGHT = 14;
-    private static final int TITLE_DUMP_WIDTH = 34;
+    private static final int TITLE_DUMP_WIDTH = 50;
     private static final int BTN_HEIGHT = 16;
     private static final int BTN_MARGIN = 1;
     private static final int UI_RESERVE_VER = 100;
@@ -304,7 +302,7 @@ public class WndModLoot extends Window {
         }
 
         if (mode == Mode.TAKE) {
-            RedButton dump = new RedButton("Dump", 7) {
+            RedButton dump = new RedButton("Dump (" + storage.size() + ")", 7) {
                 @Override
                 protected void onClick() {
                     hide();
