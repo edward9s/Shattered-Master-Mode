@@ -98,7 +98,6 @@ if _is_termux():
 
 
 FULL_SMM_PREFIX = "Lcom/spd/mod/"
-MOD_ANKH_STORE_PREFIX = injector.MOD_ANKH_STORE[:-1]
 DEFAULT_DONOR = Path(__file__).resolve().with_name("smm-inject-donor.apk")
 DEFAULT_KEYSTORE = DEFAULT_DONOR.with_name("smm-inject.keystore")
 
@@ -209,10 +208,7 @@ class AbiProfile:
 
 
 injector.MOD_ITEM_DESCRIPTOR_PREFIX = FULL_SMM_PREFIX
-injector.TARGET_API_PREFIXES = injector.TARGET_API_PREFIXES + (
-    injector.MOD_ANKH,
-    MOD_ANKH_STORE_PREFIX,
-)
+injector.TARGET_API_PREFIXES = injector.TARGET_API_PREFIXES + (injector.MOD_ANKH,)
 
 _original_build_debug_payload = injector.build_debug_payload
 _original_payload_compatibility_errors = injector.payload_compatibility_errors
@@ -494,6 +490,13 @@ def build_full_debug_payload(
         if desc.startswith(FULL_SMM_PREFIX)
     }
     return _original_build_debug_payload(donor_index, target_index)
+
+
+def build_no_legacy_modankh_store_payload(
+    donor_index: dict[str, injector.SmaliClass],
+) -> dict[str, injector.SmaliClass]:
+    """ModAnkh now uses the normal full SMM payload directly; no dedicated store family exists."""
+    return {}
 
 
 def full_payload_compatibility_errors(
@@ -851,16 +854,12 @@ def _translate_core_error(exc: injector.InjectError) -> injector.InjectError:
             "Target ABI has unresolved SMM payload references; "
             "no reliable compatibility adapter is available."
         )
-    if message.startswith("Donor ModAnkhStore payload is not self-contained for this target"):
-        return injector.InjectError(
-            "Target ABI has unresolved ModAnkhStore references; "
-            "no reliable compatibility adapter is available."
-        )
     return exc
 
 
 injector.detect_target_game_prefix = detect_target_game_prefix
 injector.build_debug_payload = build_full_debug_payload
+injector.build_modankh_store_payload = build_no_legacy_modankh_store_payload
 injector.payload_compatibility_errors = full_payload_compatibility_errors
 injector.adapt_modankh = adapt_modankh
 injector.find_class = find_wndgame_instead_of_dungeon
