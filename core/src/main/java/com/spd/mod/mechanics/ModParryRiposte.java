@@ -46,10 +46,10 @@ public class ModParryRiposte extends ChampionEnemy {
             Collections.synchronizedMap(new WeakHashMap<Buff, ModParryRiposte>());
 
     /*
-     * The injected Char.attack() and Char.hit() hooks can both observe one normal
-     * attack. Keep at most one queued riposte per attacker until that counterattack
-     * runs, so ordinary attacks still produce exactly one Riposte while direct
-     * Char.hit() special attacks remain covered.
+     * The Char.attack() hook and Char.hit()-based fallback paths can observe the
+     * same normal attack. Keep at most one queued riposte per attacker until that
+     * counterattack runs, so ordinary attacks still produce exactly one Riposte
+     * while direct Char.hit() special attacks remain covered.
      */
     private static final Map<Char, RiposteActor> PENDING_RIPOSTES =
             Collections.synchronizedMap(new WeakHashMap<Char, RiposteActor>());
@@ -132,11 +132,10 @@ public class ModParryRiposte extends ChampionEnemy {
     }
 
     /**
-     * Pre-resolution incoming-attack hook shared by Char.attack() and Char.hit().
-     * Riposte is intentionally independent from Parry, hit/miss resolution, and
-     * defender invulnerability. The hook only queues the counterattack; it never
-     * executes it inline with the incoming attack, so the triggering action can
-     * finish first.
+     * Pre-resolution incoming-attack hook. Riposte is intentionally independent
+     * from Parry, hit/miss resolution, and defender invulnerability. The hook only
+     * queues the counterattack; it never executes it inline with the incoming
+     * attack, so the triggering action can finish first.
      */
     public static void onIncomingAttack(Char attacker, Char defender) {
         if (!(defender instanceof Hero)
@@ -343,11 +342,24 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public float evasionAndAccuracyFactor() {
+        Char attacker = currentAttackSource();
+
+        // Direct Char.hit() special attacks do not pass through the injected
+        // Char.attack() hook. When no exact Focus short-circuits Char.hit(), this
+        // defender-factor callback supplies the missing Riposte trigger. Pending
+        // Ripostes deduplicate it against an ordinary Char.attack() observation.
+        if (riposteEnabled
+                && target instanceof Hero
+                && target.isAlive()
+                && attacker != null
+                && attacker != target
+                && attacker.isAlive()) {
+            scheduleRiposte(target, attacker);
+        }
+
         if (!parryEnabled) {
             return 1f;
         }
-
-        Char attacker = currentAttackSource();
 
         // If Total's owner is the current attack source, this is the attacker's
         // accuracy pass. Total Parry must never modify its own outgoing accuracy.
@@ -363,6 +375,17 @@ public class ModParryRiposte extends ChampionEnemy {
         // factors are consulted. This remains only a defensive Parry fallback for
         // forks or transient restore states where Focus has not yet been rebound.
         return Float.POSITIVE_INFINITY;
+    }
+
+    /** Called when native Hero.defenseVerb() consumes Total's exact Focus helper. */
+    private void onFocusParry() {
+        if (!riposteEnabled || target == null || !target.isAlive()) {
+            return;
+        }
+        Char attacker = currentAttackSource();
+        if (attacker != null && attacker != target && attacker.isAlive()) {
+            scheduleRiposte(target, attacker);
+        }
     }
 
     private static Char currentAttackSource() {
@@ -465,13 +488,15 @@ public class ModParryRiposte extends ChampionEnemy {
     /**
      * Out-of-world target for the exact native Focus helper. FocusBuff.detach()
      * calls target.remove(this); redirecting that call here leaves the same exact
-     * Focus object inside the real Hero's buff set. Riposte is intentionally not
-     * triggered here; it has injected incoming-attack hooks instead.
+     * Focus object inside the real Hero's buff set. The callback also reports a
+     * native Focus parry to Riposte so direct Char.hit() attacks remain observable.
      */
     private static class ParryDetachSink extends Hero {
         @Override
         public synchronized boolean remove(Buff buff) {
-            if (PARRY_FOCUS_OWNERS.containsKey(buff)) {
+            ModParryRiposte total = PARRY_FOCUS_OWNERS.get(buff);
+            if (total != null) {
+                total.onFocusParry();
                 Actor.remove(buff);
                 return true;
             }
