@@ -5,7 +5,10 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModParryRiposte;
 
-/** Total's live buff information window with independent Parry/Riposte controls. */
+/**
+ * Total's live buff information window. Parry and Riposte are independent:
+ * neither switch changes the state of the other.
+ */
 public class WndTotalBuffInfo extends WndInfoBuff {
 
     private static final int GAP = 3;
