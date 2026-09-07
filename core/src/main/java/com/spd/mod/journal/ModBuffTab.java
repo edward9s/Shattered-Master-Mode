@@ -37,7 +37,7 @@ public class ModBuffTab extends Component {
             @Override public ModGridEntry create() { return new ModGridAssassinBuff(); }
         });
         addPinned(new PinnedFactory() {
-            @Override public ModGridEntry create() { return new ModGridInstantKillBuff(); }
+            @Override public ModGridEntry create() { return new ModGridInstantKill(); }
         });
 
         ArrayList<ModGridBuff> positiveBuffs = new ArrayList<>();
