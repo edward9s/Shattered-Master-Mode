@@ -3,7 +3,7 @@ package com.spd.mod.journal;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
-import com.spd.mod.mechanics.ModInstantKillBuff;
+import com.spd.mod.mechanics.ModInstantKill;
 
 /** Instant Kill's live configuration window. */
 public class WndInstantKillBuffInfo extends WndInfoBuff {
@@ -11,7 +11,7 @@ public class WndInstantKillBuffInfo extends WndInfoBuff {
     private static final int GAP = 3;
     private static final int BUTTON_HEIGHT = 18;
 
-    public WndInstantKillBuffInfo(final ModInstantKillBuff buff) {
+    public WndInstantKillBuffInfo(final ModInstantKill buff) {
         super(buff);
 
         final RedButton instantKillButton = new RedButton(instantKillButtonText(buff), 8) {
@@ -46,21 +46,21 @@ public class WndInstantKillBuffInfo extends WndInfoBuff {
         resize(width, (int) accuracyButton.bottom() + 2);
     }
 
-    private boolean valid(ModInstantKillBuff buff) {
-        return buff.target != null && ModInstantKillBuff.find(buff.target) == buff;
+    private boolean valid(ModInstantKill buff) {
+        return buff.target != null && ModInstantKill.find(buff.target) == buff;
     }
 
-    private void rebuild(ModInstantKillBuff buff) {
+    private void rebuild(ModInstantKill buff) {
         ModTotalInfoOverlay.refreshIndicators();
         hide();
         GameScene.show(new WndInstantKillBuffInfo(buff));
     }
 
-    private static String instantKillButtonText(ModInstantKillBuff buff) {
+    private static String instantKillButtonText(ModInstantKill buff) {
         return buff.instantKillEnabled() ? "Instant Kill: ON" : "Instant Kill: OFF";
     }
 
-    private static String accuracyButtonText(ModInstantKillBuff buff) {
+    private static String accuracyButtonText(ModInstantKill buff) {
         return buff.infiniteAccuracyEnabled() ? "Infinite Accuracy: ON" : "Infinite Accuracy: OFF";
     }
 }
