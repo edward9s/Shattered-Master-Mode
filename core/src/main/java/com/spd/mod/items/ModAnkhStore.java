@@ -1,458 +1,70 @@
 package com.spd.mod.items;
 
-import com.shatteredpixel.shatteredpixeldungeon.Assets;
-import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
-import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
-import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.PinCushion;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
-import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
-import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
-import com.shatteredpixel.shatteredpixeldungeon.items.Dewdrop;
-import com.shatteredpixel.shatteredpixeldungeon.items.EquipableItem;
-import com.shatteredpixel.shatteredpixeldungeon.items.Generator;
-import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
-import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
-import com.shatteredpixel.shatteredpixeldungeon.items.wands.WandOfRegrowth;
-import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
-import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
-import com.shatteredpixel.shatteredpixeldungeon.plants.BlandfruitBush;
-import com.shatteredpixel.shatteredpixeldungeon.plants.Plant;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
-import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
-import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
-import com.shatteredpixel.shatteredpixeldungeon.ui.InventorySlot;
-import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
-import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane;
-import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
-import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
-import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoItem;
-import com.watabou.input.PointerEvent;
-import com.watabou.noosa.Game;
-import com.watabou.noosa.audio.Sample;
-import com.watabou.noosa.ui.Component;
-import com.watabou.utils.Bundlable;
+import com.spd.mod.mechanics.ModItemCompat;
+import com.spd.mod.mechanics.ModLootStorage;
 import com.watabou.utils.Bundle;
-import com.watabou.utils.PointF;
-
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
 
 /**
- * Self-contained storage and Put/Take/Loot support for ModAnkh.
- * This class is a first-class APK-injection payload and has no ModDebug dependency.
+ * Thin ModAnkh adapter over the shared Loot storage implementation.
  *
- * Take intentionally mirrors the proven WndModLoot grid interaction while remaining inside the
- * ModAnkhStore class family, so ModAnkh keeps its standalone payload boundary. Loot mirrors the
- * shared ModLoot rules for projectiles, heaps and grass without introducing a second storage.
+ * Storage, Loot behavior, stack merging, sorting, save/restore, and Take semantics all live in
+ * {@link ModLootStorage}. This class only keeps the ModAnkh-specific owner level display and the
+ * direct Put/Take action entry points expected by {@link ModAnkh}.
  */
-public final class ModAnkhStore {
+public final class ModAnkhStore extends ModLootStorage {
 
-    private static final String STORED = "stored";
-
-    // Keep a local copy of ModItemOrder's policy instead of depending on that mod class. ModAnkhStore
-    // is also used as a standalone injection payload, so every helper needed here must stay inside
-    // the ModAnkhStore class family.
-    private static final String[] ORDER_BAG_GROUPS = {
-            "MagicalHolster",
-            "PotionBandolier",
-            "ScrollHolder",
-            "VelvetPouch",
-    };
-    private static final int ORDER_GROUP_MOD = 0;
-    private static final int ORDER_GROUP_FIRST_BAG = 1;
-    private static final int ORDER_GROUP_OTHER = ORDER_GROUP_FIRST_BAG + ORDER_BAG_GROUPS.length;
-    private static final Map<String, Bag> ORDER_PROBES = new HashMap<>();
-    private static final Comparator<Item> ITEM_ORDER = new ItemOrderComparator();
-
-    private final ArrayList<Item> stored = new ArrayList<>();
     private transient Item owner;
-    private static Method levelSetter;
-
-    // UI-only state. Deliberately not serialized.
-    private float takeScrollY = 0f;
-
-    private static final class LootResult {
-        int pickedIntoBags;
-        int absorbed;
-
-        void add(LootResult other) {
-            if (other != null) {
-                pickedIntoBags += other.pickedIntoBags;
-                absorbed += other.absorbed;
-            }
-        }
-    }
-
-    private static final class ItemOrderComparator implements Comparator<Item> {
-        @Override
-        public int compare(Item lhs, Item rhs) {
-            int group = orderGroup(lhs) - orderGroup(rhs);
-            if (group != 0) {
-                return group;
-            }
-
-            int nativeOrder = Generator.Category.order(lhs) - Generator.Category.order(rhs);
-            if (nativeOrder != 0) {
-                return nativeOrder;
-            }
-
-            int generatorOrder = generatorClassOrder(lhs) - generatorClassOrder(rhs);
-            if (generatorOrder != 0) {
-                return generatorOrder;
-            }
-
-            return lhs.getClass().getName().compareTo(rhs.getClass().getName());
-        }
-    }
-
-    private static int orderGroup(Item item) {
-        if (item != null && item.getClass().getName().startsWith("com.spd.mod.")) {
-            return ORDER_GROUP_MOD;
-        }
-        if (item == null || item instanceof Bag) {
-            return ORDER_GROUP_OTHER;
-        }
-        for (int i = 0; i < ORDER_BAG_GROUPS.length; i++) {
-            Bag probe = orderProbe(ORDER_BAG_GROUPS[i]);
-            if (probe != null && probe.canHold(item)) {
-                return ORDER_GROUP_FIRST_BAG + i;
-            }
-        }
-        return ORDER_GROUP_OTHER;
-    }
-
-    private static int generatorClassOrder(Item item) {
-        if (item == null) {
-            return Integer.MAX_VALUE;
-        }
-        int categoryBase = 0;
-        for (Generator.Category category : Generator.Category.values()) {
-            Class<?>[] classes = category.classes;
-            if (classes != null) {
-                for (int i = 0; i < classes.length; i++) {
-                    if (classes[i] == item.getClass()) {
-                        return categoryBase + i;
-                    }
-                }
-                categoryBase += classes.length + 1;
-            } else {
-                categoryBase++;
-            }
-        }
-        return Integer.MAX_VALUE;
-    }
-
-    private static Bag orderProbe(String simpleName) {
-        if (ORDER_PROBES.containsKey(simpleName)) {
-            return ORDER_PROBES.get(simpleName);
-        }
-
-        String bagClass = Bag.class.getName();
-        String pkg = bagClass.substring(0, bagClass.lastIndexOf('.') + 1);
-        Bag probe = null;
-        try {
-            Class<?> cls = Class.forName(pkg + simpleName);
-            if (Bag.class.isAssignableFrom(cls)) {
-                Object instance = cls.getDeclaredConstructor().newInstance();
-                if (instance instanceof Bag) {
-                    probe = (Bag) instance;
-                }
-            }
-        } catch (ReflectiveOperationException e) {
-            // Missing/renamed bag classes simply remove that grouping on this fork.
-        }
-
-        ORDER_PROBES.put(simpleName, probe);
-        return probe;
-    }
-
-    private void sortStored() {
-        if (stored.size() > 1) {
-            Collections.sort(stored, ITEM_ORDER);
-        }
-    }
 
     public void bindOwner(Item owner) {
         this.owner = owner;
-        syncLevel();
+
+        // Keep an explicit anonymous class rather than a lambda so R8 cannot outline the listener
+        // into an unrelated donor-global synthetic class.
+        setChangeListener(new Runnable() {
+            @Override
+            public void run() {
+                syncLevel();
+            }
+        });
     }
 
     public void syncLevel() {
-        setOwnerLevel(stored.size());
+        ModItemCompat.setLevel(owner, size());
     }
 
-    private void changed() {
-        syncLevel();
-    }
-
-    /**
-     * Item.level(int) returns void in older SPD and Item in SPD 4.0 beta. Resolve it at runtime so
-     * the standalone ModAnkh payload keeps the same stored-count semantics on both ABIs.
-     */
-    private void setOwnerLevel(int level) {
-        if (owner == null) {
-            return;
-        }
-
-        Method setter = levelSetter();
-        try {
-            setter.invoke(owner, level);
-        } catch (IllegalAccessException e) {
-            throw new IllegalStateException("Item.level(int) is not accessible", e);
-        } catch (InvocationTargetException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof RuntimeException) {
-                throw (RuntimeException) cause;
-            }
-            if (cause instanceof Error) {
-                throw (Error) cause;
-            }
-            throw new IllegalStateException("Item.level(int) failed", cause);
-        }
-    }
-
-    private static synchronized Method levelSetter() {
-        if (levelSetter != null) {
-            return levelSetter;
-        }
-
-        for (Class<?> cls = Item.class; cls != null; cls = cls.getSuperclass()) {
-            for (Method method : cls.getDeclaredMethods()) {
-                if (!"level".equals(method.getName()) || Modifier.isStatic(method.getModifiers())) {
-                    continue;
-                }
-
-                Class<?>[] parameters = method.getParameterTypes();
-                if (parameters.length != 1 || parameters[0] != int.class) {
-                    continue;
-                }
-
-                Class<?> result = method.getReturnType();
-                if (result != void.class && !Item.class.isAssignableFrom(result)) {
-                    continue;
-                }
-
-                try {
-                    method.setAccessible(true);
-                } catch (RuntimeException ignored) {
-                    // Public/protected target methods remain invokable without this.
-                }
-                levelSetter = method;
-                return method;
-            }
-        }
-
-        throw new IllegalStateException("No compatible Item.level(int) method found in target");
-    }
-
-    public void storeInBundle(Bundle bundle) {
-        bundle.put(STORED, stored);
-    }
-
-    public void restoreFromBundle(Bundle bundle) {
-        stored.clear();
-        takeScrollY = 0f;
-        for (Bundlable value : bundle.getCollection(STORED)) {
-            if (value instanceof Item) {
-                stored.add((Item) value);
-            }
-        }
-        sortStored();
-        changed();
-    }
-
+    /** Kept as an explicit method because ModAnkh's injected ABI already calls this class directly. */
     public boolean isEmpty() {
-        return stored.isEmpty();
-    }
-
-    public int size() {
-        return stored.size();
+        return size() == 0;
     }
 
     /**
-     * Performs the same map-wide Loot operation as Scroll of Loot, but stores overflow in this
-     * ModAnkh's existing storage. Pickup time is neutralized exactly as in the shared Loot helper.
+     * Explicit forwarding methods keep ModAnkh's existing call surface stable while all behavior
+     * remains implemented by ModLootStorage.
      */
+    @Override
+    public int size() {
+        return super.size();
+    }
+
+    @Override
+    public void storeInBundle(Bundle bundle) {
+        super.storeInBundle(bundle);
+    }
+
+    @Override
+    public void restoreFromBundle(Bundle bundle) {
+        super.restoreFromBundle(bundle);
+    }
+
     public void loot(Item owner, Hero hero) {
-        if (owner == null || hero == null || hero != Dungeon.hero || Dungeon.level == null) {
-            return;
+        if (this.owner != owner) {
+            bindOwner(owner);
         }
-
-        LootResult result = grabItems(owner, hero);
-        trampleGrass(hero);
-        result.add(collectHeaps(owner, hero));
-
-        if (result.absorbed > 0) {
-            sortStored();
-            GLog.i("Absorbed " + result.absorbed + " item(s) into the ankh.");
-            if (result.pickedIntoBags == 0) {
-                Sample.INSTANCE.play(Assets.Sounds.ITEM);
-            }
-            Item.updateQuickslot();
-        }
-    }
-
-    private PinCushion pinCushion(Mob mob) {
-        if (mob == null) {
-            return null;
-        }
-        for (PinCushion pin : mob.buffs(PinCushion.class)) {
-            return pin;
-        }
-        return null;
-    }
-
-    private LootResult grabItems(Item owner, Hero hero) {
-        Level level = Dungeon.level;
-        LootResult result = new LootResult();
-        if (level == null || hero == null) {
-            return result;
-        }
-
-        float start = hero.cooldown();
-
-        Iterator<Mob> it = level.mobs.iterator();
-        while (it.hasNext()) {
-            Mob mob = it.next();
-            while (true) {
-                PinCushion pc = pinCushion(mob);
-                if (pc == null) {
-                    break;
-                }
-
-                Item item = pc.grabOne();
-                if (item == null) {
-                    break;
-                }
-
-                boolean picked = item.doPickUp(hero, mob.pos);
-                if (picked) {
-                    GLog.i("Grabbed: " + item.name());
-                    result.pickedIntoBags++;
-                } else if (absorbOverflow(owner, item)) {
-                    result.absorbed++;
-                } else {
-                    level.drop(item, mob.pos);
-                    break;
-                }
-            }
-        }
-
-        float end = hero.cooldown();
-        hero.spendConstant(start - end);
-        return result;
-    }
-
-    private LootResult collectHeaps(Item owner, Hero hero) {
-        Level level = Dungeon.level;
-        LootResult result = new LootResult();
-        if (level == null || hero == null) {
-            return result;
-        }
-
-        float start = hero.cooldown();
-
-        if (level.heaps != null) {
-            for (Heap heap : level.heaps.valueList()) {
-                if (heap == null) {
-                    continue;
-                }
-
-                boolean normalCollectable = heap.type == Heap.Type.HEAP
-                        || heap.type == Heap.Type.CHEST
-                        || heap.type == Heap.Type.REMAINS
-                        || heap.type == Heap.Type.SKELETON;
-                boolean saleHeap = heap.type == Heap.Type.FOR_SALE;
-                if (!normalCollectable && !saleHeap) {
-                    continue;
-                }
-
-                // A FOR_SALE heap's last item is the actual shop merchandise. Later ordinary drops
-                // are inserted before it, so protect that exact reference and process the rest.
-                Item protectedSaleItem = saleHeap ? heap.items.peekLast() : null;
-
-                for (Item item : heap.items.toArray(new Item[0])) {
-                    if (item == null || item == protectedSaleItem) {
-                        continue;
-                    }
-
-                    if (item instanceof Dewdrop) {
-                        boolean picked = ((Dewdrop) item).doPickUp(hero, heap.pos);
-                        if (picked) {
-                            heap.remove(item);
-                            GLog.i("Collected: " + item.name());
-                        }
-                        continue;
-                    }
-
-                    boolean picked = item.doPickUp(hero, heap.pos);
-                    if (picked) {
-                        heap.remove(item);
-                        GLog.i("Collected: " + item.name());
-                        result.pickedIntoBags++;
-                    } else if (absorbOverflow(owner, item)) {
-                        heap.remove(item);
-                        result.absorbed++;
-                    }
-                    // If neither bags nor the ankh can accept it, leave it in the original heap and
-                    // continue scanning the remaining items in that heap.
-                }
-            }
-        }
-
-        float end = hero.cooldown();
-        hero.spendConstant(start - end);
-        return result;
-    }
-
-    private void trampleGrass(Hero hero) {
-        Level level = Dungeon.level;
-        if (level == null || hero == null) {
-            return;
-        }
-
-        if (level.map != null) {
-            for (int i = 0; i < level.map.length; i++) {
-                int tile = level.map[i];
-                if (tile == Terrain.HIGH_GRASS || tile == Terrain.FURROWED_GRASS) {
-                    level.pressCell(i);
-                    if (hero.heroClass == HeroClass.HUNTRESS) {
-                        Level.set(i, Terrain.FURROWED_GRASS);
-                        GameScene.updateMap(i);
-                    }
-                }
-            }
-        }
-
-        if (level.plants != null) {
-            Iterator<Plant> it = level.plants.valueList().iterator();
-            while (it.hasNext()) {
-                Plant plant = it.next();
-                if (plant instanceof WandOfRegrowth.Dewcatcher
-                        || plant instanceof WandOfRegrowth.Seedpod
-                        || plant instanceof BlandfruitBush) {
-                    level.pressCell(plant.pos);
-                }
-            }
-        }
-    }
-
-    private boolean absorbOverflow(Item owner, Item item) {
-        if (!canStore(owner, item)) {
-            return false;
-        }
-        absorb(item);
-        return true;
+        super.loot(hero);
     }
 
     public void showPutSelector(final Item owner, final Hero hero) {
@@ -469,387 +81,22 @@ public final class ModAnkhStore {
 
             @Override
             public boolean itemSelectable(Item item) {
-                return canStore(owner, item);
+                return ModLootStorage.canStore(item);
             }
 
             @Override
             public void onSelect(Item item) {
-                if (item != null && putSingle(owner, hero, item)) {
+                if (item != null && putSingle(hero, item)) {
                     showPutSelector(owner, hero);
                 }
             }
         });
     }
 
-    public void showTakeSelector(final Item owner, final Hero hero) {
-        if (owner == null || hero == null || stored.isEmpty()) {
-            takeScrollY = 0f;
+    public void showTakeSelector(Item owner, Hero hero) {
+        if (owner == null || hero == null || size() <= 0) {
             return;
         }
-        sortStored();
-        GameScene.show(new WndTake(owner, hero));
-    }
-
-    private boolean canStore(Item owner, Item item) {
-        return item != null
-                && owner != null
-                && item.getClass() != owner.getClass();
-    }
-
-    private boolean putSingle(Item owner, Hero hero, Item item) {
-        if (hero == null || hero.belongings == null || hero.belongings.backpack == null
-                || !canStore(owner, item)) {
-            return false;
-        }
-
-        if (item.isEquipped(hero)) {
-            if (!(item instanceof EquipableItem)
-                    || !((EquipableItem) item).doUnequip(hero, false)) {
-                GLog.w("Can't unequip selected item.");
-                return false;
-            }
-        }
-
-        Item detached = item.detachAll(hero.belongings.backpack);
-        if (detached == null || detached.quantity() <= 0) {
-            return false;
-        }
-
-        absorb(detached);
-        sortStored();
-        GLog.i("Stored item in the ankh.");
-        Sample.INSTANCE.play(Assets.Sounds.ITEM);
-        Item.updateQuickslot();
-        return true;
-    }
-
-    /** Matches ModLootStorage Take semantics: if bags are full, release the item at the hero. */
-    private boolean takeItem(Hero hero, Item item) {
-        if (hero == null || hero.belongings == null || hero.belongings.backpack == null
-                || item == null || !stored.contains(item)) {
-            return false;
-        }
-
-        if (item.collect(hero.belongings.backpack)) {
-            stored.remove(item);
-            GLog.i("Took item from the ankh.");
-        } else {
-            Dungeon.level.drop(item, hero.pos).sprite.drop();
-            stored.remove(item);
-            GLog.w("Dropped item on the floor (backpack full).");
-        }
-
-        if (stored.isEmpty()) {
-            takeScrollY = 0f;
-        }
-        changed();
-        Sample.INSTANCE.play(Assets.Sounds.ITEM);
-        Item.updateQuickslot();
-        return true;
-    }
-
-    private void absorb(Item item) {
-        if (item.stackable) {
-            for (Item existing : stored) {
-                if (existing.isSimilar(item)) {
-                    existing.merge(item);
-                    changed();
-                    return;
-                }
-            }
-        }
-        stored.add(item);
-        changed();
-    }
-
-    /** TAKE-only counterpart of WndModLoot, kept inside ModAnkhStore's injectable class family. */
-    private final class WndTake extends Window {
-
-        private static final int NCOLS = 5;
-        private static final int SLOT_BASE = 28;
-        private static final int SLOT_MARGIN = 1;
-        private static final int TITLE_HEIGHT = 14;
-        private static final int UI_RESERVE_VER = 100;
-
-        private final Hero hero;
-        private final ArrayList<Item> items = stored;
-
-        private TakePane pane;
-        private int paneX, paneY, paneW, paneH;
-        private int slotSize;
-
-        private float lastCamX = Float.NaN;
-        private float lastCamY = Float.NaN;
-
-        WndTake(Item owner, Hero hero) {
-            super();
-            this.hero = hero;
-
-            slotSize = SLOT_BASE;
-            int windowWidth = slotSize * NCOLS + SLOT_MARGIN * (NCOLS - 1);
-
-            if (!PixelScene.landscape()) {
-                while (slotSize >= 26
-                        && (windowWidth + chrome.marginHor()) > PixelScene.uiCamera.width) {
-                    slotSize--;
-                    windowWidth -= NCOLS;
-                }
-            }
-
-            int rows = Math.max(1, (int) Math.ceil(items.size() / (float) NCOLS));
-            int contentHeight = rows * slotSize + (rows - 1) * SLOT_MARGIN;
-            int maxWindowHeight = PixelScene.uiCamera.height - UI_RESERVE_VER - chrome.marginVer();
-            int maxPaneHeight = maxWindowHeight - TITLE_HEIGHT;
-            int paneHeight = Math.min(contentHeight, Math.max(slotSize, maxPaneHeight));
-
-            placeTitle(owner, windowWidth);
-            resize(windowWidth, TITLE_HEIGHT + paneHeight);
-
-            paneX = 0;
-            paneY = TITLE_HEIGHT;
-            paneW = windowWidth;
-            paneH = paneHeight;
-
-            pane = new TakePane();
-            add(pane);
-            rebuild(takeScrollY);
-        }
-
-        @Override
-        public synchronized void update() {
-            super.update();
-            if (pane != null && pane.content() != null && pane.content().camera != null) {
-                takeScrollY = pane.content().camera.scroll.y;
-            }
-            if (camera() != null && (camera().x != lastCamX || camera().y != lastCamY)) {
-                lastCamX = camera().x;
-                lastCamY = camera().y;
-                relayoutPane();
-            }
-        }
-
-        @Override
-        public void offset(int xOffset, int yOffset) {
-            super.offset(xOffset, yOffset);
-            relayoutPane();
-        }
-
-        private void relayoutPane() {
-            if (pane != null) {
-                pane.setRect(paneX, paneY, paneW, paneH);
-            }
-        }
-
-        private void rebuild(float scrollY) {
-            pane.reconcile(items);
-            pane.setRect(paneX, paneY, paneW, paneH);
-            pane.scrollTo(0, scrollY);
-        }
-
-        private void placeTitle(Item owner, int width) {
-            String title = owner.name().concat(" (").concat(Integer.toString(size())).concat(")");
-            RenderedTextBlock text = PixelScene.renderTextBlock(title, 8);
-            text.hardlight(TITLE_COLOR);
-            text.maxWidth(width - 2);
-            text.setPos(1, (TITLE_HEIGHT - text.height()) / 2f - 1);
-            PixelScene.align(text);
-            add(text);
-        }
-
-        private void onSelect(Item item) {
-            takeItem(hero, item);
-            rebuild(takeScrollY);
-        }
-
-        private final class TakePane extends ScrollPane {
-
-            private final ArrayList<Slot> slots = new ArrayList<>();
-
-            TakePane() {
-                super(new Component());
-                remove(controller);
-                controller.destroy();
-                controller = new TakeController();
-                add(controller);
-            }
-
-            void reconcile(ArrayList<Item> current) {
-                int rows = Math.max(1, (int) Math.ceil(current.size() / (float) NCOLS));
-                int total = rows * NCOLS;
-
-                while (slots.size() < total) {
-                    Slot slot = new Slot();
-                    content.add(slot);
-                    slots.add(slot);
-                }
-                while (slots.size() > total) {
-                    Slot slot = slots.remove(slots.size() - 1);
-                    content.remove(slot);
-                    slot.destroy();
-                }
-
-                for (int i = 0; i < total; i++) {
-                    slots.get(i).item(i < current.size() ? current.get(i) : null);
-                }
-            }
-
-            @Override
-            public void onClick(float x, float y) {
-                for (Slot slot : slots) {
-                    if (slot.onClick(x, y)) {
-                        break;
-                    }
-                }
-            }
-
-            boolean onLongClick(float x, float y) {
-                for (Slot slot : slots) {
-                    if (slot.inside(x, y)) {
-                        if (slot.item != null) {
-                            ShatteredPixelDungeon.scene().addToFront(new WndInfoItem(slot.item));
-                            return true;
-                        }
-                        return false;
-                    }
-                }
-                return false;
-            }
-
-            private final class TakeController extends PointerController {
-
-                private boolean pressing = false;
-                private boolean longClicked = false;
-                private float pressTime = 0f;
-                private final PointF pressStart = new PointF();
-                private final float pressDragThreshold = PixelScene.defaultZoom * 8;
-
-                @Override
-                protected void onPointerDown(PointerEvent event) {
-                    super.onPointerDown(event);
-                    pressing = true;
-                    longClicked = false;
-                    pressTime = 0f;
-                    pressStart.set(event.current);
-                }
-
-                @Override
-                protected void onPointerUp(PointerEvent event) {
-                    super.onPointerUp(event);
-                    pressing = false;
-                }
-
-                @Override
-                protected void onDrag(PointerEvent event) {
-                    if (longClicked) {
-                        return;
-                    }
-                    if (pressing
-                            && PointF.distance(event.current, pressStart) > pressDragThreshold) {
-                        pressing = false;
-                    }
-                    super.onDrag(event);
-                }
-
-                @Override
-                public void update() {
-                    super.update();
-                    if (pressing && (pressTime += Game.elapsed) >= Button.longClick) {
-                        pressing = false;
-                        PointF point = content.camera.screenToCamera(
-                                (int) pressStart.x,
-                                (int) pressStart.y);
-                        if (TakePane.this.onLongClick(point.x, point.y)) {
-                            longClicked = true;
-                            if (SPDSettings.vibration()) {
-                                Game.vibrate(50);
-                            }
-                        }
-                    }
-                }
-
-                @Override
-                protected void onClick(PointerEvent event) {
-                    if (longClicked) {
-                        longClicked = false;
-                        return;
-                    }
-                    if (event.button == PointerEvent.RIGHT) {
-                        PointF point = content.camera.screenToCamera(
-                                (int) event.current.x,
-                                (int) event.current.y);
-                        TakePane.this.onLongClick(point.x, point.y);
-                    } else {
-                        super.onClick(event);
-                    }
-                }
-            }
-
-            @Override
-            protected void layout() {
-                int n = slots.size();
-                int rows = n == 0 ? 0 : (int) Math.ceil(n / (float) NCOLS);
-
-                for (int i = 0; i < n; i++) {
-                    int col = i % NCOLS;
-                    int row = i / NCOLS;
-                    float sx = col * (slotSize + SLOT_MARGIN);
-                    float sy = row * (slotSize + SLOT_MARGIN);
-                    slots.get(i).setRect(sx, sy, slotSize, slotSize);
-                }
-
-                int contentHeight = rows == 0
-                        ? 0
-                        : rows * slotSize + (rows - 1) * SLOT_MARGIN;
-                content.setSize(width, contentHeight);
-                super.layout();
-            }
-
-            private final class Slot extends Component {
-
-                private Item item;
-                private final InventorySlot visual;
-
-                Slot() {
-                    super();
-                    visual = new InventorySlot(null) {
-                        {
-                            remove(hotArea);
-                        }
-                    };
-                    add(visual);
-                }
-
-                void item(Item item) {
-                    if (this.item == item) {
-                        return;
-                    }
-                    this.item = item;
-                    visual.item(item);
-                }
-
-                @Override
-                public synchronized void update() {
-                    super.update();
-                    if (item != null && visual.exists && !visual.active) {
-                        visual.update();
-                    }
-                }
-
-                @Override
-                protected void layout() {
-                    visual.setRect(x, y, width, height);
-                }
-
-                boolean onClick(float cx, float cy) {
-                    if (!inside(cx, cy)) {
-                        return false;
-                    }
-                    if (item != null) {
-                        WndTake.this.onSelect(item);
-                    }
-                    return true;
-                }
-            }
-        }
+        GameScene.show(new WndModLoot(this, owner.name(), WndModLoot.Mode.TAKE));
     }
 }
