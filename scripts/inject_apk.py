@@ -229,8 +229,11 @@ _original_build_debug_payload = injector.build_debug_payload
 _original_payload_compatibility_errors = injector.payload_compatibility_errors
 _original_find_class = injector.find_class
 _original_detect_target_game_prefix = injector.detect_target_game_prefix
+_original_compile_smali = injector.compile_smali
 _full_donor_payload: dict[str, injector.SmaliClass] = {}
 _current_abi_profile: AbiProfile | None = None
+_current_game_prefix: str | None = None
+_pending_char_overlay: tuple[str, str] | None = None
 
 
 def _member_accessible_from_modankh(flags: frozenset[str]) -> bool:
@@ -464,12 +467,42 @@ def _probe_duelist_combo(
     )
 
 
+def _probe_char_attack_hook(
+    target_index: dict[str, injector.SmaliClass],
+    game_prefix: str,
+) -> AbiCapability:
+    char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
+    char_class = target_index.get(char_descriptor)
+    if char_class is None:
+        return AbiCapability(
+            "char.incomingAttackHook",
+            ABI_UNSUPPORTED,
+            "Char class is missing",
+        )
+
+    proto = f"({char_descriptor}FFF)Z"
+    flags = char_class.methods.get(("attack", proto))
+    if flags is not None and "static" not in flags:
+        return AbiCapability(
+            "char.incomingAttackHook",
+            ABI_DIRECT,
+            "Char.attack(Char,float,float,float) is available for pre-resolution hook",
+        )
+
+    return AbiCapability(
+        "char.incomingAttackHook",
+        ABI_UNSUPPORTED,
+        "Char.attack(Char,float,float,float) is missing or static",
+    )
+
+
 ABI_PROBES: tuple[
     Callable[[dict[str, injector.SmaliClass], str], AbiCapability], ...
 ] = (
     _probe_item_set_current,
     _probe_wndgame_menu_hook,
     _probe_duelist_combo,
+    _probe_char_attack_hook,
 )
 
 
@@ -486,8 +519,10 @@ def detect_target_abi(
 def detect_target_game_prefix(
     target_index: dict[str, injector.SmaliClass],
 ) -> str:
-    global _current_abi_profile
+    global _current_abi_profile, _current_game_prefix, _pending_char_overlay
     game_prefix = _original_detect_target_game_prefix(target_index)
+    _current_game_prefix = game_prefix
+    _pending_char_overlay = None
     _current_abi_profile = detect_target_abi(target_index, game_prefix)
     _current_abi_profile.log()
     _current_abi_profile.require_compatible()
@@ -504,6 +539,26 @@ def build_full_debug_payload(
         for desc, item in donor_index.items()
         if desc.startswith(FULL_SMM_PREFIX)
     }
+
+    if _current_game_prefix is None:
+        raise injector.InjectError("Target game package was not initialized")
+    donor_total = _full_donor_payload.get(injector.MOD_PARRY_RIPOSTE)
+    if donor_total is None:
+        raise injector.InjectError("SMM donor is missing ModParryRiposte")
+    char_descriptor = injector.game_descriptor(_current_game_prefix, "actors/Char")
+    rebased_total = injector.SmaliClass.from_text(
+        donor_total.path,
+        injector.rebase_smali_text(donor_total.text, _current_game_prefix),
+    )
+    hook_flags = rebased_total.methods.get(
+        ("onIncomingAttack", f"({char_descriptor}{char_descriptor})V")
+    )
+    if hook_flags is None or not {"public", "static"}.issubset(hook_flags):
+        raise injector.InjectError(
+            "SMM donor ModParryRiposte lacks public static "
+            "onIncomingAttack(Char, Char); rebuild donor from current source"
+        )
+
     return _original_build_debug_payload(donor_index, target_index)
 
 
@@ -596,8 +651,16 @@ def adapt_modankh(
 
 
 def find_wndgame_instead_of_dungeon(root: Path, descriptor: str):
+    global _pending_char_overlay
     if descriptor.endswith("/Dungeon;"):
-        wnd_game = descriptor[:-len("Dungeon;")] + "windows/WndGame;"
+        game_prefix = descriptor[:-len("Dungeon;")]
+        char_descriptor = game_prefix + "actors/Char;"
+        _, char_path = _original_find_class(root, char_descriptor)
+        _pending_char_overlay = (
+            char_descriptor,
+            char_path.read_text(encoding="utf-8", errors="replace"),
+        )
+        wnd_game = game_prefix + "windows/WndGame;"
         return _original_find_class(root, wnd_game)
     return _original_find_class(root, descriptor)
 
@@ -628,6 +691,89 @@ def patch_wndgame(text: str, *_unused: str) -> str:
     )
     patched = block[:match.end()] + injected + block[match.end():]
     return text[:start] + patched + text[end:]
+
+
+def _first_smali_instruction(block: str) -> tuple[int, str]:
+    offset = 0
+    saw_registers = False
+    in_annotation = False
+    for line in block.splitlines(keepends=True):
+        stripped = line.strip()
+        if not saw_registers:
+            if re.match(r"\.(?:locals|registers)\b", stripped):
+                saw_registers = True
+            offset += len(line)
+            continue
+
+        if in_annotation:
+            if stripped == ".end annotation":
+                in_annotation = False
+            offset += len(line)
+            continue
+        if stripped.startswith(".annotation"):
+            in_annotation = True
+            offset += len(line)
+            continue
+        if (
+            not stripped
+            or stripped.startswith("#")
+            or stripped.startswith(".")
+            or stripped.startswith(":")
+        ):
+            offset += len(line)
+            continue
+
+        indent = line[:len(line) - len(line.lstrip())]
+        return offset, indent
+
+    raise injector.InjectError("Char.attack has no executable instruction")
+
+
+def patch_char_attack(text: str, char_descriptor: str) -> str:
+    proto = f"({char_descriptor}FFF)Z"
+    start, end, block = injector.method_block(text, "attack", proto)
+    hook = (
+        "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack("
+        f"{char_descriptor}{char_descriptor})V"
+    )
+    if hook in block:
+        raise injector.InjectError("Char.attack already contains SMM incoming-attack hook")
+
+    insert_at, indent = _first_smali_instruction(block)
+    injected = (
+        f"{indent}# SMM independent Riposte incoming-attack hook\n"
+        f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n\n"
+    )
+    patched = block[:insert_at] + injected + block[insert_at:]
+    return text[:start] + patched + text[end:]
+
+
+def compile_smali_with_char_hook(
+    java: Path,
+    smali_jar: Path,
+    directory: Path,
+    output: Path,
+    api: int,
+) -> None:
+    global _pending_char_overlay
+    if _pending_char_overlay is None:
+        raise injector.InjectError("Char.attack overlay source was not captured")
+
+    char_descriptor, original_char = _pending_char_overlay
+    patched_char = patch_char_attack(original_char, char_descriptor)
+    char_output = directory / Path(char_descriptor[1:-1] + ".smali")
+    if char_output.exists():
+        raise injector.InjectError(
+            f"Overlay already contains target Char class: {char_descriptor}"
+        )
+    char_output.parent.mkdir(parents=True, exist_ok=True)
+    char_output.write_text(patched_char, encoding="utf-8")
+    injector.log("Char.attack incoming-attack hook: OK")
+
+    try:
+        _original_compile_smali(java, smali_jar, directory, output, api)
+    finally:
+        _pending_char_overlay = None
 
 
 def _host_elf_machines() -> set[int] | None:
@@ -879,6 +1025,7 @@ injector.payload_compatibility_errors = full_payload_compatibility_errors
 injector.adapt_modankh = adapt_modankh
 injector.find_class = find_wndgame_instead_of_dungeon
 injector.patch_dungeon = patch_wndgame
+injector.compile_smali = compile_smali_with_char_hook
 injector.ensure_debug_keystore = ensure_inject_keystore
 injector.sign_apk = portable_sign_apk
 injector.output_path = output_path
