@@ -1,17 +1,21 @@
 package com.spd.mod.items;
 
 import com.spd.mod.mechanics.ModDebug$Console;
+import com.spd.mod.mechanics.ModItemCompat;
+import com.spd.mod.mechanics.ModLootStorage;
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.effects.CellEmitter;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Speck;
 import com.shatteredpixel.shatteredpixeldungeon.items.Ankh;
+import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndUseItem;
 import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundle;
@@ -42,12 +46,25 @@ public class ModAnkh extends Ankh {
     private static final String TIMES_REVIVED     = "times_revived";
     private static final String TIMES_RESURRECTED = "times_resurrected";
 
-    private final ModAnkhStore store = new ModAnkhStore();
+    private final ModLootStorage storage = new ModLootStorage();
 
     public ModAnkh() {
         super();
         reset();
-        store.bindOwner(this);
+        bindStorage();
+    }
+
+    private void bindStorage() {
+        storage.setChangeListener(new Runnable() {
+            @Override
+            public void run() {
+                syncCount();
+            }
+        });
+    }
+
+    private void syncCount() {
+        ModItemCompat.setLevel(this, storage.size());
     }
 
     @Override
@@ -79,7 +96,8 @@ public class ModAnkh extends Ankh {
         super.storeInBundle(bundle);
         bundle.put(TIMES_REVIVED,     timesRevived);
         bundle.put(TIMES_RESURRECTED, timesResurrected);
-        store.storeInBundle(bundle);
+        // Keep the historical flat ModAnkh storage keys for save compatibility.
+        storage.storeInBundle(bundle);
     }
 
     @Override
@@ -87,9 +105,10 @@ public class ModAnkh extends Ankh {
         super.restoreFromBundle(bundle);
         timesRevived     = bundle.getInt(TIMES_REVIVED);
         timesResurrected = bundle.getInt(TIMES_RESURRECTED);
-        store.restoreFromBundle(bundle);
+        storage.restoreFromBundle(bundle);
+        bindStorage();
         reset();
-        store.syncLevel();
+        syncCount();
     }
 
     @Override
@@ -159,7 +178,7 @@ public class ModAnkh extends Ankh {
         if (!actions.contains(AC_PUT)) {
             actions.add(AC_PUT);
         }
-        if (!store.isEmpty() && !actions.contains(AC_TAKE)) {
+        if (storage.size() > 0 && !actions.contains(AC_TAKE)) {
             actions.add(AC_TAKE);
         }
         if (!actions.contains(AC_CONSOLE)) {
@@ -178,9 +197,7 @@ public class ModAnkh extends Ankh {
         } else if (AC_PUT.equals(action)) {
             return "Put";
         } else if (AC_TAKE.equals(action)) {
-            // Avoid '+' concatenation here: R8 may outline it into a donor-local
-            // helper class, which is outside the standalone ModAnkh payload.
-            return "Take (".concat(Integer.toString(store.size())).concat(")");
+            return "Take (".concat(Integer.toString(storage.size())).concat(")");
         } else if (AC_CONSOLE.equals(action)) {
             return "Console";
         }
@@ -196,13 +213,13 @@ public class ModAnkh extends Ankh {
             ModDebug$Console.open();
         } else if (AC_LOOT.equals(action)) {
             GameScene.cancel();
-            store.loot(this, hero);
+            storage.loot(hero);
         } else if (AC_PUT.equals(action)) {
             GameScene.cancel();
-            store.showPutSelector(this, hero);
+            showPutSelector(hero);
         } else if (AC_TAKE.equals(action)) {
             GameScene.cancel();
-            store.showTakeSelector(this, hero);
+            GameScene.show(new WndModLoot(storage, name(), WndModLoot.Mode.TAKE));
         } else if (AC_BLESS.equals(action)) {
             GameScene.cancel();
             setCurrent(hero);
@@ -231,6 +248,31 @@ public class ModAnkh extends Ankh {
         }
     }
 
+    private void showPutSelector(final Hero hero) {
+        if (hero == null || hero.belongings == null || hero.belongings.backpack == null) {
+            return;
+        }
+
+        GameScene.selectItem(new WndBag.ItemSelector() {
+            @Override
+            public String textPrompt() {
+                return "Select an item to store";
+            }
+
+            @Override
+            public boolean itemSelectable(Item item) {
+                return ModLootStorage.canStore(item);
+            }
+
+            @Override
+            public void onSelect(Item item) {
+                if (item != null && storage.putSingle(hero, item)) {
+                    showPutSelector(hero);
+                }
+            }
+        });
+    }
+
     /**
      * Appends revival/resurrection history and stored-item count to the standard description.
      *
@@ -244,10 +286,10 @@ public class ModAnkh extends Ankh {
 
         sb.append("\n\nLoot tramples high grass and collects reachable heap items and embedded projectiles across the level. Items that do not fit in your bags are stored inside the ankh.");
 
-        if (!store.isEmpty()) {
+        if (storage.size() > 0) {
             sb.append("\n\nCurrently storing ")
-              .append(store.size())
-              .append(store.size() == 1 ? " item." : " items.");
+              .append(storage.size())
+              .append(storage.size() == 1 ? " item." : " items.");
         }
 
         if (false && timesRevived > 0) {
