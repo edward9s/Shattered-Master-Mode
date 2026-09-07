@@ -24,10 +24,10 @@ import java.lang.reflect.Field;
  * The persistent Last Stand object remains a plain Buff. A hidden ShieldBuff
  * hook performs pre-damage interception after save restoration has completed.
  * If normal shield-handled damage would be lethal, the hook limits it to leave
- * 1 HP and schedules Last Stand to restore the bearer to 50% HP and cure the
- * same status ailments as a blessed Ankh. Unlike a blessed Ankh, Last Stand
- * does not grant invulnerability. Last Stand also recovers any living bearer
- * that reaches exactly 1 HP through a mechanic which bypasses normal shielding.
+ * 1 HP and schedules Last Stand to restore the bearer to 50% HP and apply the
+ * target game's PotionOfHealing.cure() behavior. Last Stand does not grant
+ * invulnerability. It also recovers any living bearer that reaches exactly
+ * 1 HP through a mechanic which bypasses normal shielding.
  *
  * When attached to the Hero, the same buff also owns shared Loot storage. Tapping
  * its buff icon opens the Loot / Put / Take / Console panel; long-press/right-click
@@ -128,8 +128,8 @@ public class ModLastStand extends Buff {
         int healed = Math.max(0, recoveredHP - target.HP);
         target.HP = recoveredHP;
 
-        // Match blessed Ankh cleansing, but intentionally omit its temporary
-        // Invulnerability buff. Hunger is not reset by PotionOfHealing.cure().
+        // Use the target game's healing-potion cure semantics directly. This
+        // intentionally does not invoke PotionOfHealing.heal() or reset hunger.
         PotionOfHealing.cure(target);
 
         if (target.sprite != null) {
@@ -197,7 +197,7 @@ public class ModLastStand extends Buff {
     public String desc() {
         return "Permanent Master Mode survival buff with built-in Loot storage. If damage handled by the normal shielding system would be lethal, "
                 + "Last Stand limits that damage to leave 1 HP. Whenever the bearer is alive at exactly 1 HP when Last Stand acts, "
-                + "it restores HP to 50% and cures the same status ailments as a blessed Ankh, but grants no invulnerability and does not reset hunger. "
+                + "it restores HP to 50% and applies PotionOfHealing.cure(), but grants no invulnerability and does not reset hunger. "
                 + "When attached to the Hero, tap its buff icon to open Loot / Put / Take / Console and directly use stored items; Dump is available from the Take window. "
                 + "Removing the buff first returns every stored item to the Hero's bags, or drops it at the Hero's feet if the bags are full. "
                 + "This does not guarantee survival: damage that bypasses normal shielding can still kill if it skips past 1 HP, and direct death effects can also bypass Last Stand.";
