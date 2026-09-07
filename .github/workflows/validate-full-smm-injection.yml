@@ -121,7 +121,13 @@ jobs:
               hero_desc: cls('Hero.smali',
                   '.class public ' + hero_desc + '\n.super ' + char_desc + '\n'),
               char_desc: cls('Char.smali',
-                  '.class public ' + char_desc + '\n.super Ljava/lang/Object;\n'),
+                  '.class public ' + char_desc + '\n'
+                  '.super Ljava/lang/Object;\n'
+                  '.method public attack(' + char_desc + 'FFF)Z\n'
+                  '    .locals 1\n'
+                  '    const/4 v0, 0x0\n'
+                  '    return v0\n'
+                  '.end method\n'),
               wnd_desc: cls('WndGame.smali',
                   '.class public ' + wnd_desc + '\n'
                   '.super Ljava/lang/Object;\n'
@@ -143,6 +149,8 @@ jobs:
               raise SystemExit('WndGame runtime capability was not detected')
           if profile.get('duelist.comboHit').strategy != mod.ABI_STRUCTURAL:
               raise SystemExit('old Duelist structural capability was not detected')
+          if profile.get('char.incomingAttackHook').strategy != mod.ABI_DIRECT:
+              raise SystemExit('Char.attack incoming-attack hook capability was not detected')
           profile.require_compatible()
           mod._current_abi_profile = profile
 
@@ -184,6 +192,30 @@ jobs:
           profile = mod.detect_target_abi(exact, game)
           if profile.get('duelist.comboHit').strategy != mod.ABI_DIRECT:
               raise SystemExit('exact addHit(Char) capability was not detected')
+
+          sample_char = (
+              '.class public ' + char_desc + '\n'
+              '.super Ljava/lang/Object;\n'
+              '.method public attack(' + char_desc + 'FFF)Z\n'
+              '    .locals 1\n'
+              '    .param p1, "enemy"    # ' + char_desc + '\n'
+              '    if-nez p1, :alive\n'
+              '    const/4 v0, 0x0\n'
+              '    return v0\n'
+              ':alive\n'
+              '    const/4 v0, 0x1\n'
+              '    return v0\n'
+              '.end method\n'
+          )
+          patched_char = mod.patch_char_attack(sample_char, char_desc)
+          hook = (
+              'Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack('
+              + char_desc + char_desc + ')V'
+          )
+          if patched_char.count(hook) != 1:
+              raise SystemExit('Char.attack hook was not inserted exactly once')
+          if patched_char.index(hook) > patched_char.index('if-nez p1'):
+              raise SystemExit('Char.attack hook was not inserted before attack resolution')
 
           print('Capability-driven APK ABI profile: OK')
           PY
