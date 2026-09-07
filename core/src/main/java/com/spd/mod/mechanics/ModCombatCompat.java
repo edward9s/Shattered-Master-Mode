@@ -16,6 +16,9 @@ final class ModCombatCompat {
     private static Field heroAttackTargetField;
     private static boolean heroAttackTargetResolved;
 
+    private static Field hitMissIconField;
+    private static boolean hitMissIconResolved;
+
     private ModCombatCompat() {
     }
 
@@ -91,6 +94,41 @@ final class ModCombatCompat {
         return defender != null
                 && attacker != null
                 && defender.defenseSkill(attacker) >= Char.INFINITE_EVASION;
+    }
+
+    /**
+     * Performs the native physical hit roll that Char.attack would have made if
+     * invulnerability had not short-circuited it. This preserves ordinary miss
+     * chance for Instant Kill when Infinite Accuracy is disabled.
+     */
+    static boolean rollNormalHeroHit(Hero hero, Char enemy) {
+        if (hero == null || enemy == null || !hero.isAlive() || !enemy.isAlive()) {
+            return false;
+        }
+
+        boolean hit = Char.hit(hero, enemy, 1f, false);
+        clearHitMissIcon();
+        return hit;
+    }
+
+    /**
+     * Char.hit stores a reason icon for the enclosing Char.attack call. Our
+     * standalone compatibility roll has no enclosing native attack branch, so
+     * clear that transient cache to prevent it leaking into the next attack.
+     */
+    private static void clearHitMissIcon() {
+        try {
+            if (!hitMissIconResolved) {
+                hitMissIconResolved = true;
+                hitMissIconField = Char.class.getDeclaredField("hitMissIcon");
+                hitMissIconField.setAccessible(true);
+            }
+            if (hitMissIconField != null) {
+                hitMissIconField.setInt(null, -1);
+            }
+        } catch (Exception ignored) {
+            // Cosmetic cleanup only; never let it affect combat.
+        }
     }
 
     /**
