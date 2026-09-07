@@ -1,20 +1,25 @@
 package com.spd.mod.mechanics;
 
+import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ShieldBuff;
+import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Flare;
 import com.shatteredpixel.shatteredpixeldungeon.effects.FloatingText;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHealing;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
+import com.spd.mod.items.WndModLoot;
+import com.spd.mod.journal.ModLastStandOverlay;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
 import java.lang.reflect.Field;
 
 /**
- * Permanent Master Mode emergency-survival buff.
+ * Permanent Master Mode survival buff with built-in Loot storage and UI.
  *
  * The persistent Last Stand object remains a plain Buff. A hidden ShieldBuff
  * hook performs pre-damage interception after save restoration has completed.
@@ -24,11 +29,19 @@ import java.lang.reflect.Field;
  * does not grant invulnerability. Last Stand also recovers any living bearer
  * that reaches exactly 1 HP through a mechanic which bypasses normal shielding.
  *
+ * When attached to the Hero, the same buff also owns shared Loot storage. Tapping
+ * its buff icon opens the Loot / Put / Take / Console panel; long-press/right-click
+ * keeps the normal buff-description behavior.
+ *
  * This does not guarantee survival. Damage which bypasses normal shielding can
  * still kill if it skips directly past 1 HP, and direct die() calls or other
  * special death mechanics can bypass the protection.
  */
 public class ModLastStand extends Buff {
+
+    private static final String STORAGE = "storage";
+
+    private ModLootStorage storage = new ModLootStorage();
 
     {
         type = buffType.POSITIVE;
@@ -62,9 +75,27 @@ public class ModLastStand extends Buff {
         return null;
     }
 
+    public boolean isAttached() {
+        return target != null && find(target) == this;
+    }
+
+    public ModLootStorage storage() {
+        return storage;
+    }
+
+    public void open() {
+        if (target instanceof Hero && target == Dungeon.hero) {
+            Hero hero = (Hero) target;
+            storage.reclaimPending(hero);
+            GameScene.show(new WndModLoot(storage, name(), WndModLoot.Mode.USE));
+        }
+    }
+
     @Override
     public void fx(boolean on) {
         if (on) {
+            ModLastStandOverlay.ensureInstalled();
+
             // Char.updateSpriteState() iterates the buff set while calling fx().
             // Do not attach another buff here; just schedule Last Stand to run
             // immediately once actor processing resumes.
@@ -118,6 +149,7 @@ public class ModLastStand extends Buff {
         // Installing the hidden shield hook here avoids mutating the target's
         // buff collection while save restoration or sprite-state iteration runs.
         ensureLethalHook();
+        ModLastStandOverlay.ensureInstalled();
 
         if (target != null && target.isAlive() && target.HP == 1) {
             recoverFromOneHP();
@@ -129,6 +161,11 @@ public class ModLastStand extends Buff {
 
     @Override
     public void detach() {
+        if (target instanceof Hero && Dungeon.level != null) {
+            Hero hero = (Hero) target;
+            storage.reclaimPending(hero);
+            storage.dump(hero);
+        }
         if (target != null) {
             Buff.detach(target, LethalShieldHook.class);
         }
@@ -138,13 +175,17 @@ public class ModLastStand extends Buff {
 
     @Override
     public int icon() {
-        // Keep this already-supported icon index for cross-fork injection compatibility.
-        return BuffIndicator.BERSERK;
+        return BuffIndicator.AMULET;
     }
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(0xFFF0A8);
+        icon.hardlight(0xDDEEFF);
+    }
+
+    @Override
+    public String iconTextDisplay() {
+        return "L";
     }
 
     @Override
@@ -154,10 +195,30 @@ public class ModLastStand extends Buff {
 
     @Override
     public String desc() {
-        return "Permanent Master Mode buff. If damage handled by the normal shielding system would be lethal, "
+        return "Permanent Master Mode survival buff with built-in Loot storage. If damage handled by the normal shielding system would be lethal, "
                 + "Last Stand limits that damage to leave 1 HP. Whenever the bearer is alive at exactly 1 HP when Last Stand acts, "
                 + "it restores HP to 25% and cures the same status ailments as a blessed Ankh, but grants no invulnerability and does not reset hunger. "
+                + "When attached to the Hero, tap its buff icon to open Loot / Put / Take / Console and directly use stored items; Dump is available from the Take window. "
+                + "Removing the buff first returns every stored item to the Hero's bags, or drops it at the Hero's feet if the bags are full. "
                 + "This does not guarantee survival: damage that bypasses normal shielding can still kill if it skips past 1 HP, and direct death effects can also bypass Last Stand.";
+    }
+
+    @Override
+    public void storeInBundle(Bundle bundle) {
+        super.storeInBundle(bundle);
+        bundle.put(STORAGE, storage);
+    }
+
+    @Override
+    public void restoreFromBundle(Bundle bundle) {
+        super.restoreFromBundle(bundle);
+        Object restored = bundle.get(STORAGE);
+        if (restored instanceof ModLootStorage) {
+            storage = (ModLootStorage) restored;
+        } else {
+            // Old Last Stand saves predate Loot storage; treat a missing payload as empty storage.
+            storage = new ModLootStorage();
+        }
     }
 
     /** Hidden ShieldBuff bridge; restored copies refuse to attach. */
