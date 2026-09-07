@@ -12,7 +12,117 @@ import java.lang.reflect.Modifier;
 /** Small runtime adapters for fork/minifier-sensitive combat members. */
 final class ModCombatCompat {
 
+    private static Method heroAttackTargetMethod;
+    private static Field heroAttackTargetField;
+    private static boolean heroAttackTargetResolved;
+
     private ModCombatCompat() {
+    }
+
+    /**
+     * Returns Hero's current attack target without linking the payload to one
+     * particular Hero accessor/field name. Current SPD exposes attackTarget();
+     * older/minified forks may expose only the underlying Char field.
+     */
+    static Char heroAttackTarget(Hero hero) {
+        if (hero == null) {
+            return null;
+        }
+
+        try {
+            resolveHeroAttackTarget(hero.getClass());
+            if (heroAttackTargetMethod != null) {
+                Object value = heroAttackTargetMethod.invoke(hero);
+                return value instanceof Char ? (Char) value : null;
+            }
+            if (heroAttackTargetField != null) {
+                Object value = heroAttackTargetField.get(hero);
+                return value instanceof Char ? (Char) value : null;
+            }
+        } catch (Exception ignored) {
+            // Attack observation is an optional compatibility path.
+        }
+        return null;
+    }
+
+    private static void resolveHeroAttackTarget(Class<?> heroClass) {
+        if (heroAttackTargetResolved) {
+            return;
+        }
+        heroAttackTargetResolved = true;
+
+        for (Method method : heroClass.getDeclaredMethods()) {
+            if (Modifier.isStatic(method.getModifiers())
+                    || method.getParameterTypes().length != 0
+                    || !Char.class.isAssignableFrom(method.getReturnType())) {
+                continue;
+            }
+            if ("attackTarget".equals(method.getName())) {
+                method.setAccessible(true);
+                heroAttackTargetMethod = method;
+                return;
+            }
+        }
+
+        Field candidate = null;
+        for (Field field : heroClass.getDeclaredFields()) {
+            if (Modifier.isStatic(field.getModifiers())
+                    || !Char.class.isAssignableFrom(field.getType())) {
+                continue;
+            }
+            if ("attackTarget".equals(field.getName())) {
+                field.setAccessible(true);
+                heroAttackTargetField = field;
+                return;
+            }
+            if (candidate != null) {
+                candidate = null;
+                break;
+            }
+            candidate = field;
+        }
+        if (candidate != null) {
+            candidate.setAccessible(true);
+            heroAttackTargetField = candidate;
+        }
+    }
+
+    static boolean hasInfiniteEvasionAgainst(Char defender, Char attacker) {
+        return defender != null
+                && attacker != null
+                && defender.defenseSkill(attacker) >= Char.INFINITE_EVASION;
+    }
+
+    /**
+     * Replays only the successful-hit side of Char.attack after the native hit
+     * roll has been rejected by engine-level infinite evasion. This deliberately
+     * lives entirely in SMM code: vanilla Char/ Hero/ enemy classes are not patched.
+     *
+     * The fallback preserves the core public combat pipeline (damage roll,
+     * defenseProc, DR, attackProc and damage). It is intentionally used only for
+     * the special INFINITE_EVASION case, never as a replacement for normal combat.
+     */
+    static boolean forceHeroHit(Hero hero, Char enemy, float dmgMulti, float dmgBonus) {
+        if (hero == null || enemy == null || !hero.isAlive() || !enemy.isAlive()) {
+            return false;
+        }
+
+        int dr = enemy.drRoll();
+        float dmg = hero.damageRoll() * dmgMulti + dmgBonus;
+        int effectiveDamage = enemy.defenseProc(hero, Math.round(dmg));
+
+        if (effectiveDamage >= 0) {
+            effectiveDamage = Math.max(effectiveDamage - dr, 0);
+            effectiveDamage = hero.attackProc(enemy, effectiveDamage);
+        }
+
+        // defenseProc may intentionally return a negative sentinel to suppress
+        // on-hit behavior; in that case the forced hit is still consumed but no
+        // damage call is made.
+        if (effectiveDamage >= 0 && enemy.isAlive()) {
+            enemy.damage(effectiveDamage, hero);
+        }
+        return true;
     }
 
     static void addDuelistComboHit(Hero hero, Char hitTarget) {
