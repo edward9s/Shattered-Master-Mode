@@ -209,6 +209,21 @@ class AbiProfile:
 
 injector.MOD_ITEM_DESCRIPTOR_PREFIX = FULL_SMM_PREFIX
 injector.TARGET_API_PREFIXES = injector.TARGET_API_PREFIXES + (injector.MOD_ANKH,)
+injector.LOOT_PAYLOAD_FAMILIES = tuple(
+    family
+    for family in injector.LOOT_PAYLOAD_FAMILIES
+    if family[0]
+    not in {
+        "Lcom/spd/mod/mechanics/ModLootBuff;",
+        "Lcom/spd/mod/journal/ModLootBuffOverlay;",
+    }
+) + (
+    ("Lcom/spd/mod/mechanics/ModLastStand;", "Lcom/spd/mod/mechanics/ModLastStand$"),
+    ("Lcom/spd/mod/journal/ModLastStandOverlay;", "Lcom/spd/mod/journal/ModLastStandOverlay$"),
+)
+injector.LOOT_REQUIRED_ROOTS = tuple(
+    root for root, _ in injector.LOOT_PAYLOAD_FAMILIES
+)
 
 _original_build_debug_payload = injector.build_debug_payload
 _original_payload_compatibility_errors = injector.payload_compatibility_errors
