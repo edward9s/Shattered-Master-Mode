@@ -9,14 +9,11 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.effects.CellEmitter;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Speck;
 import com.shatteredpixel.shatteredpixeldungeon.items.Ankh;
-import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
-import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
-import com.shatteredpixel.shatteredpixeldungeon.windows.WndUseItem;
 import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundle;
 
@@ -25,12 +22,10 @@ import java.util.ArrayList;
 
 public class ModAnkh extends Ankh {
 
-    public static final String AC_CHOOSE = "CHOOSE";
+    public static final String AC_STORE = "STORE";
     public static final String AC_UNBLESS = "UNBLESS";
     public static final String AC_CONSOLE = "CONSOLE";
     public static final String AC_LOOT = "LOOT";
-    public static final String AC_PUT = "PUT";
-    public static final String AC_TAKE = "TAKE";
 
     // Times revived via blessed ankh (kept inventory, instant revive).
     private int timesRevived = 0;
@@ -153,7 +148,7 @@ public class ModAnkh extends Ankh {
 
     @Override
     public String defaultAction() {
-        return AC_CHOOSE;
+        return AC_STORE;
     }
 
     @Override
@@ -172,14 +167,11 @@ public class ModAnkh extends Ankh {
             }
         }
 
+        if (!actions.contains(AC_STORE)) {
+            actions.add(AC_STORE);
+        }
         if (!actions.contains(AC_LOOT)) {
             actions.add(AC_LOOT);
-        }
-        if (!actions.contains(AC_PUT)) {
-            actions.add(AC_PUT);
-        }
-        if (storage.size() > 0 && !actions.contains(AC_TAKE)) {
-            actions.add(AC_TAKE);
         }
         if (!actions.contains(AC_CONSOLE)) {
             actions.add(AC_CONSOLE);
@@ -192,12 +184,10 @@ public class ModAnkh extends Ankh {
     public String actionName(String action, Hero hero) {
         if (AC_UNBLESS.equals(action)) {
             return "Unbless";
+        } else if (AC_STORE.equals(action)) {
+            return "Store";
         } else if (AC_LOOT.equals(action)) {
             return "Loot";
-        } else if (AC_PUT.equals(action)) {
-            return "Put";
-        } else if (AC_TAKE.equals(action)) {
-            return "Take (".concat(Integer.toString(storage.size())).concat(")");
         } else if (AC_CONSOLE.equals(action)) {
             return "Console";
         }
@@ -206,20 +196,15 @@ public class ModAnkh extends Ankh {
 
     @Override
     public void execute(Hero hero, String action) {
-        if (AC_CHOOSE.equals(action)) {
-            GameScene.show(new WndUseItem(null, this));
+        if (AC_STORE.equals(action)) {
+            storage.reclaimPending(hero);
+            GameScene.show(new WndModLoot(storage, name(), WndModLoot.Mode.USE));
         } else if (AC_CONSOLE.equals(action)) {
             GameScene.cancel();
             ModDebug$Console.open();
         } else if (AC_LOOT.equals(action)) {
             GameScene.cancel();
             storage.loot(hero);
-        } else if (AC_PUT.equals(action)) {
-            GameScene.cancel();
-            showPutSelector(hero);
-        } else if (AC_TAKE.equals(action)) {
-            GameScene.cancel();
-            GameScene.show(new WndModLoot(storage, name(), WndModLoot.Mode.TAKE));
         } else if (AC_BLESS.equals(action)) {
             GameScene.cancel();
             setCurrent(hero);
@@ -248,31 +233,6 @@ public class ModAnkh extends Ankh {
         }
     }
 
-    private void showPutSelector(final Hero hero) {
-        if (hero == null || hero.belongings == null || hero.belongings.backpack == null) {
-            return;
-        }
-
-        GameScene.selectItem(new WndBag.ItemSelector() {
-            @Override
-            public String textPrompt() {
-                return "Select an item to store";
-            }
-
-            @Override
-            public boolean itemSelectable(Item item) {
-                return ModLootStorage.canStore(item);
-            }
-
-            @Override
-            public void onSelect(Item item) {
-                if (item != null && storage.putSingle(hero, item)) {
-                    showPutSelector(hero);
-                }
-            }
-        });
-    }
-
     /**
      * Appends revival/resurrection history and stored-item count to the standard description.
      *
@@ -284,6 +244,7 @@ public class ModAnkh extends Ankh {
         String base = super.desc();
         StringBuilder sb = new StringBuilder(base);
 
+        sb.append("\n\nStore opens the shared item panel, where stored usable items can be activated directly and Loot, Put, Take and Console are available.");
         sb.append("\n\nLoot tramples high grass and collects reachable heap items and embedded projectiles across the level. Items that do not fit in your bags are stored inside the ankh.");
 
         if (storage.size() > 0) {
