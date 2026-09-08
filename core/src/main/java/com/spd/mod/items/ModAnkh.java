@@ -233,40 +233,13 @@ public class ModAnkh extends Ankh {
         }
     }
 
-    /**
-     * Appends revival/resurrection history and stored-item count to the standard description.
-     *
-     * "Revived"      = blessed ankh path: instant revive, inventory kept.
-     * "Resurrected"  = unblessed ankh path: WndResurrect, inventory lost.
-     */
     @Override
     public String desc() {
-        String base = super.desc();
-        StringBuilder sb = new StringBuilder(base);
-
-        sb.append("\n\nStore opens the shared item panel, where stored usable items can be activated directly and Loot, Put, Take and Console are available.");
-        sb.append("\n\nLoot tramples high grass and collects reachable heap items and embedded projectiles across the level. Items that do not fit in your bags are stored inside the ankh.");
-
+        StringBuilder sb = new StringBuilder(super.desc());
+        sb.append("\n\nReusable. Store opens shared storage; Loot gathers reachable level items and stores overflow.");
         if (storage.size() > 0) {
-            sb.append("\n\nCurrently storing ")
-              .append(storage.size())
-              .append(storage.size() == 1 ? " item." : " items.");
+            sb.append(" Stored: ").append(storage.size()).append(".");
         }
-
-        if (false && timesRevived > 0) {
-            sb.append("\n\nThis ankh has revived you ")
-              .append(timesRevived)
-              .append(timesRevived == 1 ? " time" : " times")
-              .append(" on the spot, with your inventory still in hand.");
-        }
-
-        if (false && timesResurrected > 0) {
-            sb.append("\n\nThis ankh has resurrected you ")
-              .append(timesResurrected)
-              .append(timesResurrected == 1 ? " time" : " times")
-              .append(", scattering your inventory at the place you fell.");
-        }
-
         return sb.toString();
     }
 
