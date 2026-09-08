@@ -57,7 +57,9 @@ The SPD source version used to compile the donors is only a build baseline. The 
 - The target APK/JAR remains the base artifact.
 - SPD package references are rebased to the target fork package when required.
 - `com.spd.mod.*` names are preserved.
-- The target `WndGame` constructor is patched to call `com.spd.mod.ModGame.installInjectedMenu(Object)`.
+- The target `WndGame` constructor is patched only to install the SMM menu entry.
+- `Char.attack(Char,float,float,float)` is the only gameplay-level invasive hook. It calls `ModParryRiposte.onIncomingAttack(Char, Char)` for Riposte observation without replacing vanilla attack logic.
+- Do not add more gameplay-level hooks. Use existing vanilla extension points whenever possible.
 - The injector stops on unresolved payload self-containment or target compatibility failures.
 
 ### APK
