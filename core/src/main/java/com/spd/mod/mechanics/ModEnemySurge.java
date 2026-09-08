@@ -256,14 +256,9 @@ public class ModEnemySurge extends Buff {
 
     @Override
     public String desc() {
-        return "Permanent Master Mode buff. Natural enemy respawning is set to approximately "
-                + spawnMultiplier + "x the normal rate, and the natural enemy population limit is also raised to approximately "
-                + spawnMultiplier + "x its normal value; 1x leaves both unchanged. "
-                + "Open this buff's information window and use the Down / Up buttons to adjust the multiplier from 1x to 10x. "
-                + "Enemy attraction is " + (attractEnemies ? "ON" : "OFF") + ". When enabled, enemies are silently beckoned toward the buff bearer every 6 turns. "
-                + "The buff icon is pink while attraction is ON and cyan while it is OFF. "
-                + "Only one Enemy Surge can be active at a time; applying it to another character transfers it. "
-                + "Vanilla spawn placement and floors with no natural respawner remain unchanged.";
+        return "Enemy respawn rate and population limit: " + spawnMultiplier
+                + "x. Attraction: " + (attractEnemies ? "ON" : "OFF")
+                + ". Tap to configure.";
     }
 
     @Override
