@@ -153,7 +153,7 @@ public class ModAssassinBuff extends Buff {
                 defaultCellListenerField = GameScene.class.getDeclaredField("defaultCellListener");
                 defaultCellListenerField.setAccessible(true);
             }
-            return (Object) defaultCellListenerField.get(null);
+            return defaultCellListenerField.get(null);
         } catch (Exception ignored) {
             return null;
         }
