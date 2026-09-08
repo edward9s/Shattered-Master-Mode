@@ -195,12 +195,8 @@ public class ModLastStand extends Buff {
 
     @Override
     public String desc() {
-        return "Permanent Master Mode survival buff with built-in Loot storage. If damage handled by the normal shielding system would be lethal, "
-                + "Last Stand limits that damage to leave 1 HP. Whenever the bearer is alive at exactly 1 HP when Last Stand acts, "
-                + "it restores HP to 50% and applies PotionOfHealing.cure(), but grants no invulnerability and does not reset hunger. "
-                + "When attached to the Hero, tap its buff icon to open Loot / Put / Take / Console and directly use stored items; Dump is available from the Take window. "
-                + "Removing the buff first returns every stored item to the Hero's bags, or drops it at the Hero's feet if the bags are full. "
-                + "This does not guarantee survival: damage that bypasses normal shielding can still kill if it skips past 1 HP, and direct death effects can also bypass Last Stand.";
+        return "Lethal damage handled by normal shielding leaves 1 HP, then restores 50% HP and cures ailments. "
+                + "Grants no invulnerability; some direct death effects can bypass it. Tap to open Loot storage.";
     }
 
     @Override
