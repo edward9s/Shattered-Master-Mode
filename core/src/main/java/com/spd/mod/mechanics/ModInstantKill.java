@@ -145,11 +145,10 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public String desc() {
-        return "Permanent Master Mode combat buff for the Hero. Instant Kill is "
-                + (instantKill ? "ON" : "OFF")
-                + "; when enabled, every successful normal attack invokes the target's native death behavior regardless of alignment or invulnerability. Invulnerable targets still require a successful hit roll when Infinite Accuracy is OFF. Infinite Accuracy is "
+        return "Instant Kill: " + (instantKill ? "ON" : "OFF")
+                + ". When ON, successful normal attacks kill the target. Infinite Accuracy: "
                 + (infiniteAccuracy ? "ON" : "OFF")
-                + "; when enabled, normal accuracy receives an extreme multiplier and engine-level INFINITE_EVASION present at attack start is remembered even if the defender consumes that state during its native parry/miss response, then recovered with one Mod-side successful-hit pass. Explicit Mod attack paths may report an engine-blocked attack here, but this buff alone decides whether invulnerability is bypassed and whether native death is invoked. The two switches remain independent, and vanilla combat classes are not patched.";
+                + ". When ON, normal attacks effectively cannot miss. Tap to configure.";
     }
 
     @Override
