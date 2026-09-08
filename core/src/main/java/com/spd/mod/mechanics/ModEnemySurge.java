@@ -240,7 +240,7 @@ public class ModEnemySurge extends Buff {
         if (attractEnemies) {
             icon.hardlight(0xFF5577);
         } else {
-            icon.hardlight(0x55CCFF);
+            icon.hardlight(0xFF9F43);
         }
     }
 
