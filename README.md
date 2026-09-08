@@ -14,7 +14,7 @@
 **⚠️ Mod Items and Buffs Save Upgrade Warning (VERY IMPORTANT!)**
 Mod items and Mod buffs are development aids and not official in-game items. If future updates modify the underlying structure of Mod Items, old save files containing them will fail to load.
  * **Proper Upgrade Procedure:** You **only** need to use the **Tools -> Alchemize** tool to completely remove all Mod Items from your inventory and the map **IF** the new version explicitly modifies Mod Items.
- * **Removing Mod Buffs:** If the new version explicitly modifies Mod Buffs, use **ModAnkh -> Console**, run `@buff affect <ModBuffClass>`, select the character that already has that buff, then run `use @buff detach`. The `affect` command reuses the existing buff instance when one is already present, so this safely calls the buff's normal `detach()` cleanup path.
+ * **Removing Mod Buffs:** If the new version explicitly modifies Mod Buffs, use **Tools -> Journal -> Buff**, find and tap the Mod Buff you want to remove, then tap the character that currently has it. Buff entries toggle attach/detach, so selecting a character that already has the buff will detach it.
 
 ## How to build from source
 
