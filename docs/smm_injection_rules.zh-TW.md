@@ -57,7 +57,9 @@ Donor 編譯時使用的 SPD source 版本只是 build baseline；InjectKit 的�
 - Target APK/JAR 始終是 base artifact。
 - 需要時將 SPD package reference rebase 到 target fork package。
 - `com.spd.mod.*` 名稱保持不變。
-- Patch target `WndGame` constructor，呼叫 `com.spd.mod.ModGame.installInjectedMenu(Object)`。
+- Patch target `WndGame` constructor 僅用來安裝 SMM 選單入口。
+- `Char.attack(Char,float,float,float)` 是唯一 gameplay-level 侵入式 hook。它只呼叫 `ModParryRiposte.onIncomingAttack(Char, Char)` 觀察 Riposte 事件，不取代 vanilla attack 邏輯。
+- 不再新增其他 gameplay-level hook；能使用 vanilla 既有 extension point 時一律優先使用。
 - Payload self-containment 或 target compatibility 無法解決時停止 injection。
 
 ### APK
