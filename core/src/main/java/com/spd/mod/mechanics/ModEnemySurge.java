@@ -238,9 +238,13 @@ public class ModEnemySurge extends Buff {
     @Override
     public void tintIcon(Image icon) {
         if (attractEnemies) {
-            icon.hardlight(0xFF5577);
-        } else {
+            icon.hardlight(0xFF4444);
+        } else if (spawnMultiplier >= 4) {
             icon.hardlight(0xFF9F43);
+        } else if (spawnMultiplier >= 2) {
+            icon.hardlight(0xFFD15C);
+        } else {
+            icon.hardlight(0x55CCFF);
         }
     }
 
