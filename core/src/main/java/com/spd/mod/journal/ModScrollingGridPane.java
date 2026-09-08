@@ -67,8 +67,18 @@ public class ModScrollingGridPane extends ScrollingGridPane {
 
         @Override
         protected void onPointerUp(PointerEvent event) {
-            super.onPointerUp(event);
             pressing = false;
+
+            if (longClicked) {
+                // Older SPD forks perform ScrollPane.onClick() directly inside
+                // PointerController.onPointerUp(). Cancel before calling super so
+                // releasing a successful long-press can never become a normal click.
+                longClicked = false;
+                curEvent = null;
+                return;
+            }
+
+            super.onPointerUp(event);
         }
 
         @Override
