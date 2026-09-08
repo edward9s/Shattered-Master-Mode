@@ -3,7 +3,8 @@
 
 ## Core Features
  * Designed for in-game sandbox testing, rapid editing, and easily creating meme images.
- * **Preserves Vanilla Mechanics:** This editor strictly does not alter any underlying logic of the official vanilla game.
+ * **Preserves Vanilla Mechanics:** SMM does not replace or rewrite vanilla gameplay mechanics. Vanilla behavior remains unchanged unless an SMM feature is explicitly enabled.
+ * **Minimal Integration:** SMM uses existing vanilla extension points whenever possible. The only gameplay-level invasive hook is `Char.attack()`, used by Riposte; no additional gameplay hooks should be added.
 
 **⚠️ Known Limitations & Warnings**
  * **Boss Floor Binding (High Crash Risk):** Bosses with multi-stage transformations (e.g., Tengu, DM-300) have their scripts deeply bound to their specific floors. Forcing them to spawn on non-designated floors will immediately crash the game.
