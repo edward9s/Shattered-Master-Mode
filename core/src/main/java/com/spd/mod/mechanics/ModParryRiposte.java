@@ -276,7 +276,7 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public int icon() {
-        return BuffIndicator.DUEL_GUARD;
+        return ModBuffIconCompat.get("DUEL_GUARD");
     }
 
     @Override
