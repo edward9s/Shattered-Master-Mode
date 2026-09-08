@@ -92,9 +92,7 @@ public class ModAssassinBuff extends Buff {
 
     @Override
     public String desc() {
-        return "Permanent Master Mode buff for the Hero. Press and hold a normal map cell or character for about half a second to invoke Mod Assassin on that cell. "
-                + "Mod Assassin handles movement and its own absolute-accuracy strike. If the selected target starts that strike with engine-level INFINITE_EVASION, the native miss/parry path is bypassed and the Mod-side successful-hit pipeline is used directly. "
-                + "Dragging, pinching, ordinary taps, and other targeting modes keep their original controls. Vanilla combat classes are not patched.";
+        return "Long-press a map cell or character to use Assassin. The strike has perfect accuracy.";
     }
 
     private static void ensureInputLayer() {
@@ -155,7 +153,7 @@ public class ModAssassinBuff extends Buff {
                 defaultCellListenerField = GameScene.class.getDeclaredField("defaultCellListener");
                 defaultCellListenerField.setAccessible(true);
             }
-            return defaultCellListenerField.get(null);
+            return (Object) defaultCellListenerField.get(null);
         } catch (Exception ignored) {
             return null;
         }
