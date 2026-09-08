@@ -33,16 +33,25 @@ def patch_char(file_path: Path) -> None:
         print(f"Incoming-attack hook already injected into {file_path}")
         return
 
+    # Forks commonly add their own setup logic at the start of Char.attack(), so
+    # do not depend on any particular first statement (such as a null guard).
+    # Match the stable four-argument attack entry point itself and preserve the
+    # fork's actual defender parameter name.
     pattern = re.compile(
-        r'(public\s+boolean\s+attack\s*\(\s*Char\s+enemy\s*,\s*float\s+dmgMulti\s*,\s*'
-        r'float\s+dmgBonus\s*,\s*float\s+accMulti\s*\)\s*\{\s*'
-        r'if\s*\(\s*enemy\s*==\s*null\s*\)\s*return\s+false\s*;)'
+        r'(public\s+boolean\s+attack\s*\(\s*Char\s+([A-Za-z_$][\w$]*)\s*,\s*'
+        r'float\s+[A-Za-z_$][\w$]*\s*,\s*float\s+[A-Za-z_$][\w$]*\s*,\s*'
+        r'float\s+[A-Za-z_$][\w$]*\s*\)\s*\{)'
     )
-    hook = """
+
+    def inject_hook(match: re.Match) -> str:
+        defender = match.group(2)
+        hook = f"""
 
         // MASTER_MODE_INCOMING_ATTACK
-        com.spd.mod.mechanics.ModParryRiposte.onIncomingAttack(this, enemy);"""
-    content, count = pattern.subn(r'\1' + hook, content, count=1)
+        com.spd.mod.mechanics.ModParryRiposte.onIncomingAttack(this, {defender});"""
+        return match.group(1) + hook
+
+    content, count = pattern.subn(inject_hook, content, count=1)
     if count != 1:
         raise RuntimeError(f"Char.attack injection point not found in {file_path}")
     file_path.write_text(content, encoding='utf-8')
