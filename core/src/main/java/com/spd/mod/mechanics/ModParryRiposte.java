@@ -310,14 +310,10 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public String desc() {
-        String parry = parryEnabled
-                ? "Parry is ON: Total keeps the Hero on the native Monk Focus parry path, so incoming attacks handled by the normal hit check are parried, including engine-level infinite accuracy. "
-                : "Parry is OFF: Total does not maintain Focus and does not alter the Hero's incoming hit roll. ";
-        String riposte = riposteEnabled
-                ? "Riposte is ON: direct attack attempts and hit-rolled special attacks against the Hero queue one guaranteed-hit counterattack, regardless of distance, hit/miss result, Parry, or defender invulnerability. "
-                : "Riposte is OFF: incoming attacks do not trigger Total counterattacks. ";
-        return "Permanent Master Mode buff. " + parry + riposte
-                + "Parry and Riposte are independent switches. Enemy Focus and other engine-level INFINITE_EVASION are bypassed by the outgoing Riposte before consumable parry/miss hooks can turn it into a miss.";
+        return "Parry: " + (parryEnabled ? "ON" : "OFF")
+                + ". When ON, incoming hit checks are parried. Riposte: "
+                + (riposteEnabled ? "ON" : "OFF")
+                + ". When ON, incoming attacks trigger a guaranteed counterattack. Tap to configure.";
     }
 
     @Override
