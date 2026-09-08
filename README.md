@@ -12,7 +12,7 @@
  * **Special Rooms Disabled:** Special rooms (e.g., Sacrificial Fire) rely on global generation mechanics. The editor currently does not support manually spawning special terrains or rooms with fully functioning logic.
 
 > [!CAUTION]
-> ## Mod Items and Buffs Save Upgrade Warning
+> **⚠️ Mod Items and Buffs Save Upgrade Warning**
 >
 > Mod items and Mod buffs are development aids and not official in-game items. If future updates modify their underlying structure, old save files containing them may fail to load.
 >
