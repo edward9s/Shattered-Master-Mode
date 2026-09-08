@@ -47,7 +47,7 @@ public class ModInstantKill extends ChampionEnemy {
     {
         announced = true;
         revivePersists = true;
-        color = 0xFF4444;
+        color = 0xB06CFF;
     }
 
     /** Stable across supported SPD forks; avoids Char.buff(Class) ABI variance. */
@@ -130,7 +130,7 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(0xFF4444);
+        icon.hardlight(0xB06CFF);
     }
 
     @Override
