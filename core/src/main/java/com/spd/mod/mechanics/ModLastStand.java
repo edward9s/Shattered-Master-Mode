@@ -75,19 +75,6 @@ public class ModLastStand extends Buff {
         return null;
     }
 
-    /**
-     * BuffIndicator icon IDs are compile-time constants and differ across SPD forks.
-     * Read the target game's field at runtime so injected payloads use target IDs.
-     */
-    private static int runtimeBuffIcon(String fieldName, int fallback) {
-        try {
-            Field field = BuffIndicator.class.getField(fieldName);
-            return field.getInt(null);
-        } catch (ReflectiveOperationException | SecurityException ignored) {
-            return fallback;
-        }
-    }
-
     public boolean isAttached() {
         return target != null && find(target) == this;
     }
@@ -188,7 +175,7 @@ public class ModLastStand extends Buff {
 
     @Override
     public int icon() {
-        return runtimeBuffIcon("AMULET", BuffIndicator.AMULET);
+        return ModBuffIconCompat.get("AMULET");
     }
 
     @Override
@@ -290,7 +277,7 @@ public class ModLastStand extends Buff {
 
         @Override
         public int icon() {
-            return runtimeBuffIcon("NONE", BuffIndicator.NONE);
+            return ModBuffIconCompat.get("NONE");
         }
     }
 }
