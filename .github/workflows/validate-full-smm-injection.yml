@@ -1,19 +1,7 @@
 name: Validate full SMM injection
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - '.github/workflows/build.yml'
-      - '.github/workflows/build-inject-kit.yml'
-      - '.github/workflows/validate-full-smm-injection.yml'
-      - 'core/src/main/java/com/spd/mod/**'
-      - 'scripts/inject_apk.py'
-      - 'scripts/_inject_apk_core.py'
-      - 'scripts/inject_jar.py'
-      - 'scripts/_inject_jar_core.py'
-      - 'scripts/package_inject_kit.py'
-      - 'scripts/patch_android.py'
+  workflow_dispatch:
 
 permissions:
   contents: read
