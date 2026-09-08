@@ -130,7 +130,7 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(0x66FF33);
+        icon.hardlight(0xFF4444);
     }
 
     @Override
