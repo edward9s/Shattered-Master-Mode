@@ -72,7 +72,7 @@ public class ModAssassinBuff extends Buff {
 
     @Override
     public int icon() {
-        return BuffIndicator.PREPARATION;
+        return ModBuffIconCompat.get("PREPARATION");
     }
 
     @Override
