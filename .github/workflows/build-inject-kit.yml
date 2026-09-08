@@ -28,8 +28,14 @@ jobs:
           if [ -n "$REQUESTED_REF" ]; then
             REF="$REQUESTED_REF"
           else
-            REF=$(curl -fsSL https://api.github.com/repos/00-Evan/shattered-pixel-dungeon/releases/latest \
-              | python -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')
+            LATEST_URL=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+              https://github.com/00-Evan/shattered-pixel-dungeon/releases/latest)
+            LATEST_URL="${LATEST_URL%/}"
+            REF="${LATEST_URL##*/}"
+            if [ -z "$REF" ] || [ "$REF" = "latest" ]; then
+              echo "Failed to resolve latest SPD release tag from: $LATEST_URL" >&2
+              exit 1
+            fi
           fi
           test -n "$REF"
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
