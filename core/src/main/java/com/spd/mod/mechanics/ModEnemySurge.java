@@ -232,7 +232,7 @@ public class ModEnemySurge extends Buff {
 
     @Override
     public int icon() {
-        return BuffIndicator.RAGE;
+        return ModBuffIconCompat.get("RAGE");
     }
 
     @Override
