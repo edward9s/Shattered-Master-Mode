@@ -282,7 +282,7 @@ public class ModParryRiposte extends ChampionEnemy {
     @Override
     public void tintIcon(Image icon) {
         if (riposteEnabled) {
-            icon.hardlight(0xFF5577);
+            icon.hardlight(0xB06CFF);
         } else if (parryEnabled) {
             icon.hardlight(0x55CCFF);
         } else {
