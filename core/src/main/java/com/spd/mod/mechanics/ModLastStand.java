@@ -180,7 +180,7 @@ public class ModLastStand extends Buff {
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(0xDDEEFF);
+        icon.hardlight(0xFFD15C);
     }
 
     @Override
