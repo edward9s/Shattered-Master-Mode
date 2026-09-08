@@ -276,7 +276,7 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public int icon() {
-        return riposteEnabled ? BuffIndicator.DUEL_CLEAVE : BuffIndicator.DUEL_GUARD;
+        return BuffIndicator.DUEL_GUARD;
     }
 
     @Override
