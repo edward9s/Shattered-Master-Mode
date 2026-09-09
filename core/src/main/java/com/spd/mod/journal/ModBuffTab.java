@@ -2,6 +2,7 @@ package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon;
 import com.shatteredpixel.shatteredpixeldungeon.ui.CheckBox;
 import com.watabou.noosa.ui.Component;
@@ -34,6 +35,13 @@ public class ModBuffTab extends Component {
         grid.addHeader("Mod Buff");
 
         heroOnlyCheckBox = new CheckBox("Hero Only") {
+            {
+                // CheckBox inherits RedButton's 9pt default. Match the 7pt grid headers.
+                remove(text);
+                text = PixelScene.renderTextBlock("Hero Only", 7);
+                add(text);
+            }
+
             @Override
             protected void onClick() {
                 super.onClick();
