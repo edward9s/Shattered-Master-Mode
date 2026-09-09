@@ -21,11 +21,8 @@ public final class ModBuffIconCompat {
         }
 
         int value = read(fieldName);
-        if (value == Integer.MIN_VALUE && !"NONE".equals(fieldName)) {
-            value = read("NONE");
-        }
         if (value == Integer.MIN_VALUE) {
-            value = BuffIndicator.NONE;
+            value = knownFallback(fieldName);
         }
 
         CACHE.put(fieldName, value);
@@ -38,6 +35,29 @@ public final class ModBuffIconCompat {
             return field.getInt(null);
         } catch (ReflectiveOperationException | SecurityException ignored) {
             return Integer.MIN_VALUE;
+        }
+    }
+
+    /**
+     * R8 may rename or remove public static final fields that are otherwise only
+     * referenced through reflection. These semantic IDs are shared by the SPD
+     * forks supported by SMM, so keep a non-reflective fallback for release builds.
+     */
+    private static int knownFallback(String fieldName) {
+        switch (fieldName) {
+            case "RAGE":
+                return 38;
+            case "PREPARATION":
+                return 42;
+            case "AMULET":
+                return 59;
+            case "DUEL_CLEAVE":
+                return 60;
+            case "DUEL_GUARD":
+                return 61;
+            case "NONE":
+            default:
+                return 127;
         }
     }
 }
