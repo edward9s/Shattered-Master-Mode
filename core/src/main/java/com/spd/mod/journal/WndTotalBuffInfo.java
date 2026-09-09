@@ -4,6 +4,7 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModParryRiposte;
+import com.watabou.noosa.ui.Component;
 
 /**
  * Total's live buff information window. Parry and Riposte are independent:
@@ -30,8 +31,6 @@ public class WndTotalBuffInfo extends WndInfoBuff {
                 rebuild(buff);
             }
         };
-        parryButton.setRect(0, height + GAP, width, BUTTON_HEIGHT);
-        add(parryButton);
 
         final RedButton riposteButton = new RedButton(riposteButtonText(buff), 8) {
             @Override
@@ -46,10 +45,23 @@ public class WndTotalBuffInfo extends WndInfoBuff {
                 rebuild(buff);
             }
         };
-        riposteButton.setRect(0, parryButton.bottom() + GAP, width, BUTTON_HEIGHT);
-        add(riposteButton);
 
-        resize(width, (int) riposteButton.bottom() + 2);
+        final Component controls = new Component() {
+            @Override
+            protected void layout() {
+                parryButton.setRect(x, y, width, BUTTON_HEIGHT);
+                riposteButton.setRect(x, parryButton.bottom() + GAP, width, BUTTON_HEIGHT);
+            }
+        };
+        controls.add(parryButton);
+        controls.add(riposteButton);
+        controls.setSize(width, BUTTON_HEIGHT * 2 + GAP);
+
+        if (!ModWindowCompat.addToBottom(this, controls, GAP, 2)) {
+            controls.setPos(0, height + GAP);
+            add(controls);
+            resize(width, (int) controls.bottom() + 2);
+        }
     }
 
     private boolean isCurrent(ModParryRiposte buff) {
