@@ -6,6 +6,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModEnemySurge;
+import com.watabou.noosa.ui.Component;
 
 /** Enemy Surge's live buff information window. */
 public class WndEnemySurgeInfo extends WndInfoBuff {
@@ -18,10 +19,6 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
 
         final RenderedTextBlock currentMultiplier = PixelScene.renderTextBlock(currentText(buff), 10);
         currentMultiplier.hardlight(TITLE_COLOR);
-        currentMultiplier.setPos((width - currentMultiplier.width()) / 2f, height + GAP);
-        add(currentMultiplier);
-
-        float halfWidth = (width - GAP) / 2f;
 
         final RedButton downButton = new RedButton(downText(buff), 8) {
             @Override
@@ -35,8 +32,6 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
                 rebuild(buff);
             }
         };
-        downButton.setRect(0, currentMultiplier.bottom() + GAP, halfWidth, BUTTON_HEIGHT);
-        add(downButton);
 
         final RedButton upButton = new RedButton(upText(buff), 8) {
             @Override
@@ -50,8 +45,6 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
                 rebuild(buff);
             }
         };
-        upButton.setRect(downButton.right() + GAP, downButton.top(), halfWidth, BUTTON_HEIGHT);
-        add(upButton);
 
         final RedButton attractButton = new RedButton(attractText(buff), 8) {
             @Override
@@ -65,10 +58,31 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
                 rebuild(buff);
             }
         };
-        attractButton.setRect(0, downButton.bottom() + GAP, width, BUTTON_HEIGHT);
-        add(attractButton);
 
-        resize(width, (int) attractButton.bottom() + 2);
+        final Component controls = new Component() {
+            @Override
+            protected void layout() {
+                currentMultiplier.setPos(x + (width - currentMultiplier.width()) / 2f, y);
+
+                float halfWidth = (width - GAP) / 2f;
+                downButton.setRect(x, currentMultiplier.bottom() + GAP, halfWidth, BUTTON_HEIGHT);
+                upButton.setRect(downButton.right() + GAP, downButton.top(), halfWidth, BUTTON_HEIGHT);
+                attractButton.setRect(x, downButton.bottom() + GAP, width, BUTTON_HEIGHT);
+            }
+        };
+        controls.add(currentMultiplier);
+        controls.add(downButton);
+        controls.add(upButton);
+        controls.add(attractButton);
+        controls.setSize(
+                width,
+                currentMultiplier.height() + GAP + BUTTON_HEIGHT + GAP + BUTTON_HEIGHT);
+
+        if (!ModWindowCompat.addToBottom(this, controls, GAP, 2)) {
+            controls.setPos(0, height + GAP);
+            add(controls);
+            resize(width, (int) controls.bottom() + 2);
+        }
     }
 
     private void rebuild(ModEnemySurge buff) {
