@@ -2,9 +2,10 @@ package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
-import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon;
 import com.shatteredpixel.shatteredpixeldungeon.ui.CheckBox;
+import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
+import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
 import com.watabou.noosa.ui.Component;
 import com.watabou.utils.Reflection;
 
@@ -36,9 +37,10 @@ public class ModBuffTab extends Component {
 
         heroOnlyCheckBox = new CheckBox("Hero Only") {
             {
-                // CheckBox inherits RedButton's 9pt default. Match the 7pt grid headers.
+                // Reuse the target fork's own GridHeader text so this checkbox
+                // follows whatever font size/style that fork defines for headers.
                 remove(text);
-                text = PixelScene.renderTextBlock("Hero Only", 7);
+                text = headerText("Hero Only");
                 add(text);
             }
 
@@ -131,6 +133,24 @@ public class ModBuffTab extends Component {
             for (ModGridBuff gridBuff : neutralBuffs) {
                 grid.addItem(gridBuff);
             }
+        }
+    }
+
+    private static RenderedTextBlock headerText(String label) {
+        HeaderTextSource source = new HeaderTextSource(label);
+        RenderedTextBlock result = source.takeText();
+        source.destroy();
+        return result;
+    }
+
+    private static class HeaderTextSource extends ScrollingGridPane.GridHeader {
+        HeaderTextSource(String label) {
+            super(label);
+        }
+
+        RenderedTextBlock takeText() {
+            remove(text);
+            return text;
         }
     }
 
