@@ -32,16 +32,17 @@ public class ModBuffTab extends Component {
 
         // Master Mode-specific buffs are explicitly pinned above scanned vanilla buffs.
         grid.addHeader("Mod Buff");
-        heroOnlyButton = new RedButton(heroOnlyButtonText(), 6) {
-            @Override
-            protected void onClick() {
-                heroOnly = !heroOnly;
-                text(heroOnlyButtonText());
-            }
-        };
+        heroOnlyButton = new RedButton(heroOnlyButtonText(), 6);
         // Keep this control in the scroll content so it moves with the Mod Buff header.
         // It is intentionally not a grid item, so the vanilla grid layout remains intact.
         grid.content().add(heroOnlyButton);
+        grid.setClickControl(heroOnlyButton, new Runnable() {
+            @Override
+            public void run() {
+                heroOnly = !heroOnly;
+                heroOnlyButton.text(heroOnlyButtonText());
+            }
+        });
 
         addPinned(new PinnedFactory() {
             @Override public ModGridEntry create() { return new ModGridParryRiposte(); }
