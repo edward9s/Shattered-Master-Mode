@@ -2,6 +2,7 @@ package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon;
+import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.watabou.noosa.ui.Component;
 import com.watabou.utils.Reflection;
@@ -13,7 +14,14 @@ public class ModBuffTab extends Component {
     public static ModBuffTab instance;
     public static float scrollTop;
 
+    /** Session-only journal mode. Intentionally never serialized. */
+    public static boolean heroOnly = false;
+
+    private static final int HERO_ONLY_BUTTON_WIDTH = 62;
+    private static final int HERO_ONLY_BUTTON_HEIGHT = 10;
+
     private ModScrollingGridPane grid;
+    private RedButton heroOnlyButton;
 
     public ModBuffTab() {
         super();
@@ -24,6 +32,17 @@ public class ModBuffTab extends Component {
 
         // Master Mode-specific buffs are explicitly pinned above scanned vanilla buffs.
         grid.addHeader("Mod Buff");
+        heroOnlyButton = new RedButton(heroOnlyButtonText(), 6) {
+            @Override
+            protected void onClick() {
+                heroOnly = !heroOnly;
+                text(heroOnlyButtonText());
+            }
+        };
+        // Keep this control in the scroll content so it moves with the Mod Buff header.
+        // It is intentionally not a grid item, so the vanilla grid layout remains intact.
+        grid.content().add(heroOnlyButton);
+
         addPinned(new PinnedFactory() {
             @Override public ModGridEntry create() { return new ModGridParryRiposte(); }
         });
@@ -103,6 +122,10 @@ public class ModBuffTab extends Component {
         }
     }
 
+    private static String heroOnlyButtonText() {
+        return heroOnly ? "Hero Only: ON" : "Hero Only: OFF";
+    }
+
     private interface PinnedFactory {
         ModGridEntry create();
     }
@@ -128,6 +151,13 @@ public class ModBuffTab extends Component {
     public void layout() {
         super.layout();
         grid.setRect(this.x, this.y, this.width, this.height);
+
+        float buttonWidth = Math.min(HERO_ONLY_BUTTON_WIDTH, grid.width());
+        heroOnlyButton.setRect(
+                Math.max(0, grid.width() - buttonWidth),
+                0,
+                buttonWidth,
+                HERO_ONLY_BUTTON_HEIGHT);
     }
 
     public void restoreScroll() {
