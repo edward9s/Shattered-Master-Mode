@@ -40,10 +40,18 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
     }
 
     public static void start(Class<? extends Buff> buffClass) {
+        if (ModBuffTab.heroOnly) {
+            toggleBuff(Dungeon.hero, buffClass);
+            return;
+        }
         start(buffClass, false);
     }
 
     public static void startHeroOnly(Class<? extends Buff> buffClass) {
+        if (ModBuffTab.heroOnly) {
+            toggleBuff(Dungeon.hero, buffClass);
+            return;
+        }
         start(buffClass, true);
     }
 
@@ -66,6 +74,41 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
             return buff;
         }
         return null;
+    }
+
+    private static void toggleBuff(Char target, Class<? extends Buff> buffClass) {
+        if (target == null) {
+            GLog.w("No Hero available.", new Object[0]);
+            return;
+        }
+
+        Buff buff = findBuff(target, buffClass);
+        String format;
+        Buff resultBuff;
+
+        if (buff != null) {
+            buff.detach();
+            resultBuff = buff;
+            format = "Detach %s";
+        } else {
+            resultBuff = Buff.affect(target, buffClass);
+            if (resultBuff == null) {
+                GLog.w("Unable to affect %s", buffClass.getSimpleName());
+                return;
+            }
+            smartSetDuration(resultBuff, 1000000000f);
+            format = "Affect %s";
+        }
+
+        String displayName;
+        try {
+            Method m = resultBuff.getClass().getMethod("name");
+            displayName = (String) m.invoke(resultBuff);
+        } catch (Exception e) {
+            displayName = buffClass.getSimpleName();
+        }
+
+        GLog.p(format, displayName);
     }
 
     @Override
@@ -112,29 +155,7 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
             return;
         }
 
-        Buff buff = findBuff(target, buffClass);
-        String format;
-        Buff resultBuff;
-
-        if (buff != null) {
-            buff.detach();
-            resultBuff = buff;
-            format = "Detach %s";
-        } else {
-            resultBuff = Buff.affect(target, buffClass);
-            smartSetDuration(resultBuff, 1000000000f);
-            format = "Affect %s";
-        }
-
-        String displayName;
-        try {
-            Method m = resultBuff.getClass().getMethod("name");
-            displayName = (String) m.invoke(resultBuff);
-        } catch (Exception e) {
-            displayName = buffClass.getSimpleName();
-        }
-
-        GLog.p(format, displayName);
+        toggleBuff(target, buffClass);
         ShatteredPixelDungeon.runOnRenderThread(this);
     }
 
