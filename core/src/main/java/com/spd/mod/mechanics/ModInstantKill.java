@@ -47,7 +47,9 @@ public class ModInstantKill extends ChampionEnemy {
     {
         announced = true;
         revivePersists = true;
-        color = 0xB06CFF;
+        // Some forks use ChampionEnemy.color to tint the character sprite directly.
+        // This debug buff has no character tint of its own; icon colors are handled by tintIcon().
+        color = 0xFFFFFF;
     }
 
     /** Stable across supported SPD forks; avoids Char.buff(Class) ABI variance. */
