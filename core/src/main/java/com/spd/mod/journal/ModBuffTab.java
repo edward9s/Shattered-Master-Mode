@@ -18,7 +18,7 @@ public class ModBuffTab extends Component {
     public static boolean heroOnly = false;
 
     private static final int HERO_ONLY_CHECK_WIDTH = 62;
-    private static final int HERO_ONLY_CHECK_HEIGHT = 10;
+    private static final int HERO_ONLY_CHECK_HEIGHT = 9;
 
     private ModScrollingGridPane grid;
     private CheckBox heroOnlyCheckBox;
@@ -30,9 +30,8 @@ public class ModBuffTab extends Component {
         grid = new ModScrollingGridPane();
         add(grid);
 
-        // Use a slightly taller first header so the native checkbox fits above
-        // the first icon row without overlapping it.
-        grid.addHeader("Mod Buff", 9, false);
+        // Keep the Mod Buff header identical to the other buff section headers.
+        grid.addHeader("Mod Buff");
 
         heroOnlyCheckBox = new CheckBox("Hero Only") {
             @Override
