@@ -6,6 +6,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
 import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollingGridPane;
 import com.watabou.input.PointerEvent;
 import com.watabou.noosa.Game;
+import com.watabou.noosa.ui.Component;
 import com.watabou.utils.PointF;
 
 import java.util.ArrayList;
@@ -13,6 +14,8 @@ import java.util.ArrayList;
 public class ModScrollingGridPane extends ScrollingGridPane {
 
     private final ArrayList<ModGridEntry> gridEntries = new ArrayList<>();
+    private Component clickControl;
+    private Runnable clickControlAction;
 
     public ModScrollingGridPane() {
         super();
@@ -21,6 +24,23 @@ public class ModScrollingGridPane extends ScrollingGridPane {
         controller.destroy();
         controller = new LongClickController();
         add(controller);
+    }
+
+    /** Registers one non-grid control which shares this pane's click controller. */
+    public void setClickControl(Component control, Runnable action) {
+        clickControl = control;
+        clickControlAction = action;
+    }
+
+    @Override
+    public void onClick(float x, float y) {
+        if (clickControl != null
+                && clickControlAction != null
+                && clickControl.inside(x, y)) {
+            clickControlAction.run();
+            return;
+        }
+        super.onClick(x, y);
     }
 
     @Override
@@ -37,6 +57,8 @@ public class ModScrollingGridPane extends ScrollingGridPane {
     public synchronized void clear() {
         super.clear();
         gridEntries.clear();
+        clickControl = null;
+        clickControlAction = null;
     }
 
     private boolean onLongClick(float x, float y) {
