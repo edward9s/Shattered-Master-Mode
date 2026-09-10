@@ -4,7 +4,7 @@ import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
@@ -13,6 +13,7 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
+import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.input.PointerEvent;
 import com.watabou.noosa.Camera;
 import com.watabou.noosa.Game;
@@ -20,14 +21,18 @@ import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
 import com.watabou.noosa.PointerArea;
+import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
 import com.watabou.utils.PointF;
 import com.watabou.utils.Signal;
 
 import java.lang.reflect.Field;
+import java.util.HashSet;
 
 /** Permanent Hero buff that exposes Mod Assassin through a map long press. */
-public class ModAssassinBuff extends Buff {
+public class ModAssassinBuff extends ChampionEnemy {
+
+    private static final String INFINITE_ACCURACY = "infinite_accuracy";
 
     private static LongPressLayer inputLayer;
     private static boolean installPending;
@@ -35,11 +40,37 @@ public class ModAssassinBuff extends Buff {
     private static Field cellSelectorField;
     private static Field defaultCellListenerField;
     private static Field selectorEventField;
+    private static Field currentActorField;
+
+    private boolean infiniteAccuracy;
 
     {
         type = buffType.POSITIVE;
         announced = true;
         revivePersists = true;
+        // ChampionEnemy can tint actors and grant champion resistances by default.
+        // Assassin Instinct uses the class only for its outgoing accuracy factor.
+        color = 0xFFFFFF;
+    }
+
+    /** Stable across supported SPD forks; avoids Char.buff(Class) ABI variance. */
+    public static ModAssassinBuff find(Char ch) {
+        if (ch == null) {
+            return null;
+        }
+        for (ModAssassinBuff buff : ch.buffs(ModAssassinBuff.class)) {
+            return buff;
+        }
+        return null;
+    }
+
+    public boolean infiniteAccuracyEnabled() {
+        return infiniteAccuracy;
+    }
+
+    public void toggleInfiniteAccuracy() {
+        infiniteAccuracy = !infiniteAccuracy;
+        BuffIndicator.refreshHero();
     }
 
     @Override
@@ -47,19 +78,27 @@ public class ModAssassinBuff extends Buff {
         if (!(target instanceof Hero)) {
             return false;
         }
-        return super.attachTo(target);
+        if (!super.attachTo(target)) {
+            return false;
+        }
+        ModTotalInfoOverlay.ensureInstalled();
+        return true;
     }
 
     @Override
     public void fx(boolean on) {
+        // Do not inherit ChampionEnemy's aura. This buff only changes input and
+        // optional outgoing accuracy; icon color is handled by tintIcon().
         if (on) {
             ensureInputLayer();
+            ModTotalInfoOverlay.ensureInstalled();
         }
     }
 
     @Override
     public boolean act() {
         ensureInputLayer();
+        ModTotalInfoOverlay.ensureInstalled();
         spend(TICK);
         return true;
     }
@@ -77,7 +116,7 @@ public class ModAssassinBuff extends Buff {
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(0xB06CFF);
+        icon.hardlight(infiniteAccuracy ? 0x55CCFF : 0xB06CFF);
     }
 
     @Override
@@ -92,7 +131,54 @@ public class ModAssassinBuff extends Buff {
 
     @Override
     public String desc() {
-        return "Long-press a map cell or character to use Assassin. The strike has perfect accuracy.";
+        return "Long-press a map cell or character to use Assassin. The Assassin strike always has perfect accuracy. "
+                + "Infinite Accuracy: " + (infiniteAccuracy ? "ON" : "OFF")
+                + ". When ON, ordinary Hero attacks effectively cannot miss. Tap to configure.";
+    }
+
+    @Override
+    public float evasionAndAccuracyFactor() {
+        if (!infiniteAccuracy || target == null) {
+            return 1f;
+        }
+
+        Actor current = currentActor();
+        return current == target ? Float.MAX_VALUE : 1f;
+    }
+
+    private static Actor currentActor() {
+        try {
+            if (currentActorField == null) {
+                currentActorField = Actor.class.getDeclaredField("current");
+                currentActorField.setAccessible(true);
+            }
+            return (Actor) currentActorField.get(null);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    @Override
+    public void storeInBundle(Bundle bundle) {
+        super.storeInBundle(bundle);
+        bundle.put(INFINITE_ACCURACY, infiniteAccuracy);
+    }
+
+    @Override
+    public void restoreFromBundle(Bundle bundle) {
+        super.restoreFromBundle(bundle);
+        infiniteAccuracy = bundle.getBoolean(INFINITE_ACCURACY);
+    }
+
+    @Override
+    public HashSet<Class> immunities() {
+        // ChampionEnemy normally grants AllyBuff immunity; Assassin Instinct must not.
+        return new HashSet<>();
+    }
+
+    @Override
+    public HashSet<Class> resistances() {
+        return new HashSet<>();
     }
 
     private static void ensureInputLayer() {
