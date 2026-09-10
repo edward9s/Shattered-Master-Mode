@@ -13,7 +13,6 @@ import com.shatteredpixel.shatteredpixeldungeon.items.Ankh;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
-import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundle;
@@ -71,7 +70,7 @@ public class ModAnkh extends Ankh {
     @Override
     public void reset() {
         super.reset();
-        this.icon = ModLegacyCompat.itemIcon("POTION_EXP", ItemSpriteSheet.ANKH);
+        this.icon = ModLegacyCompat.itemIcon("POTION_EXP", "ANKH");
         this.keptThoughLostInvent = true;
         this.unique = true;
         this.revivalQuickslot = -1;
