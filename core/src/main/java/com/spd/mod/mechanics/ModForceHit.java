@@ -122,7 +122,7 @@ public class ModForceHit extends ChampionEnemy {
 
     @Override
     public int icon() {
-        return ModBuffIconCompat.get("MARK");
+        return ModBuffIconCompat.get("INVERT_MARK");
     }
 
     @Override
