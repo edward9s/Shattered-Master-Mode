@@ -53,7 +53,7 @@ public class ModParryRiposte extends ChampionEnemy {
             Collections.synchronizedMap(new WeakHashMap<Char, RiposteActor>());
 
     private boolean parryEnabled = true;
-    private boolean riposteEnabled;
+    private boolean riposteEnabled = true;
     private boolean ownsParryFocus;
     private boolean restoringFromBundle;
 
@@ -329,9 +329,10 @@ public class ModParryRiposte extends ChampionEnemy {
         // attaches it. Mark this instance so attachTo() waits for sibling Focus.
         restoringFromBundle = true;
         super.restoreFromBundle(bundle);
-        // Old saves predate this switch and must preserve the historical ON state.
+        // Missing toggle keys use the current default ON state. Saves that
+        // explicitly stored OFF still preserve the user's choice.
         parryEnabled = !bundle.contains(PARRY_ENABLED) || bundle.getBoolean(PARRY_ENABLED);
-        riposteEnabled = bundle.getBoolean(RIPOSTE_ENABLED);
+        riposteEnabled = !bundle.contains(RIPOSTE_ENABLED) || bundle.getBoolean(RIPOSTE_ENABLED);
         ownsParryFocus = bundle.getBoolean(OWNS_PARRY_FOCUS);
     }
 
