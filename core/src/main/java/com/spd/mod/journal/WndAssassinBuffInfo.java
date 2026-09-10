@@ -5,7 +5,7 @@ import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModAssassinBuff;
 import com.watabou.noosa.ui.Component;
 
-/** Assassin Instinct's live configuration window. */
+/** Assassinate's live configuration window. */
 public class WndAssassinBuffInfo extends WndInfoBuff {
 
     private static final int GAP = 3;
@@ -14,7 +14,7 @@ public class WndAssassinBuffInfo extends WndInfoBuff {
     public WndAssassinBuffInfo(final ModAssassinBuff buff) {
         super(buff);
 
-        final CheckBox check = new CheckBox("Assassin Instinct") {
+        final CheckBox check = new CheckBox("Assassinate") {
             @Override
             protected void onClick() {
                 if (!valid(buff)) {

@@ -27,7 +27,7 @@ import com.watabou.utils.Signal;
 
 import java.lang.reflect.Field;
 
-/** Permanent Hero buff that exposes Mod Assassin through a map long press. */
+/** Permanent Hero buff that exposes Assassinate through a map long press. */
 public class ModAssassinBuff extends Buff {
 
     private static final String ASSASSIN_ENABLED = "assassin_enabled";
@@ -129,13 +129,13 @@ public class ModAssassinBuff extends Buff {
 
     @Override
     public String name() {
-        return "Assassin Instinct";
+        return "Assassinate";
     }
 
     @Override
     public String desc() {
-        return "While enabled, long-press a map cell or character to use Assassin. "
-                + "Assassin attacks are guaranteed to hit. Tap to configure.";
+        return "While enabled, long-press a map cell or character to use Assassinate. "
+                + "Attacks follow SPD's normal surprise-attack and weapon accuracy rules. Tap to configure.";
     }
 
     private static boolean assassinEnabledForHero() {
@@ -265,7 +265,7 @@ public class ModAssassinBuff extends Buff {
 
             if (event.type == PointerEvent.Type.DOWN) {
                 if (press != null) {
-                    // A second pointer means pinch/gesture input, never Assassin.
+                    // A second pointer means pinch/gesture input, never Assassinate.
                     cancelled = true;
                     return false;
                 }
@@ -336,7 +336,7 @@ public class ModAssassinBuff extends Buff {
                 return;
             }
 
-            // Cancel the ordinary CellSelector click before invoking Assassin.
+            // Cancel the ordinary CellSelector click before invoking Assassinate.
             selector.reset();
             clearPress();
 

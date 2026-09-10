@@ -9,8 +9,6 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
-import com.shatteredpixel.shatteredpixeldungeon.items.KindOfWeapon;
-import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
@@ -56,41 +54,32 @@ public class ModAssassin {
         Wound.hit(target);
 
         int originalInvisible = hero.invisible;
-        int originalStrength = hero.STR;
-        KindOfWeapon attackingWeapon = hero.belongings.attackingWeapon();
-        boolean bypassInfiniteEvasion = !target.isInvulnerable(hero.getClass())
+        boolean forceHit = ModForceHit.find(hero) != null;
+        boolean bypassInfiniteEvasion = forceHit
+                && !target.isInvulnerable(hero.getClass())
                 && ModCombatCompat.hasInfiniteEvasionAgainst(target, hero);
         boolean hit;
 
         try {
-            hero.invisible = 1;
+            // Assassinate creates the same hit context as an invisible attack, then
+            // lets SPD's native canSurpriseAttack() decide whether that grants
+            // infinite accuracy. Overweight weapons and weapon-specific exclusions
+            // such as Flail therefore keep their normal accuracy rules.
+            hero.invisible = Math.max(1, originalInvisible);
 
-            // Assassin ignores only the strength requirement that would otherwise
-            // disable Hero.canSurpriseAttack(). Weapon-specific restrictions such
-            // as Flail's "cannot surprise attack" rule are still checked normally.
-            if (attackingWeapon instanceof Weapon) {
-                int strengthShortfall = ((Weapon) attackingWeapon).STRReq() - hero.STR();
-                if (strengthShortfall > 0) {
-                    hero.STR += strengthShortfall;
-                }
-            }
-
-            // Some defenders consume their INFINITE_EVASION inside defenseVerb()
-            // after the native miss (Monk Focus does exactly this). Snapshot the
-            // condition before attack() and bypass the miss path entirely so
-            // Assassin's promised absolute accuracy cannot be converted to parry.
+            // Force Hit is a separate Mod buff. Only it may override an engine-level
+            // INFINITE_EVASION target; Assassinate itself no longer guarantees a hit.
             hit = bypassInfiniteEvasion
                     ? ModCombatCompat.forceHeroHit(hero, target, 1f, 0f)
-                    : hero.attack(target, 1f, 0f, Char.INFINITE_ACCURACY);
+                    : hero.attack(target, 1f, 0f, 1f);
         } finally {
             hero.invisible = originalInvisible;
-            hero.STR = originalStrength;
         }
 
         if (!hit && target.isAlive()) {
-            // Assassin owns movement and hit resolution only. A separate combat
+            // Assassinate owns movement and hit resolution only. A separate combat
             // buff may decide that an engine-blocked attack has its own effect;
-            // Assassin does not inspect that buff's switches or death behavior.
+            // Assassinate does not inspect that buff's switches or death behavior.
             hit = ModInstantKill.resolveBlockedAttack(hero, target);
         }
 
