@@ -2,6 +2,7 @@ package com.spd.mod.items;
 
 import com.spd.mod.mechanics.ModDebug$Console;
 import com.spd.mod.mechanics.ModItemCompat;
+import com.spd.mod.mechanics.ModLegacyCompat;
 import com.spd.mod.mechanics.ModLootStorage;
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
@@ -70,7 +71,7 @@ public class ModAnkh extends Ankh {
     @Override
     public void reset() {
         super.reset();
-        this.icon = ItemSpriteSheet.Icons.POTION_EXP;
+        this.icon = ModLegacyCompat.itemIcon("POTION_EXP", ItemSpriteSheet.ANKH);
         this.keptThoughLostInvent = true;
         this.unique = true;
         this.revivalQuickslot = -1;
