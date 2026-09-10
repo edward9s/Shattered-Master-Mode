@@ -38,6 +38,8 @@ def populate_kit(
         "scripts/_inject_apk_ankh.py",
         "scripts/inject_jar.py",
         "scripts/_inject_jar_core.py",
+        "scripts/_inject_jar_full.py",
+        "scripts/_inject_jar_ankh.py",
     ):
         source = repo / relative
         copy_required(source, kit / source.name)
@@ -48,10 +50,12 @@ def populate_kit(
         "  python inject_apk.py TARGET.apk\n\n"
         "APK (ModAnkh + Store + Loot + Console only):\n"
         "  python inject_apk.py TARGET.apk --ankh-only\n\n"
-        "Desktop JAR:\n"
+        "Desktop JAR (full SMM):\n"
         "  python inject_jar.py TARGET.jar\n\n"
+        "Desktop JAR (ModAnkh + Store + Loot + Console only):\n"
+        "  python inject_jar.py TARGET.jar --ankh-only\n\n"
         "Optional: --out OUTPUT\n"
-        "Keep the kit files together. The APK donor is a non-minified build required for injection.\n",
+        "Keep the kit files together. The donors are compiled payloads required for injection.\n",
         encoding="utf-8",
     )
 
