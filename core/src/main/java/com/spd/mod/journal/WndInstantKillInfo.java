@@ -74,6 +74,6 @@ public class WndInstantKillInfo extends WndInfoBuff {
     }
 
     private static String accuracyButtonText(ModInstantKill buff) {
-        return buff.infiniteAccuracyEnabled() ? "Infinite Accuracy: ON" : "Infinite Accuracy: OFF";
+        return buff.infiniteAccuracyEnabled() ? "Basic Accuracy: ON" : "Basic Accuracy: OFF";
     }
 }
