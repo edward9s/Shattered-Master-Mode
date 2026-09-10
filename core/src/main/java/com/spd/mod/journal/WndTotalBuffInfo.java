@@ -3,13 +3,11 @@ package com.spd.mod.journal;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
+import com.spd.mod.mechanics.ModAssassinBuff;
 import com.spd.mod.mechanics.ModParryRiposte;
 import com.watabou.noosa.ui.Component;
 
-/**
- * Total's live buff information window. Parry and Riposte are independent:
- * neither switch changes the state of the other.
- */
+/** Shared live configuration window for configurable Master Mode combat buffs. */
 public class WndTotalBuffInfo extends WndInfoBuff {
 
     private static final int GAP = 3;
@@ -57,6 +55,39 @@ public class WndTotalBuffInfo extends WndInfoBuff {
         controls.add(riposteButton);
         controls.setSize(width, BUTTON_HEIGHT * 2 + GAP);
 
+        addControls(controls);
+    }
+
+    public WndTotalBuffInfo(final ModAssassinBuff buff) {
+        super(buff);
+
+        final RedButton accuracyButton = new RedButton(accuracyButtonText(buff), 8) {
+            @Override
+            protected void onClick() {
+                if (!isCurrent(buff)) {
+                    WndTotalBuffInfo.this.hide();
+                    return;
+                }
+
+                buff.toggleInfiniteAccuracy();
+                ModTotalInfoOverlay.refreshIndicators();
+                rebuild(buff);
+            }
+        };
+
+        final Component controls = new Component() {
+            @Override
+            protected void layout() {
+                accuracyButton.setRect(x, y, width, BUTTON_HEIGHT);
+            }
+        };
+        controls.add(accuracyButton);
+        controls.setSize(width, BUTTON_HEIGHT);
+
+        addControls(controls);
+    }
+
+    private void addControls(Component controls) {
         if (!ModWindowCompat.addToBottom(this, controls, GAP, 2)) {
             controls.setPos(0, height + GAP);
             add(controls);
@@ -68,7 +99,16 @@ public class WndTotalBuffInfo extends WndInfoBuff {
         return buff.target != null && ModParryRiposte.find(buff.target) == buff;
     }
 
+    private boolean isCurrent(ModAssassinBuff buff) {
+        return buff.target != null && ModAssassinBuff.find(buff.target) == buff;
+    }
+
     private void rebuild(ModParryRiposte buff) {
+        WndTotalBuffInfo.this.hide();
+        GameScene.show(new WndTotalBuffInfo(buff));
+    }
+
+    private void rebuild(ModAssassinBuff buff) {
         WndTotalBuffInfo.this.hide();
         GameScene.show(new WndTotalBuffInfo(buff));
     }
@@ -79,5 +119,9 @@ public class WndTotalBuffInfo extends WndInfoBuff {
 
     private static String riposteButtonText(ModParryRiposte buff) {
         return buff.riposteEnabled() ? "Riposte: ON" : "Riposte: OFF";
+    }
+
+    private static String accuracyButtonText(ModAssassinBuff buff) {
+        return buff.infiniteAccuracyEnabled() ? "Infinite Accuracy: ON" : "Infinite Accuracy: OFF";
     }
 }
