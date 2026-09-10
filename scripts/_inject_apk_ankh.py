@@ -213,8 +213,8 @@ def configure(public_module) -> None:
         target_index,
         allowed_target_prefixes=injector.TARGET_API_PREFIXES,
     ):
+        game_prefix = allowed_target_prefixes[0]
         if payload:
-            game_prefix = allowed_target_prefixes[0]
             changed = adapt_legacy_payload(payload, target_index, game_prefix)
             if changed:
                 injector.log(
@@ -222,10 +222,33 @@ def configure(public_module) -> None:
                     + str(changed)
                     + " CellSelector.Listener subclass(es) for legacy interface ABI"
                 )
+
+        # javac can emit nestmate/access bridge calls from ModAnkh$* classes
+        # back into ModAnkh itself (for example -$$Nest$msyncCount). The core
+        # injector validates the dependency payload before it separately adds
+        # the adapted ModAnkh root, so without this validation-only support class
+        # those internal calls look like external com.spd.mod references.
+        #
+        # Add only ModAnkh itself to the validation universe; do not whitelist the
+        # whole SMM namespace, because unrelated payload dependencies must still
+        # fail closed. ModAnkh's own executable target references are validated
+        # later by the core modankh_compatibility_errors() pass.
+        validation_target = dict(target_index)
+        donor_ankh = public_module._full_donor_payload.get(injector.MOD_ANKH)
+        if donor_ankh is None:
+            raise injector.InjectError(
+                "SMM donor ModAnkh root was unavailable during payload validation"
+            )
+        rebased_ankh = injector.SmaliClass.from_text(
+            donor_ankh.path,
+            injector.rebase_smali_text(donor_ankh.text, game_prefix),
+        )
+        validation_target[injector.MOD_ANKH] = rebased_ankh
+
         return public_module._original_payload_compatibility_errors(
             payload,
-            target_index,
-            allowed_target_prefixes,
+            validation_target,
+            allowed_target_prefixes + (injector.MOD_ANKH,),
         )
 
     def output_path(target: Path) -> Path:
