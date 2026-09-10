@@ -18,6 +18,7 @@ import com.watabou.utils.Bundle;
 import java.util.Collections;
 
 import com.spd.mod.mechanics.ModFlash;
+import com.spd.mod.mechanics.ModItemCompat;
 
 public class ModScrollOfDisplacement extends Scroll implements ModReusable {
 
@@ -50,7 +51,7 @@ public class ModScrollOfDisplacement extends Scroll implements ModReusable {
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
-        this.level(0);
+        ModItemCompat.setLevel(this, 0);
         reset();
     }
 
