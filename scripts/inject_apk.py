@@ -229,11 +229,13 @@ _original_build_debug_payload = injector.build_debug_payload
 _original_payload_compatibility_errors = injector.payload_compatibility_errors
 _original_find_class = injector.find_class
 _original_detect_target_game_prefix = injector.detect_target_game_prefix
+_original_patch_dungeon = injector.patch_dungeon
 _original_compile_smali = injector.compile_smali
 _full_donor_payload: dict[str, injector.SmaliClass] = {}
 _current_abi_profile: AbiProfile | None = None
 _current_game_prefix: str | None = None
 _pending_char_overlay: tuple[str, str] | None = None
+_ankh_only_mode = False
 
 
 def _member_accessible_from_modankh(flags: frozenset[str]) -> bool:
@@ -1020,7 +1022,8 @@ def print_help() -> None:
         "usage: inject_apk.py TARGET.apk [--out OUTPUT.apk] [options]\n\n"
         "Inject SMM into an SPD-derived APK using smm-inject-donor.apk beside this script.\n\n"
         "options:\n"
-        "  --out PATH          output APK (default: <target>-SMM.apk)\n"
+        "  --ankh-only         inject only ModAnkh + Store + Loot + Console dependencies\n"
+        "  --out PATH          output APK (default: <target>-SMM.apk, or -SMM-Ankh with --ankh-only)\n"
         "  --cache PATH        injector tool cache\n"
         "  --offline           do not download missing tools\n"
         "  --keep-work         keep temporary work files\n"
@@ -1035,9 +1038,14 @@ def print_help() -> None:
 def _translate_core_error(exc: injector.InjectError) -> injector.InjectError:
     message = str(exc)
     if message.startswith("Donor debug payload is not self-contained for this target"):
+        if _ankh_only_mode:
+            return injector.InjectError(
+                "ModAnkh-only payload still has unresolved target API references; "
+                "no reliable compatibility adapter is available."
+            )
         return injector.InjectError(
-            "Target ABI has unresolved SMM payload references; "
-            "no reliable compatibility adapter is available."
+            "Full SMM payload is incompatible with this target. "
+            "If only ModAnkh + Store + Loot + Console are needed, retry with --ankh-only."
         )
     return exc
 
@@ -1056,10 +1064,24 @@ injector.output_path = output_path
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    global _ankh_only_mode
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or "-h" in args or "--help" in args:
         print_help()
         return 0 if args else 2
+
+    _ankh_only_mode = "--ankh-only" in args
+    args = [arg for arg in args if arg != "--ankh-only"]
+    if _ankh_only_mode:
+        import _inject_apk_ankh
+
+        _inject_apk_ankh.configure(sys.modules[__name__])
+        injector.step("Injection mode")
+        injector.log("ModAnkh only (Store + Loot + Console)")
+    else:
+        injector.step("Injection mode")
+        injector.log("Full SMM")
+
     if not DEFAULT_DONOR.is_file():
         raise injector.InjectError(f"SMM donor APK not found beside injector: {DEFAULT_DONOR}")
     try:
