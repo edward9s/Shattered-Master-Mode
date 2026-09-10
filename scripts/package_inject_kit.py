@@ -35,6 +35,7 @@ def populate_kit(
     for relative in (
         "scripts/inject_apk.py",
         "scripts/_inject_apk_core.py",
+        "scripts/_inject_apk_ankh.py",
         "scripts/inject_jar.py",
         "scripts/_inject_jar_core.py",
     ):
@@ -43,8 +44,10 @@ def populate_kit(
 
     (kit / "README.txt").write_text(
         "Shattered Master Mode Injection Kit\n\n"
-        "APK:\n"
+        "APK (full SMM):\n"
         "  python inject_apk.py TARGET.apk\n\n"
+        "APK (ModAnkh + Store + Loot + Console only):\n"
+        "  python inject_apk.py TARGET.apk --ankh-only\n\n"
         "Desktop JAR:\n"
         "  python inject_jar.py TARGET.jar\n\n"
         "Optional: --out OUTPUT\n"
