@@ -3,7 +3,6 @@ package com.spd.mod.mechanics;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
-import com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.Sai;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -18,6 +17,9 @@ final class ModCombatCompat {
 
     private static Field hitMissIconField;
     private static boolean hitMissIconResolved;
+
+    private static Class<? extends Buff> duelistComboTrackerClass;
+    private static boolean duelistComboTrackerResolved;
 
     private ModCombatCompat() {
     }
@@ -163,12 +165,38 @@ final class ModCombatCompat {
         return true;
     }
 
+    @SuppressWarnings("unchecked")
+    private static Class<? extends Buff> resolveDuelistComboTrackerClass() {
+        if (duelistComboTrackerResolved) {
+            return duelistComboTrackerClass;
+        }
+        duelistComboTrackerResolved = true;
+
+        try {
+            Class<?> tracker = Class.forName(
+                    "com.shatteredpixel.shatteredpixeldungeon.items.weapon.melee.Sai$ComboStrikeTracker",
+                    false,
+                    ModCombatCompat.class.getClassLoader());
+            if (Buff.class.isAssignableFrom(tracker)) {
+                duelistComboTrackerClass = (Class<? extends Buff>) tracker;
+            }
+        } catch (ClassNotFoundException | LinkageError ignored) {
+            // Older targets can predate Duelist combo tracking entirely.
+        }
+        return duelistComboTrackerClass;
+    }
+
     static void addDuelistComboHit(Hero hero, Char hitTarget) {
         if (hero == null) {
             return;
         }
 
-        Object tracker = Buff.affect(hero, Sai.ComboStrikeTracker.class);
+        Class<? extends Buff> trackerType = resolveDuelistComboTrackerClass();
+        if (trackerType == null) {
+            return;
+        }
+
+        Object tracker = Buff.affect(hero, trackerType);
         if (tracker == null) {
             return;
         }
