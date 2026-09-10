@@ -29,7 +29,7 @@ public final class ModLegacyCompat {
     private ModLegacyCompat() {
     }
 
-    public static int itemIcon(String name, String fallbackName) {
+    public static int itemIcon(String name, int fallback) {
         try {
             Class<?> icons = Class.forName(ITEM_SPRITE_SHEET + "$Icons");
             Field field = icons.getField(name);
@@ -37,9 +37,10 @@ public final class ModLegacyCompat {
                 return field.getInt(null);
             }
         } catch (ReflectiveOperationException | LinkageError ignored) {
-            // Old targets predate ItemSpriteSheet.Icons.
+            // Old targets predate ItemSpriteSheet.Icons. Keeping icon=-1 lets
+            // the target Ankh superclass keep its own native image.
         }
-        return itemSpriteIndex(fallbackName, 0);
+        return fallback;
     }
 
     private static int itemSpriteIndex(String name, int fallback) {
