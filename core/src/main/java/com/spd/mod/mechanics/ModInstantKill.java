@@ -19,7 +19,7 @@ public class ModInstantKill extends ChampionEnemy {
 
     private static final String INSTANT_KILL = "instant_kill";
 
-    private boolean instantKill;
+    private boolean instantKill = true;
 
     {
         type = buffType.POSITIVE;
@@ -48,6 +48,7 @@ public class ModInstantKill extends ChampionEnemy {
     public void toggleInstantKill() {
         instantKill = !instantKill;
         BuffIndicator.refreshHero();
+        ModTotalInfoOverlay.refreshIndicators();
     }
 
     @Override
@@ -105,8 +106,7 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public String desc() {
-        return "Instant Kill: " + (instantKill ? "ON" : "OFF")
-                + ". When ON, successful Hero attacks kill their target. Tap to configure.";
+        return "Successful Hero attacks kill their target while enabled. Tap to configure.";
     }
 
     @Override

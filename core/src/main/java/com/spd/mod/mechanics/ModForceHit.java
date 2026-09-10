@@ -12,16 +12,20 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
+import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
+import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
 
 import java.lang.reflect.Field;
 import java.util.HashSet;
 
-/** Permanent Hero buff that forces hit checks to succeed whenever the target can be hit. */
+/** Permanent Hero buff with a configurable forced-hit effect. */
 public class ModForceHit extends ChampionEnemy {
+
+    private static final String FORCE_HIT_ENABLED = "force_hit_enabled";
 
     private static Field currentActorField;
     private static AccuracyObserver accuracyObserver;
@@ -31,6 +35,8 @@ public class ModForceHit extends ChampionEnemy {
     private static boolean observedAttackWasInvulnerable;
     private static boolean observedAttackHadInfiniteEvasion;
 
+    private boolean forceHitEnabled = true;
+
     {
         type = buffType.POSITIVE;
         announced = true;
@@ -39,8 +45,8 @@ public class ModForceHit extends ChampionEnemy {
         color = 0xFFFFFF;
     }
 
-    /** Stable across supported SPD forks; avoids Char.buff(Class) ABI variance. */
-    public static ModForceHit find(Char ch) {
+    /** Returns the attached buff regardless of whether its effect is enabled. */
+    public static ModForceHit findAttached(Char ch) {
         if (ch == null) {
             return null;
         }
@@ -48,6 +54,27 @@ public class ModForceHit extends ChampionEnemy {
             return buff;
         }
         return null;
+    }
+
+    /** Returns the active effect; a disabled but attached buff returns null. */
+    public static ModForceHit find(Char ch) {
+        ModForceHit buff = findAttached(ch);
+        return buff != null && buff.forceHitEnabled ? buff : null;
+    }
+
+    public boolean forceHitEnabled() {
+        return forceHitEnabled;
+    }
+
+    public void toggleForceHit() {
+        forceHitEnabled = !forceHitEnabled;
+        if (forceHitEnabled) {
+            ensureAccuracyObserver();
+        } else {
+            clearObservedAttack();
+        }
+        BuffIndicator.refreshHero();
+        ModTotalInfoOverlay.refreshIndicators();
     }
 
     @Override
@@ -58,7 +85,10 @@ public class ModForceHit extends ChampionEnemy {
         if (!super.attachTo(target)) {
             return false;
         }
-        ensureAccuracyObserver();
+        ModTotalInfoOverlay.ensureInstalled();
+        if (forceHitEnabled) {
+            ensureAccuracyObserver();
+        }
         return true;
     }
 
@@ -66,13 +96,19 @@ public class ModForceHit extends ChampionEnemy {
     public void fx(boolean on) {
         // Do not inherit ChampionEnemy's aura or actor tint.
         if (on) {
-            ensureAccuracyObserver();
+            ModTotalInfoOverlay.ensureInstalled();
+            if (forceHitEnabled) {
+                ensureAccuracyObserver();
+            }
         }
     }
 
     @Override
     public boolean act() {
-        ensureAccuracyObserver();
+        ModTotalInfoOverlay.ensureInstalled();
+        if (forceHitEnabled) {
+            ensureAccuracyObserver();
+        }
         spend(TICK);
         return true;
     }
@@ -91,7 +127,7 @@ public class ModForceHit extends ChampionEnemy {
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(0x55CCFF);
+        icon.hardlight(forceHitEnabled ? 0x55CCFF : 0xAAAAAA);
     }
 
     @Override
@@ -106,12 +142,13 @@ public class ModForceHit extends ChampionEnemy {
 
     @Override
     public String desc() {
-        return "Forces Hero hit checks to succeed whenever the target can be hit. Invulnerability is not bypassed.";
+        return "Forces Hero hit checks to succeed whenever the target can be hit. "
+                + "Invulnerability is not bypassed. Tap to configure.";
     }
 
     @Override
     public float evasionAndAccuracyFactor() {
-        if (target == null) {
+        if (!forceHitEnabled || target == null) {
             return 1f;
         }
         Actor current = currentActor();
@@ -238,6 +275,21 @@ public class ModForceHit extends ChampionEnemy {
 
             observeHeroAttack(Dungeon.hero);
         }
+    }
+
+    @Override
+    public void storeInBundle(Bundle bundle) {
+        super.storeInBundle(bundle);
+        bundle.put(FORCE_HIT_ENABLED, forceHitEnabled);
+    }
+
+    @Override
+    public void restoreFromBundle(Bundle bundle) {
+        super.restoreFromBundle(bundle);
+        // Saves from before the checkbox existed preserve the old always-ON behavior.
+        forceHitEnabled = !bundle.contains(FORCE_HIT_ENABLED)
+                || bundle.getBoolean(FORCE_HIT_ENABLED);
+        clearObservedAttack();
     }
 
     @Override
