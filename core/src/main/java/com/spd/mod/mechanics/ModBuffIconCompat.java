@@ -45,6 +45,8 @@ public final class ModBuffIconCompat {
      */
     private static int knownFallback(String fieldName) {
         switch (fieldName) {
+            case "MARK":
+                return 27;
             case "RAGE":
                 return 38;
             case "PREPARATION":
