@@ -46,7 +46,7 @@ Binary injection is a **fallback method** for SPD-derived builds whose source is
 
 The injector works against already-compiled classes and ABI. SPD forks may rename, remove, or change classes, methods, fields, resources, inheritance relationships, or behavior. SMM includes compatibility checks and several runtime/structural adapters, but **successful injection does not guarantee that every target-specific runtime path is compatible**.
 
-Use the `SMM-m<version>-InjectKit.zip` artifact produced by **Build SMM Injection Kit**. Keep all files from the kit together; APK injection uses the included non-minified donor.
+Use the `SMM-m<version>-InjectKit.zip` artifact produced by **Build SMM Injection Kit**. Keep all files from the kit together; the included APK/JAR donors provide the compiled SMM payload used by the injectors.
 
 ### Full SMM injection
 
@@ -68,12 +68,13 @@ Use `--out` to choose another output path.
 
 Full injection validates the target ABI before rebuilding. If the target is too old or has diverged too far from the donor ABI, the injector fails rather than silently removing features or producing a knowingly incomplete build.
 
-### ModAnkh-only APK injection
+### ModAnkh-only injection
 
-For older or heavily diverged SPD forks that cannot accept the full SMM payload, APK injection also provides a narrower compatibility mode:
+For older or heavily diverged SPD forks that cannot accept the full SMM payload, both APK and desktop JAR injection provide a narrower compatibility mode:
 
 ```bash
 python inject_apk.py TARGET.apk --ankh-only
+python inject_jar.py TARGET.jar --ankh-only
 ```
 
 `--ankh-only` injects only the ModAnkh dependency closure required for:
@@ -86,31 +87,31 @@ python inject_apk.py TARGET.apk --ankh-only
 
 It intentionally does **not** inject unrelated full-SMM features such as Journal, Assassin, Force Hit, Riposte, Enemy Surge, Last Stand, or their gameplay hooks.
 
-The default output is:
+Default outputs:
 
 ```text
 TARGET-SMM-Ankh.apk
+TARGET-SMM-Ankh.jar
 ```
 
 You can still use `--out`:
 
 ```bash
 python inject_apk.py TARGET.apk --ankh-only --out TARGET-ModAnkh.apk
+python inject_jar.py TARGET.jar --ankh-only --out TARGET-ModAnkh.jar
 ```
 
-Ankh-only mode uses its own reduced ABI checks and does not install full-SMM combat/menu hooks that the reduced payload does not need. It can also adapt several known legacy SPD ABI differences used by Store, Loot, and Console. This makes it useful for forks where the basic Item/Ankh/inventory infrastructure is compatible but newer SMM UI or combat APIs are absent.
+Ankh-only mode uses a reduced integration path and does not install full-SMM combat/menu hooks that the reduced payload does not need. It can also adapt known legacy SPD ABI differences used by Store, Loot, and Console. This makes it useful for forks where the basic Item/Ankh/inventory infrastructure is compatible but newer SMM UI or combat APIs are absent.
 
-`--ankh-only` is **not an automatic fallback**. Running `python inject_apk.py TARGET.apk` always means full SMM injection. If full injection is incompatible, rerun explicitly with `--ankh-only` when the reduced feature set is acceptable.
-
-Ankh-only is currently an **APK mode only**; `inject_jar.py` does not provide an equivalent `--ankh-only` option.
+Full injection does **not** automatically downgrade to Ankh-only. Running `python inject_apk.py TARGET.apk` or `python inject_jar.py TARGET.jar` always requests full SMM. If full injection is incompatible, rerun explicitly with `--ankh-only` when the reduced feature set is acceptable.
 
 ### Compatibility notes
 
-Binary injection should fail closed when a required ABI cannot be resolved reliably. Do not bypass compatibility errors simply to force an APK to build: unresolved symbolic references can survive packaging and fail later as `NoSuchMethodError`, `NoSuchFieldError`, `NoClassDefFoundError`, or `IncompatibleClassChangeError` at runtime.
+Binary injection should fail closed when a required ABI cannot be resolved reliably. Do not bypass compatibility errors simply to force a build: unresolved symbolic references can survive packaging and fail later as `NoSuchMethodError`, `NoSuchFieldError`, `NoClassDefFoundError`, or `IncompatibleClassChangeError` at runtime.
 
-Older forks may expose methods with the same Java-level purpose but different bytecode descriptors, or may represent a type as a class in one generation and an interface in another. The injector handles known cases where an equivalent adaptation can be made safely, but target-specific behavior can still require additional compatibility work.
+Older forks may expose methods with the same Java-level purpose but different bytecode descriptors, or may represent a type as a class in one generation and an interface in another. The injectors handle known cases where an equivalent adaptation can be made safely, but target-specific behavior can still require additional compatibility work.
 
-If a source change modifies Java classes included in the injection payload, rebuild the Injection Kit so that `smm-inject-donor.apk` matches the current source. Changes that only modify injector Python code do not require rebuilding the donor.
+If a source change modifies Java classes included in the injection payload, rebuild the Injection Kit so that `smm-inject-donor.apk` and `smm-inject-donor.jar` match the current source. Changes that only modify injector Python code do not require rebuilding the donors.
 
 See [Binary injection rules](docs/smm_injection_rules.md) | [正體中文](docs/smm_injection_rules.zh-TW.md).
 
