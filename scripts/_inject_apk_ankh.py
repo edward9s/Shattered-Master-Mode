@@ -120,21 +120,33 @@ def configure(public_module) -> None:
                 + ", ".join(sorted(unresolved))
             )
 
-        required_roots = {
-            full_prefix + "items/WndModLoot;",
-            full_prefix + "mechanics/ModLootStorage;",
-            full_prefix + "mechanics/ModLoot;",
-            full_prefix + "mechanics/ModDebug$Console;",
-            full_prefix + "mechanics/ModDebug;",
-            full_prefix + "mechanics/ModLegacyCompat;",
-        }
-        missing_roots = sorted(required_roots.difference(closure))
-        if missing_roots:
-            raise injector.InjectError(
-                "SMM donor is too old for --ankh-only; rebuild the injection donor "
-                "from current source. Missing ModAnkh dependency root(s): "
-                + ", ".join(missing_roots)
+        # The legacy class-to-interface adapter depends on the current donor's
+        # runtime compatibility helper. Reject a stale donor only for targets
+        # that actually need that legacy path; modern ankh-only targets stay
+        # compatible with ordinary dependency-closure validation.
+        if public_module._current_game_prefix is not None:
+            listener_descriptor = injector.game_descriptor(
+                public_module._current_game_prefix,
+                "scenes/CellSelector$Listener",
             )
+            listener = target_index.get(listener_descriptor)
+            if listener is not None and _is_interface(listener):
+                required_roots = {
+                    full_prefix + "items/WndModLoot;",
+                    full_prefix + "mechanics/ModLootStorage;",
+                    full_prefix + "mechanics/ModLoot;",
+                    full_prefix + "mechanics/ModDebug$Console;",
+                    full_prefix + "mechanics/ModDebug;",
+                    full_prefix + "mechanics/ModLegacyCompat;",
+                }
+                missing_roots = sorted(required_roots.difference(closure))
+                if missing_roots:
+                    raise injector.InjectError(
+                        "SMM donor is too old for legacy --ankh-only injection; "
+                        "rebuild the injection donor from current source. Missing "
+                        "ModAnkh dependency root(s): "
+                        + ", ".join(missing_roots)
+                    )
 
         helpers = sorted(
             descriptor
