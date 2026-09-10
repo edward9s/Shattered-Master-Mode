@@ -122,6 +122,6 @@ public class WndTotalBuffInfo extends WndInfoBuff {
     }
 
     private static String accuracyButtonText(ModAssassinBuff buff) {
-        return buff.infiniteAccuracyEnabled() ? "Infinite Accuracy: ON" : "Infinite Accuracy: OFF";
+        return buff.infiniteAccuracyEnabled() ? "Basic Accuracy: ON" : "Basic Accuracy: OFF";
     }
 }
