@@ -155,9 +155,9 @@ public class ModInstantKill extends ChampionEnemy {
     @Override
     public String desc() {
         return "Instant Kill: " + (instantKill ? "ON" : "OFF")
-                + ". When ON, successful normal attacks kill the target. Infinite Accuracy: "
+                + ". ON makes successful ordinary attacks kill. Basic Accuracy: "
                 + (infiniteAccuracy ? "ON" : "OFF")
-                + ". When ON, normal attacks effectively cannot miss. Tap to configure.";
+                + ". ON makes ordinary Hero attacks always hit. Tap to configure.";
     }
 
     @Override
