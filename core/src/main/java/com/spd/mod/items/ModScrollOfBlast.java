@@ -13,6 +13,7 @@ import com.watabou.utils.Bundle;
 import java.util.Collections;
 
 import com.spd.mod.mechanics.ModBlast;
+import com.spd.mod.mechanics.ModItemCompat;
 
 public class ModScrollOfBlast extends Scroll implements ModReusable {
 
@@ -45,8 +46,10 @@ public class ModScrollOfBlast extends Scroll implements ModReusable {
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
         // Older saves stored these reusable mod scrolls at +1. They are not
-        // upgradeable tools, so normalize them to level 0 on load.
-        this.level(0);
+        // upgradeable tools, so normalize them to level 0 on load. Use the
+        // compatibility helper because older SPD forks expose void level(int)
+        // while newer SPD exposes Item level(int).
+        ModItemCompat.setLevel(this, 0);
         reset();
     }
 
