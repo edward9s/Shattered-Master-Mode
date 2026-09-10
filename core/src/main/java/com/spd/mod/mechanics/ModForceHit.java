@@ -33,7 +33,7 @@ public class ModForceHit extends ChampionEnemy {
 
     private static Char observedAttackTarget;
     private static boolean observedAttackWasInvulnerable;
-    private static boolean observedAttackHadInfiniteEvasion;
+    private static boolean observedAttackLanded;
 
     private boolean forceHitEnabled = true;
 
@@ -41,7 +41,8 @@ public class ModForceHit extends ChampionEnemy {
         type = buffType.POSITIVE;
         announced = true;
         revivePersists = true;
-        // ChampionEnemy is used only for its attacker accuracy factor.
+        // ChampionEnemy is used only for its attacker accuracy factor and
+        // successful-hit damage-factor hook.
         color = 0xFFFFFF;
     }
 
@@ -155,6 +156,20 @@ public class ModForceHit extends ChampionEnemy {
         return current == target ? Float.MAX_VALUE : 1f;
     }
 
+    /**
+     * Char.attack reaches ChampionEnemy.meleeDamageFactor() only after its native
+     * hit roll has succeeded. Record that fact without probing defender.defenseSkill(),
+     * because some defenders (notably GreatCrab) attach gameplay/UI side effects to
+     * defenseSkill() calls.
+     */
+    @Override
+    public float meleeDamageFactor() {
+        if (forceHitEnabled && observedAttackTarget != null) {
+            observedAttackLanded = true;
+        }
+        return 1f;
+    }
+
     private static Actor currentActor() {
         try {
             if (currentActorField == null) {
@@ -210,13 +225,7 @@ public class ModForceHit extends ChampionEnemy {
                 if (observedAttackTarget != currentTarget) {
                     observedAttackTarget = currentTarget;
                     observedAttackWasInvulnerable = currentTarget.isInvulnerable(hero.getClass());
-                    observedAttackHadInfiniteEvasion =
-                            ModCombatCompat.hasInfiniteEvasionAgainst(currentTarget, hero);
-                } else {
-                    observedAttackWasInvulnerable |=
-                            currentTarget.isInvulnerable(hero.getClass());
-                    observedAttackHadInfiniteEvasion |=
-                            ModCombatCompat.hasInfiniteEvasionAgainst(currentTarget, hero);
+                    observedAttackLanded = false;
                 }
             } else {
                 clearObservedAttack();
@@ -226,20 +235,23 @@ public class ModForceHit extends ChampionEnemy {
 
         Char attackedTarget = observedAttackTarget;
         boolean wasInvulnerable = observedAttackWasInvulnerable;
-        boolean hadInfiniteEvasion = observedAttackHadInfiniteEvasion;
+        boolean landed = observedAttackLanded;
         clearObservedAttack();
 
         if (find(hero) == null
                 || attackedTarget == null
                 || !hero.isAlive()
                 || !attackedTarget.isAlive()
+                || landed
                 || wasInvulnerable
-                || !hadInfiniteEvasion) {
+                || attackedTarget.isInvulnerable(hero.getClass())) {
             return;
         }
 
-        // Engine-level INFINITE_EVASION wins before ChampionEnemy factors are
-        // applied. Replay only the successful-hit side after that specific miss.
+        // Finite evasion is already defeated by evasionAndAccuracyFactor(). If the
+        // native attack still failed to enter its successful-hit pipeline, replay
+        // only that pipeline. Crucially, never pre-query defenseSkill() here: it is
+        // not a pure getter in every SPD mob implementation.
         if (ModCombatCompat.forceHeroHit(hero, attackedTarget, 1f, 0f)) {
             if (hero.subClass == HeroSubClass.GLADIATOR) {
                 Buff.affect(hero, Combo.class).hit(attackedTarget);
@@ -253,7 +265,7 @@ public class ModForceHit extends ChampionEnemy {
     private static void clearObservedAttack() {
         observedAttackTarget = null;
         observedAttackWasInvulnerable = false;
-        observedAttackHadInfiniteEvasion = false;
+        observedAttackLanded = false;
     }
 
     private static class AccuracyObserver extends Gizmo {
