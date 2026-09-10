@@ -10,6 +10,7 @@ import com.shatteredpixel.shatteredpixeldungeon.items.scrolls.ScrollOfMagicMappi
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.watabou.utils.Bundle;
 
+import com.spd.mod.mechanics.ModItemCompat;
 import com.spd.mod.mechanics.ModSight;
 
 public class ModScrollOfSight extends Scroll implements ModReusable {
@@ -42,7 +43,7 @@ public class ModScrollOfSight extends Scroll implements ModReusable {
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
-        this.level(0);
+        ModItemCompat.setLevel(this, 0);
         reset();
     }
 
