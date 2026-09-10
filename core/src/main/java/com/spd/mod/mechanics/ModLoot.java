@@ -103,7 +103,7 @@ public class ModLoot {
                     PinCushion pc = pinCushion(mob);
                     if (pc == null) break;
 
-                    Item item = pc.grabOne();
+                    Item item = ModLegacyCompat.grabOne(pc);
                     if (item == null) break;
 
                     boolean picked = item.doPickUp(hero, mob.pos);
@@ -120,7 +120,7 @@ public class ModLoot {
             }
 
             float end = hero.cooldown();
-            hero.spendConstant(start - end);
+            ModLegacyCompat.restoreCooldown(hero, start - end);
             return result;
         }
     }
@@ -173,7 +173,7 @@ public class ModLoot {
                         }
 
                         if (item instanceof Dewdrop) {
-                            boolean picked = ((Dewdrop) item).doPickUp(hero, heap.pos);
+                            boolean picked = ModLegacyCompat.pickUpDew(item, hero, heap.pos);
                             if (!picked) {
                                 // 這顆露珠目前不能被原版規則消耗；留在原位，但不要阻塞同 Heap 其他物品。
                                 continue;
@@ -210,7 +210,7 @@ public class ModLoot {
             }
 
             float end = hero.cooldown();
-            hero.spendConstant(start - end);
+            ModLegacyCompat.restoreCooldown(hero, start - end);
             return result;
         }
 
