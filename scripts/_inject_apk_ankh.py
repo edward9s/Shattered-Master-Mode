@@ -120,7 +120,24 @@ def _rewrite_listener_subclass(injector, item, listener_descriptor):
             + f", found {ctor_count}"
         )
 
-    return injector.SmaliClass.from_text(item.path, text), True
+    rewritten = injector.SmaliClass.from_text(item.path, text)
+
+    # The core injector snapshots injected_payload before compatibility validation.
+    # Replacing payload[descriptor] here would leave that earlier dict pointing at
+    # the stale pre-rewrite SmaliClass, so validation would pass while the overlay
+    # still contained `.super CellSelector$Listener`. Mutate the shared object in
+    # place so every alias sees the legacy class-to-interface rewrite.
+    if rewritten.descriptor != item.descriptor:
+        raise injector.InjectError(
+            "Legacy CellSelector.Listener rewrite unexpectedly changed descriptor: "
+            + item.descriptor
+        )
+    item.text = rewritten.text
+    item.superclass = rewritten.superclass
+    item.interfaces = rewritten.interfaces
+    item.methods = rewritten.methods
+    item.fields = rewritten.fields
+    return item, True
 
 
 def configure(public_module) -> None:
@@ -275,6 +292,8 @@ def configure(public_module) -> None:
                 injector, item, listener_descriptor
             )
             if did_change:
+                # _rewrite_listener_subclass mutates item in place intentionally;
+                # retain the assignment for clarity and for future implementations.
                 payload[descriptor] = rewritten
                 changed += 1
         return changed
