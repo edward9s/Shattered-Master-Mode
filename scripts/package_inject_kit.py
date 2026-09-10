@@ -38,8 +38,6 @@ def populate_kit(
         "scripts/_inject_apk_ankh.py",
         "scripts/inject_jar.py",
         "scripts/_inject_jar_core.py",
-        "scripts/_inject_jar_full.py",
-        "scripts/_inject_jar_ankh.py",
     ):
         source = repo / relative
         copy_required(source, kit / source.name)
