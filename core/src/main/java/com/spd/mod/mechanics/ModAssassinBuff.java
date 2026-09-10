@@ -135,9 +135,9 @@ public class ModAssassinBuff extends ChampionEnemy {
 
     @Override
     public String desc() {
-        return "Long-press a map cell or character to use Assassin. The Assassin strike always has perfect accuracy. "
-                + "Infinite Accuracy: " + (infiniteAccuracy ? "ON" : "OFF")
-                + ". When ON, ordinary Hero attacks effectively cannot miss. Tap to configure.";
+        return "Long-press a map cell or character to use Assassin. Assassin always hits. "
+                + "Basic Accuracy: " + (infiniteAccuracy ? "ON" : "OFF")
+                + ". ON makes ordinary Hero attacks always hit. Tap to configure.";
     }
 
     @Override
