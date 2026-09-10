@@ -10,7 +10,9 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap;
+import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
+import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.input.PointerEvent;
 import com.watabou.noosa.Camera;
 import com.watabou.noosa.Game;
@@ -18,6 +20,7 @@ import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
 import com.watabou.noosa.PointerArea;
+import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
 import com.watabou.utils.PointF;
 import com.watabou.utils.Signal;
@@ -27,12 +30,16 @@ import java.lang.reflect.Field;
 /** Permanent Hero buff that exposes Mod Assassin through a map long press. */
 public class ModAssassinBuff extends Buff {
 
+    private static final String ASSASSIN_ENABLED = "assassin_enabled";
+
     private static LongPressLayer inputLayer;
     private static boolean installPending;
 
     private static Field cellSelectorField;
     private static Field defaultCellListenerField;
     private static Field selectorEventField;
+
+    private boolean assassinEnabled = true;
 
     {
         type = buffType.POSITIVE;
@@ -51,6 +58,19 @@ public class ModAssassinBuff extends Buff {
         return null;
     }
 
+    public boolean assassinEnabled() {
+        return assassinEnabled;
+    }
+
+    public void toggleAssassin() {
+        assassinEnabled = !assassinEnabled;
+        if (assassinEnabled) {
+            ensureInputLayer();
+        }
+        BuffIndicator.refreshHero();
+        ModTotalInfoOverlay.refreshIndicators();
+    }
+
     @Override
     public boolean attachTo(Char target) {
         if (!(target instanceof Hero)) {
@@ -59,22 +79,37 @@ public class ModAssassinBuff extends Buff {
         if (!super.attachTo(target)) {
             return false;
         }
-        ensureInputLayer();
+        ModTotalInfoOverlay.ensureInstalled();
+        if (assassinEnabled) {
+            ensureInputLayer();
+        }
         return true;
     }
 
     @Override
     public void fx(boolean on) {
         if (on) {
-            ensureInputLayer();
+            ModTotalInfoOverlay.ensureInstalled();
+            if (assassinEnabled) {
+                ensureInputLayer();
+            }
         }
     }
 
     @Override
     public boolean act() {
-        ensureInputLayer();
+        ModTotalInfoOverlay.ensureInstalled();
+        if (assassinEnabled) {
+            ensureInputLayer();
+        }
         spend(TICK);
         return true;
+    }
+
+    @Override
+    public void detach() {
+        super.detach();
+        BuffIndicator.refreshHero();
     }
 
     @Override
@@ -84,7 +119,7 @@ public class ModAssassinBuff extends Buff {
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(0xB06CFF);
+        icon.hardlight(assassinEnabled ? 0xB06CFF : 0xAAAAAA);
     }
 
     @Override
@@ -99,11 +134,20 @@ public class ModAssassinBuff extends Buff {
 
     @Override
     public String desc() {
-        return "Long-press a map cell or character to use Assassin. Assassin attacks are guaranteed to hit.";
+        return "While enabled, long-press a map cell or character to use Assassin. "
+                + "Assassin attacks are guaranteed to hit. Tap to configure.";
+    }
+
+    private static boolean assassinEnabledForHero() {
+        if (!(ShatteredPixelDungeon.scene() instanceof GameScene) || Dungeon.hero == null) {
+            return false;
+        }
+        ModAssassinBuff buff = find(Dungeon.hero);
+        return buff != null && buff.assassinEnabled;
     }
 
     private static void ensureInputLayer() {
-        if (!(ShatteredPixelDungeon.scene() instanceof GameScene)) {
+        if (!assassinEnabledForHero()) {
             return;
         }
 
@@ -122,9 +166,7 @@ public class ModAssassinBuff extends Buff {
             @Override
             public void call() {
                 installPending = false;
-                if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
-                        || Dungeon.hero == null
-                        || Dungeon.hero.buffs(ModAssassinBuff.class).isEmpty()) {
+                if (!assassinEnabledForHero()) {
                     return;
                 }
 
@@ -210,7 +252,7 @@ public class ModAssassinBuff extends Buff {
 
         @Override
         public boolean onSignal(PointerEvent event) {
-            if (!activeForHero()) {
+            if (!assassinEnabledForHero()) {
                 return false;
             }
 
@@ -257,7 +299,7 @@ public class ModAssassinBuff extends Buff {
         public void update() {
             super.update();
 
-            if (!activeForHero()
+            if (!assassinEnabledForHero()
                     || parent != ShatteredPixelDungeon.scene()
                     || currentCellSelector() != selector) {
                 killAndErase();
@@ -303,12 +345,6 @@ public class ModAssassinBuff extends Buff {
             // is intentionally input-only so one long press can never hit twice.
             new ModAssassin.Selector(hero).onSelect(cell);
             GameScene.ready();
-        }
-
-        private boolean activeForHero() {
-            return ShatteredPixelDungeon.scene() instanceof GameScene
-                    && Dungeon.hero != null
-                    && !Dungeon.hero.buffs(ModAssassinBuff.class).isEmpty();
         }
 
         private boolean movedTooFar() {
@@ -363,5 +399,19 @@ public class ModAssassinBuff extends Buff {
             }
             super.destroy();
         }
+    }
+
+    @Override
+    public void storeInBundle(Bundle bundle) {
+        super.storeInBundle(bundle);
+        bundle.put(ASSASSIN_ENABLED, assassinEnabled);
+    }
+
+    @Override
+    public void restoreFromBundle(Bundle bundle) {
+        super.restoreFromBundle(bundle);
+        // Saves from before the checkbox existed preserve the old always-ON behavior.
+        assassinEnabled = !bundle.contains(ASSASSIN_ENABLED)
+                || bundle.getBoolean(ASSASSIN_ENABLED);
     }
 }
