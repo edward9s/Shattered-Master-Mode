@@ -51,6 +51,8 @@ public final class ModBuffIconCompat {
                 return 38;
             case "PREPARATION":
                 return 42;
+            case "INVERT_MARK":
+                return 57;
             case "AMULET":
                 return 59;
             case "DUEL_CLEAVE":
