@@ -181,6 +181,41 @@ jobs:
           if profile.get('duelist.comboHit').strategy != mod.ABI_DIRECT:
               raise SystemExit('exact addHit(Char) capability was not detected')
 
+          hook = (
+              'Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack('
+              + char_desc + char_desc + ')V'
+          )
+
+          legacy = dict(base)
+          legacy[char_desc] = cls('CharLegacy.smali',
+              '.class public ' + char_desc + '\n'
+              '.super Ljava/lang/Object;\n'
+              '.method public attack(' + char_desc + ')Z\n'
+              '    .locals 1\n'
+              '    if-nez p1, :alive\n'
+              '    const/4 v0, 0x0\n'
+              '    return v0\n'
+              ':alive\n'
+              '    const/4 v0, 0x1\n'
+              '    return v0\n'
+              '.end method\n')
+          profile = mod.detect_target_abi(legacy, game)
+          combo = profile.get('duelist.comboHit')
+          if combo.strategy != mod.ABI_RUNTIME:
+              raise SystemExit('missing Duelist tracker should use runtime no-op compatibility')
+          attack = profile.get('char.incomingAttackHook')
+          if attack.strategy != mod.ABI_DIRECT:
+              raise SystemExit('legacy Char.attack(Char) capability was not detected')
+          if attack.data.get('proto') != '(' + char_desc + ')Z':
+              raise SystemExit('legacy Char.attack(Char) descriptor was not preserved')
+          profile.require_compatible()
+          patched_legacy = mod.patch_char_attack(
+              legacy[char_desc].text, char_desc, attack.data['proto'])
+          if patched_legacy.count(hook) != 1:
+              raise SystemExit('legacy Char.attack hook was not inserted exactly once')
+          if patched_legacy.index(hook) > patched_legacy.index('if-nez p1'):
+              raise SystemExit('legacy Char.attack hook was not inserted before attack resolution')
+
           sample_char = (
               '.class public ' + char_desc + '\n'
               '.super Ljava/lang/Object;\n'
@@ -196,10 +231,6 @@ jobs:
               '.end method\n'
           )
           patched_char = mod.patch_char_attack(sample_char, char_desc)
-          hook = (
-              'Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack('
-              + char_desc + char_desc + ')V'
-          )
           if patched_char.count(hook) != 1:
               raise SystemExit('Char.attack hook was not inserted exactly once')
           if patched_char.index(hook) > patched_char.index('if-nez p1'):
