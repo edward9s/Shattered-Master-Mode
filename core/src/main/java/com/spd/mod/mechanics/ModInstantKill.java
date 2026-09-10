@@ -36,13 +36,14 @@ public class ModInstantKill extends ChampionEnemy {
     private static AccuracyObserver accuracyObserver;
     private static boolean observerInstallPending;
 
+    // Shared render-side observer state for one ordinary animated Hero attack.
+    // Infinite Accuracy may now be supplied by either this buff or Assassin Instinct.
+    private static Char observedAttackTarget;
+    private static boolean observedAttackWasInvulnerable;
+    private static boolean observedAttackHadInfiniteEvasion;
+
     private boolean instantKill;
     private boolean infiniteAccuracy;
-
-    // Render-side observer state for one ordinary animated Hero attack.
-    private transient Char observedAttackTarget;
-    private transient boolean observedAttackWasInvulnerable;
-    private transient boolean observedAttackHadInfiniteEvasion;
 
     {
         announced = true;
@@ -238,7 +239,23 @@ public class ModInstantKill extends ChampionEnemy {
         }
     }
 
-    private static void ensureAccuracyObserver() {
+    /** True when either configurable Hero buff currently supplies Infinite Accuracy. */
+    private static boolean infiniteAccuracyEnabled(Hero hero) {
+        if (hero == null) {
+            return false;
+        }
+        ModInstantKill kill = find(hero);
+        ModAssassinBuff assassin = ModAssassinBuff.find(hero);
+        return (kill != null && kill.infiniteAccuracy)
+                || (assassin != null && assassin.infiniteAccuracyEnabled());
+    }
+
+    /** Observer is needed for Instant Kill policy or either source of Infinite Accuracy. */
+    private static boolean hasObserverUser(Hero hero) {
+        return hero != null && (find(hero) != null || ModAssassinBuff.find(hero) != null);
+    }
+
+    static void ensureAccuracyObserver() {
         if (!(ShatteredPixelDungeon.scene() instanceof GameScene)) {
             return;
         }
@@ -258,7 +275,7 @@ public class ModInstantKill extends ChampionEnemy {
                 observerInstallPending = false;
                 if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
                         || Dungeon.hero == null
-                        || ModInstantKill.find(Dungeon.hero) == null) {
+                        || !hasObserverUser(Dungeon.hero)) {
                     return;
                 }
                 Group scene = (Group) ShatteredPixelDungeon.scene();
@@ -272,7 +289,7 @@ public class ModInstantKill extends ChampionEnemy {
         });
     }
 
-    private void observeHeroAttack(Hero hero) {
+    private static void observeHeroAttack(Hero hero) {
         Char currentTarget = ModCombatCompat.heroAttackTarget(hero);
 
         if (currentTarget != null) {
@@ -307,14 +324,18 @@ public class ModInstantKill extends ChampionEnemy {
             return;
         }
 
+        ModInstantKill kill = find(hero);
+        boolean instantKill = kill != null && kill.instantKill;
+        boolean infiniteAccuracy = infiniteAccuracyEnabled(hero);
+
         // Vanilla Char.attack checks invulnerability before it performs hit(), so
         // an invulnerable target never receives a native hit roll. Preserve normal
-        // misses by explicitly rolling Char.hit when Infinite Accuracy is OFF.
-        // Only a confirmed hit may invoke Instant Kill through invulnerability.
+        // misses when no Infinite Accuracy source is enabled. A confirmed hit may
+        // still invoke Instant Kill through invulnerability.
         if (wasInvulnerable) {
             if (instantKill
                     && (infiniteAccuracy || ModCombatCompat.rollNormalHeroHit(hero, attackedTarget))) {
-                executeInstantKill(attackedTarget);
+                kill.executeInstantKill(attackedTarget);
             }
             return;
         }
@@ -335,7 +356,7 @@ public class ModInstantKill extends ChampionEnemy {
         }
     }
 
-    private void clearObservedAttack() {
+    private static void clearObservedAttack() {
         observedAttackTarget = null;
         observedAttackWasInvulnerable = false;
         observedAttackHadInfiniteEvasion = false;
@@ -356,8 +377,8 @@ public class ModInstantKill extends ChampionEnemy {
                 return;
             }
 
-            ModInstantKill buff = ModInstantKill.find(Dungeon.hero);
-            if (buff == null) {
+            if (!hasObserverUser(Dungeon.hero)) {
+                clearObservedAttack();
                 killAndErase();
                 if (accuracyObserver == this) {
                     accuracyObserver = null;
@@ -365,7 +386,7 @@ public class ModInstantKill extends ChampionEnemy {
                 return;
             }
 
-            buff.observeHeroAttack(Dungeon.hero);
+            observeHeroAttack(Dungeon.hero);
         }
     }
 
