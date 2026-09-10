@@ -56,6 +56,7 @@ jobs:
               'smm-inject-donor.jar',
               'inject_apk.py',
               '_inject_apk_core.py',
+              '_inject_apk_ankh.py',
               'inject_jar.py',
               '_inject_jar_core.py',
               'README.txt',
@@ -70,6 +71,7 @@ jobs:
           PY
           python -m py_compile \
             "$KIT_DIR/inject_apk.py" "$KIT_DIR/_inject_apk_core.py" \
+            "$KIT_DIR/_inject_apk_ankh.py" \
             "$KIT_DIR/inject_jar.py" "$KIT_DIR/_inject_jar_core.py"
           echo "KIT_DIR=$KIT_DIR" >> "$GITHUB_ENV"
           echo "KIT_DONOR_APK=$KIT_DIR/smm-inject-donor.apk" >> "$GITHUB_ENV"
@@ -237,6 +239,112 @@ jobs:
               raise SystemExit('Char.attack hook was not inserted before attack resolution')
 
           print('Capability-driven APK ABI profile: OK')
+          PY
+
+      - name: Validate ModAnkh-only payload isolation and legacy selector ABI
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import pathlib
+          import sys
+
+          kit = pathlib.Path('/tmp/smm-inject-kit')
+          sys.path.insert(0, str(kit))
+          spec = importlib.util.spec_from_file_location('public_inject_apk_ankh_test', kit / 'inject_apk.py')
+          mod = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = mod
+          spec.loader.exec_module(mod)
+          import _inject_apk_ankh as ankh_mode
+          ankh_mode.configure(mod)
+
+          game = 'Lcom/shatteredpixel/shatteredpixeldungeon/'
+          item_desc = game + 'items/Item;'
+          hero_desc = game + 'actors/hero/Hero;'
+
+          def cls(path, text):
+              return mod.injector.SmaliClass.from_text(pathlib.Path(path), text)
+
+          target = {}
+          for rel in ('Dungeon', 'actors/hero/Hero', 'actors/hero/HeroClass', 'levels/Level', 'scenes/GameScene'):
+              desc = game + rel + ';'
+              target[desc] = cls(rel.replace('/', '_') + '.smali',
+                  '.class public ' + desc + '\n.super Ljava/lang/Object;\n')
+          target[item_desc] = cls('Item.smali',
+              '.class public ' + item_desc + '\n'
+              '.super Ljava/lang/Object;\n'
+              '.method public setCurrent(' + hero_desc + ')V\n'
+              '    .locals 0\n'
+              '    return-void\n'
+              '.end method\n')
+
+          detected = mod.injector.detect_target_game_prefix(target)
+          if detected != game:
+              raise SystemExit('Ankh-only target package detection changed')
+          if set(mod._current_abi_profile.capabilities) != {'item.setCurrent'}:
+              raise SystemExit('Ankh-only mode unexpectedly enabled full-SMM ABI probes')
+
+          root = 'Lcom/spd/mod/items/ModAnkh;'
+          storage = 'Lcom/spd/mod/mechanics/ModLootStorage;'
+          console = 'Lcom/spd/mod/mechanics/ModDebug$Console;'
+          journal = 'Lcom/spd/mod/journal/ModJournalWindow;'
+          donor = {
+              root: cls('ModAnkh.smali',
+                  '.class public ' + root + '\n'
+                  '.super ' + game + 'items/Ankh;\n'
+                  '.method public test()V\n'
+                  '    .locals 0\n'
+                  '    invoke-static {}, ' + storage + '->test()V\n'
+                  '    return-void\n'
+                  '.end method\n'),
+              storage: cls('ModLootStorage.smali',
+                  '.class public ' + storage + '\n'
+                  '.super Ljava/lang/Object;\n'
+                  '.method public static test()V\n'
+                  '    .locals 0\n'
+                  '    invoke-static {}, ' + console + '->test()V\n'
+                  '    return-void\n'
+                  '.end method\n'),
+              console: cls('Console.smali',
+                  '.class public ' + console + '\n'
+                  '.super Ljava/lang/Object;\n'
+                  '.method public static test()V\n'
+                  '    .locals 0\n'
+                  '    return-void\n'
+                  '.end method\n'),
+              journal: cls('Journal.smali',
+                  '.class public ' + journal + '\n.super Ljava/lang/Object;\n'),
+          }
+          payload, _ = mod.injector.build_debug_payload(donor, target)
+          if storage not in payload or console not in payload:
+              raise SystemExit('Ankh-only dependency closure omitted a required dependency')
+          if root in payload or journal in payload:
+              raise SystemExit('Ankh-only dependency closure included unrelated SMM classes')
+
+          listener = game + 'scenes/CellSelector$Listener;'
+          target_listener = cls('Listener.smali',
+              '.class public abstract interface ' + listener + '\n'
+              '.super Ljava/lang/Object;\n')
+          anon = cls('Anon.smali',
+              '.class public final Lcom/spd/mod/mechanics/TestSelector;\n'
+              '.super ' + listener + '\n'
+              '.method public constructor <init>()V\n'
+              '    .locals 0\n'
+              '    invoke-direct {p0}, ' + listener + '-><init>()V\n'
+              '    return-void\n'
+              '.end method\n')
+          rewritten, changed = ankh_mode._rewrite_listener_subclass(
+              mod.injector, anon, listener)
+          if not changed:
+              raise SystemExit('Legacy CellSelector.Listener subclass was not adapted')
+          if rewritten.superclass != 'Ljava/lang/Object;' or listener not in rewritten.interfaces:
+              raise SystemExit('Legacy CellSelector.Listener class-to-interface rewrite is invalid')
+          if listener + '-><init>()V' in rewritten.text:
+              raise SystemExit('Legacy CellSelector.Listener constructor call survived rewrite')
+
+          if mod.injector.output_path(pathlib.Path('game.apk')).name != 'game-SMM-Ankh.apk':
+              raise SystemExit('Ankh-only output suffix is wrong')
+
+          print('ModAnkh-only payload isolation and legacy selector ABI: OK')
           PY
 
       - name: Diagnose full SMM donor ABI
