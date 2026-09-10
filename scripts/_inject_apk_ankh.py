@@ -120,6 +120,22 @@ def configure(public_module) -> None:
                 + ", ".join(sorted(unresolved))
             )
 
+        required_roots = {
+            full_prefix + "items/WndModLoot;",
+            full_prefix + "mechanics/ModLootStorage;",
+            full_prefix + "mechanics/ModLoot;",
+            full_prefix + "mechanics/ModDebug$Console;",
+            full_prefix + "mechanics/ModDebug;",
+            full_prefix + "mechanics/ModLegacyCompat;",
+        }
+        missing_roots = sorted(required_roots.difference(closure))
+        if missing_roots:
+            raise injector.InjectError(
+                "SMM donor is too old for --ankh-only; rebuild the injection donor "
+                "from current source. Missing ModAnkh dependency root(s): "
+                + ", ".join(missing_roots)
+            )
+
         helpers = sorted(
             descriptor
             for descriptor in closure
