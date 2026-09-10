@@ -70,6 +70,7 @@ public class ModAssassinBuff extends ChampionEnemy {
 
     public void toggleInfiniteAccuracy() {
         infiniteAccuracy = !infiniteAccuracy;
+        ModInstantKill.ensureAccuracyObserver();
         BuffIndicator.refreshHero();
     }
 
@@ -82,6 +83,7 @@ public class ModAssassinBuff extends ChampionEnemy {
             return false;
         }
         ModTotalInfoOverlay.ensureInstalled();
+        ModInstantKill.ensureAccuracyObserver();
         return true;
     }
 
@@ -92,6 +94,7 @@ public class ModAssassinBuff extends ChampionEnemy {
         if (on) {
             ensureInputLayer();
             ModTotalInfoOverlay.ensureInstalled();
+            ModInstantKill.ensureAccuracyObserver();
         }
     }
 
@@ -99,6 +102,7 @@ public class ModAssassinBuff extends ChampionEnemy {
     public boolean act() {
         ensureInputLayer();
         ModTotalInfoOverlay.ensureInstalled();
+        ModInstantKill.ensureAccuracyObserver();
         spend(TICK);
         return true;
     }
