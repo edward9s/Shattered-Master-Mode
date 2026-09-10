@@ -70,7 +70,7 @@ public class ModAnkh extends Ankh {
     @Override
     public void reset() {
         super.reset();
-        this.icon = ModLegacyCompat.itemIcon("POTION_EXP", "ANKH");
+        this.icon = ModLegacyCompat.itemIcon("POTION_EXP", -1);
         this.keptThoughLostInvent = true;
         this.unique = true;
         this.revivalQuickslot = -1;
