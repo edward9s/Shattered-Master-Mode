@@ -9,8 +9,6 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.MonkEnergy;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
-import com.shatteredpixel.shatteredpixeldungeon.items.KindOfWeapon;
-import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.noosa.Image;
@@ -313,7 +311,8 @@ public class ModParryRiposte extends ChampionEnemy {
         return "Parry: " + (parryEnabled ? "ON" : "OFF")
                 + ". When ON, incoming hit checks are parried. Riposte: "
                 + (riposteEnabled ? "ON" : "OFF")
-                + ". When ON, incoming attacks trigger a guaranteed counterattack. Tap to configure.";
+                + ". When ON, incoming attacks trigger a counterattack using normal hit rules. "
+                + "Force Hit overrides the Riposte hit check when that buff is active. Tap to configure.";
     }
 
     @Override
@@ -437,35 +436,19 @@ public class ModParryRiposte extends ChampionEnemy {
             Hero hero = riposter instanceof Hero ? (Hero) riposter : null;
 
             if (hero != null) {
-                int originalInvisible = hero.invisible;
-                int originalStrength = hero.STR;
-                KindOfWeapon attackingWeapon = hero.belongings.attackingWeapon();
-                boolean bypassInfiniteEvasion = !attacker.isInvulnerable(hero.getClass())
+                boolean forceHit = ModForceHit.find(hero) != null;
+                boolean bypassInfiniteEvasion = forceHit
+                        && !attacker.isInvulnerable(hero.getClass())
                         && ModCombatCompat.hasInfiniteEvasionAgainst(attacker, hero);
 
-                try {
-                    // Mirror ModAssassin: make the riposte qualify for the normal
-                    // surprise-attack path without bypassing weapon-specific rules
-                    // such as Flail's "cannot surprise attack" restriction.
-                    hero.invisible = 1;
-                    if (attackingWeapon instanceof Weapon) {
-                        int strengthShortfall = ((Weapon) attackingWeapon).STRReq() - hero.STR();
-                        if (strengthShortfall > 0) {
-                            hero.STR += strengthShortfall;
-                        }
-                    }
-
-                    // Outgoing ripostes remain absolutely accurate. Enemy Focus is
-                    // an enemy-side defense and must not override this Mod feature.
-                    hit = bypassInfiniteEvasion
-                            ? ModCombatCompat.forceHeroHit(hero, attacker, 1f, 0f)
-                            : hero.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
-                } finally {
-                    hero.invisible = originalInvisible;
-                    hero.STR = originalStrength;
-                }
+                // Riposte is a normal hit check. Force Hit is the only Mod feature
+                // that upgrades it to guaranteed accuracy.
+                hit = bypassInfiniteEvasion
+                        ? ModCombatCompat.forceHeroHit(hero, attacker, 1f, 0f)
+                        : hero.attack(attacker, 1f, 0f,
+                                forceHit ? Char.INFINITE_ACCURACY : 1f);
             } else {
-                hit = riposter.attack(attacker, 1f, 0f, Char.INFINITE_ACCURACY);
+                hit = riposter.attack(attacker, 1f, 0f, 1f);
             }
 
             // Direct Char.attack() calls bypass Hero.onAttackComplete(), so mirror

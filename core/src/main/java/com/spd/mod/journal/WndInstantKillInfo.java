@@ -1,7 +1,6 @@
 package com.spd.mod.journal;
 
-import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
-import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
+import com.shatteredpixel.shatteredpixeldungeon.ui.CheckBox;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModInstantKill;
 import com.watabou.noosa.ui.Component;
@@ -10,12 +9,12 @@ import com.watabou.noosa.ui.Component;
 public class WndInstantKillInfo extends WndInfoBuff {
 
     private static final int GAP = 3;
-    private static final int BUTTON_HEIGHT = 18;
+    private static final int CHECK_HEIGHT = 18;
 
     public WndInstantKillInfo(final ModInstantKill buff) {
         super(buff);
 
-        final RedButton instantKillButton = new RedButton(instantKillButtonText(buff), 8) {
+        final CheckBox instantKillCheck = new CheckBox("Instant Kill") {
             @Override
             protected void onClick() {
                 if (!valid(buff)) {
@@ -23,34 +22,22 @@ public class WndInstantKillInfo extends WndInfoBuff {
                     return;
                 }
 
+                super.onClick();
                 buff.toggleInstantKill();
-                rebuild(buff);
+                checked(buff.instantKillEnabled());
+                ModTotalInfoOverlay.refreshIndicators();
             }
         };
-
-        final RedButton accuracyButton = new RedButton(accuracyButtonText(buff), 8) {
-            @Override
-            protected void onClick() {
-                if (!valid(buff)) {
-                    WndInstantKillInfo.this.hide();
-                    return;
-                }
-
-                buff.toggleInfiniteAccuracy();
-                rebuild(buff);
-            }
-        };
+        instantKillCheck.checked(buff.instantKillEnabled());
 
         final Component controls = new Component() {
             @Override
             protected void layout() {
-                instantKillButton.setRect(x, y, width, BUTTON_HEIGHT);
-                accuracyButton.setRect(x, instantKillButton.bottom() + GAP, width, BUTTON_HEIGHT);
+                instantKillCheck.setRect(x, y, width, CHECK_HEIGHT);
             }
         };
-        controls.add(instantKillButton);
-        controls.add(accuracyButton);
-        controls.setSize(width, BUTTON_HEIGHT * 2 + GAP);
+        controls.add(instantKillCheck);
+        controls.setSize(width, CHECK_HEIGHT);
 
         if (!ModWindowCompat.addToBottom(this, controls, GAP, 2)) {
             controls.setPos(0, height + GAP);
@@ -61,19 +48,5 @@ public class WndInstantKillInfo extends WndInfoBuff {
 
     private boolean valid(ModInstantKill buff) {
         return buff.target != null && ModInstantKill.find(buff.target) == buff;
-    }
-
-    private void rebuild(ModInstantKill buff) {
-        ModTotalInfoOverlay.refreshIndicators();
-        hide();
-        GameScene.show(new WndInstantKillInfo(buff));
-    }
-
-    private static String instantKillButtonText(ModInstantKill buff) {
-        return buff.instantKillEnabled() ? "Instant Kill: ON" : "Instant Kill: OFF";
-    }
-
-    private static String accuracyButtonText(ModInstantKill buff) {
-        return buff.infiniteAccuracyEnabled() ? "Basic Accuracy: ON" : "Basic Accuracy: OFF";
     }
 }

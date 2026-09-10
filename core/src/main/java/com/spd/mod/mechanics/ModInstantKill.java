@@ -1,55 +1,32 @@
 package com.spd.mod.mechanics;
 
-import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
-import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
-import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Combo;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Preparation;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
-import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
-import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
-import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.ModTotalInfoOverlay;
-import com.watabou.noosa.Gizmo;
-import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
-import com.watabou.utils.Callback;
 
-import java.lang.reflect.Field;
 import java.util.HashSet;
 
-/** Permanent Hero combat buff with configurable instant-kill and extreme-accuracy effects. */
+/** Permanent Hero combat buff with a configurable Instant Kill effect. */
 public class ModInstantKill extends ChampionEnemy {
 
     private static final String INSTANT_KILL = "instant_kill";
-    private static final String INFINITE_ACCURACY = "infinite_accuracy";
-
-    private static Field currentActorField;
-    private static AccuracyObserver accuracyObserver;
-    private static boolean observerInstallPending;
-
-    // Shared render-side observer state for one ordinary animated Hero attack.
-    // Infinite Accuracy may now be supplied by either this buff or Assassin Instinct.
-    private static Char observedAttackTarget;
-    private static boolean observedAttackWasInvulnerable;
-    private static boolean observedAttackHadInfiniteEvasion;
 
     private boolean instantKill;
-    private boolean infiniteAccuracy;
 
     {
+        type = buffType.POSITIVE;
         announced = true;
         revivePersists = true;
-        // Some forks use ChampionEnemy.color to tint the character sprite directly.
-        // This debug buff has no character tint of its own; icon colors are handled by tintIcon().
+        // ChampionEnemy is required because Char.attackProc() dispatches only to
+        // ChampionEnemy buffs. This buff otherwise has no champion side effects.
         color = 0xFFFFFF;
     }
 
@@ -68,22 +45,8 @@ public class ModInstantKill extends ChampionEnemy {
         return instantKill;
     }
 
-    public boolean infiniteAccuracyEnabled() {
-        return infiniteAccuracy;
-    }
-
     public void toggleInstantKill() {
         instantKill = !instantKill;
-        if (!instantKill) {
-            clearObservedAttack();
-        }
-        ensureAccuracyObserver();
-        BuffIndicator.refreshHero();
-    }
-
-    public void toggleInfiniteAccuracy() {
-        infiniteAccuracy = !infiniteAccuracy;
-        ensureAccuracyObserver();
         BuffIndicator.refreshHero();
     }
 
@@ -96,32 +59,26 @@ public class ModInstantKill extends ChampionEnemy {
             return false;
         }
         ModTotalInfoOverlay.ensureInstalled();
-        ensureAccuracyObserver();
         return true;
     }
 
     @Override
     public void fx(boolean on) {
-        // Do not inherit ChampionEnemy's aura. This buff only changes combat behavior.
+        // Do not inherit ChampionEnemy's aura or actor tint.
         if (on) {
             ModTotalInfoOverlay.ensureInstalled();
-            ensureAccuracyObserver();
         }
     }
 
     @Override
     public boolean act() {
         ModTotalInfoOverlay.ensureInstalled();
-        ensureAccuracyObserver();
-        // No periodic actor work is required; attack hooks and the lightweight
-        // render observer drive both effects.
-        diactivate();
+        spend(TICK);
         return true;
     }
 
     @Override
     public void detach() {
-        clearObservedAttack();
         super.detach();
         BuffIndicator.refreshHero();
     }
@@ -133,13 +90,7 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public void tintIcon(Image icon) {
-        if (instantKill) {
-            icon.hardlight(0xFF4444);
-        } else if (infiniteAccuracy) {
-            icon.hardlight(0x55CCFF);
-        } else {
-            icon.hardlight(0xAAAAAA);
-        }
+        icon.hardlight(instantKill ? 0xFF4444 : 0xAAAAAA);
     }
 
     @Override
@@ -155,9 +106,7 @@ public class ModInstantKill extends ChampionEnemy {
     @Override
     public String desc() {
         return "Instant Kill: " + (instantKill ? "ON" : "OFF")
-                + ". ON makes successful ordinary attacks kill. Basic Accuracy: "
-                + (infiniteAccuracy ? "ON" : "OFF")
-                + ". ON makes ordinary Hero attacks always hit. Tap to configure.";
+                + ". When ON, successful Hero attacks kill their target. Tap to configure.";
     }
 
     @Override
@@ -172,13 +121,9 @@ public class ModInstantKill extends ChampionEnemy {
     }
 
     /**
-     * Resolves an attack which an external Mod combat path attempted but the
-     * engine did not accept as a hit. The caller supplies no Instant Kill policy:
-     * this class alone decides whether the block was invulnerability and whether
-     * Instant Kill is enabled.
-     *
-     * @return true only when Instant Kill converted the blocked attack into a
-     * successful native death path.
+     * Resolves a Mod attack that was blocked by target invulnerability. Instant
+     * Kill keeps ownership of this policy; Force Hit never bypasses
+     * invulnerability by itself.
      */
     static boolean resolveBlockedAttack(Hero hero, Char enemy) {
         ModInstantKill buff = find(hero);
@@ -196,7 +141,6 @@ public class ModInstantKill extends ChampionEnemy {
         return buff.executeInstantKill(enemy);
     }
 
-    /** Runs this buff's native-death execution after its own policy has accepted a hit. */
     private boolean executeInstantKill(Char enemy) {
         if (!(target instanceof Hero)
                 || enemy == null
@@ -219,195 +163,23 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public float evasionAndAccuracyFactor() {
-        if (!infiniteAccuracy || target == null) {
-            return 1f;
-        }
-
-        Actor current = currentActor();
-        return current == target ? Float.MAX_VALUE : 1f;
-    }
-
-    private static Actor currentActor() {
-        try {
-            if (currentActorField == null) {
-                currentActorField = Actor.class.getDeclaredField("current");
-                currentActorField.setAccessible(true);
-            }
-            return (Actor) currentActorField.get(null);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    /** True when either configurable Hero buff currently supplies Infinite Accuracy. */
-    private static boolean infiniteAccuracyEnabled(Hero hero) {
-        if (hero == null) {
-            return false;
-        }
-        ModInstantKill kill = find(hero);
-        ModAssassinBuff assassin = ModAssassinBuff.find(hero);
-        return (kill != null && kill.infiniteAccuracy)
-                || (assassin != null && assassin.infiniteAccuracyEnabled());
-    }
-
-    /** Observer is needed for Instant Kill policy or either source of Infinite Accuracy. */
-    private static boolean hasObserverUser(Hero hero) {
-        return hero != null && (find(hero) != null || ModAssassinBuff.find(hero) != null);
-    }
-
-    static void ensureAccuracyObserver() {
-        if (!(ShatteredPixelDungeon.scene() instanceof GameScene)) {
-            return;
-        }
-        if (accuracyObserver != null
-                && accuracyObserver.exists
-                && accuracyObserver.parent == ShatteredPixelDungeon.scene()) {
-            return;
-        }
-        if (observerInstallPending) {
-            return;
-        }
-        observerInstallPending = true;
-
-        ShatteredPixelDungeon.runOnRenderThread(new Callback() {
-            @Override
-            public void call() {
-                observerInstallPending = false;
-                if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
-                        || Dungeon.hero == null
-                        || !hasObserverUser(Dungeon.hero)) {
-                    return;
-                }
-                Group scene = (Group) ShatteredPixelDungeon.scene();
-                if (accuracyObserver == null
-                        || !accuracyObserver.exists
-                        || accuracyObserver.parent != scene) {
-                    accuracyObserver = new AccuracyObserver();
-                    scene.addToFront(accuracyObserver);
-                }
-            }
-        });
-    }
-
-    private static void observeHeroAttack(Hero hero) {
-        Char currentTarget = ModCombatCompat.heroAttackTarget(hero);
-
-        if (currentTarget != null) {
-            if (currentTarget != hero && currentTarget.isAlive()) {
-                if (observedAttackTarget != currentTarget) {
-                    observedAttackTarget = currentTarget;
-                    observedAttackWasInvulnerable = currentTarget.isInvulnerable(hero.getClass());
-                    observedAttackHadInfiniteEvasion =
-                            ModCombatCompat.hasInfiniteEvasionAgainst(currentTarget, hero);
-                } else {
-                    // Never overwrite a true snapshot after a consumable defense
-                    // response (such as Monk Focus) removes its own evasion state.
-                    observedAttackWasInvulnerable |=
-                            currentTarget.isInvulnerable(hero.getClass());
-                    observedAttackHadInfiniteEvasion |=
-                            ModCombatCompat.hasInfiniteEvasionAgainst(currentTarget, hero);
-                }
-            } else {
-                clearObservedAttack();
-            }
-            return;
-        }
-
-        Char attackedTarget = observedAttackTarget;
-        boolean wasInvulnerable = observedAttackWasInvulnerable;
-        boolean hadInfiniteEvasion = observedAttackHadInfiniteEvasion;
-        clearObservedAttack();
-
-        if (attackedTarget == null
-                || !hero.isAlive()
-                || !attackedTarget.isAlive()) {
-            return;
-        }
-
-        ModInstantKill kill = find(hero);
-        boolean instantKill = kill != null && kill.instantKill;
-        boolean infiniteAccuracy = infiniteAccuracyEnabled(hero);
-
-        // Vanilla Char.attack checks invulnerability before it performs hit(), so
-        // an invulnerable target never receives a native hit roll. Preserve normal
-        // misses when no Infinite Accuracy source is enabled. A confirmed hit may
-        // still invoke Instant Kill through invulnerability.
-        if (wasInvulnerable) {
-            if (instantKill
-                    && (infiniteAccuracy || ModCombatCompat.rollNormalHeroHit(hero, attackedTarget))) {
-                kill.executeInstantKill(attackedTarget);
-            }
-            return;
-        }
-
-        // Engine-level infinite evasion beats even Char.INFINITE_ACCURACY before
-        // ChampionEnemy accuracy factors are applied. Some defenders (notably
-        // Monk Focus) consume that state from defenseVerb() after the native miss,
-        // so use the pre-miss snapshot instead of asking defenseSkill again here.
-        if (infiniteAccuracy
-                && hadInfiniteEvasion
-                && ModCombatCompat.forceHeroHit(hero, attackedTarget, 1f, 0f)) {
-            if (hero.subClass == HeroSubClass.GLADIATOR) {
-                Buff.affect(hero, Combo.class).hit(attackedTarget);
-            }
-            if (hero.heroClass == HeroClass.DUELIST) {
-                ModCombatCompat.addDuelistComboHit(hero, attackedTarget);
-            }
-        }
-    }
-
-    private static void clearObservedAttack() {
-        observedAttackTarget = null;
-        observedAttackWasInvulnerable = false;
-        observedAttackHadInfiniteEvasion = false;
-    }
-
-    private static class AccuracyObserver extends Gizmo {
-        @Override
-        public void update() {
-            super.update();
-
-            if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
-                    || parent != ShatteredPixelDungeon.scene()
-                    || Dungeon.hero == null) {
-                killAndErase();
-                if (accuracyObserver == this) {
-                    accuracyObserver = null;
-                }
-                return;
-            }
-
-            if (!hasObserverUser(Dungeon.hero)) {
-                clearObservedAttack();
-                killAndErase();
-                if (accuracyObserver == this) {
-                    accuracyObserver = null;
-                }
-                return;
-            }
-
-            observeHeroAttack(Dungeon.hero);
-        }
+        return 1f;
     }
 
     @Override
     public void storeInBundle(Bundle bundle) {
         super.storeInBundle(bundle);
         bundle.put(INSTANT_KILL, instantKill);
-        bundle.put(INFINITE_ACCURACY, infiniteAccuracy);
     }
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
         instantKill = bundle.getBoolean(INSTANT_KILL);
-        infiniteAccuracy = bundle.getBoolean(INFINITE_ACCURACY);
-        clearObservedAttack();
     }
 
     @Override
     public HashSet<Class> immunities() {
-        // ChampionEnemy normally grants AllyBuff immunity; this debug buff must not.
         return new HashSet<>();
     }
 

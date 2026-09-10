@@ -7,7 +7,6 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
-import com.spd.mod.mechanics.ModAssassinBuff;
 import com.spd.mod.mechanics.ModInstantKill;
 import com.spd.mod.mechanics.ModParryRiposte;
 import com.watabou.noosa.Gizmo;
@@ -123,9 +122,7 @@ public class ModTotalInfoOverlay extends Gizmo {
 
     private static boolean hasConfigurableUser() {
         for (Char ch : Actor.chars()) {
-            if (ModParryRiposte.find(ch) != null
-                    || ModInstantKill.find(ch) != null
-                    || ModAssassinBuff.find(ch) != null) {
+            if (ModParryRiposte.find(ch) != null || ModInstantKill.find(ch) != null) {
                 return true;
             }
         }
@@ -160,8 +157,7 @@ public class ModTotalInfoOverlay extends Gizmo {
 
             for (Map.Entry<Object, Object> entry : buffButtons.entrySet()) {
                 if (!(entry.getKey() instanceof ModParryRiposte)
-                        && !(entry.getKey() instanceof ModInstantKill)
-                        && !(entry.getKey() instanceof ModAssassinBuff)) {
+                        && !(entry.getKey() instanceof ModInstantKill)) {
                     continue;
                 }
                 if (!(entry.getValue() instanceof Component)) {
@@ -238,9 +234,6 @@ public class ModTotalInfoOverlay extends Gizmo {
             if (buff instanceof ModInstantKill) {
                 return ModInstantKill.find(buff.target) == buff;
             }
-            if (buff instanceof ModAssassinBuff) {
-                return ModAssassinBuff.find(buff.target) == buff;
-            }
             return false;
         }
 
@@ -250,8 +243,6 @@ public class ModTotalInfoOverlay extends Gizmo {
                 GameScene.show(new WndTotalBuffInfo((ModParryRiposte) buff));
             } else if (buff instanceof ModInstantKill) {
                 GameScene.show(new WndInstantKillInfo((ModInstantKill) buff));
-            } else if (buff instanceof ModAssassinBuff) {
-                GameScene.show(new WndTotalBuffInfo((ModAssassinBuff) buff));
             }
         }
 
