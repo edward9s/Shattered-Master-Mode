@@ -397,8 +397,8 @@ def _probe_duelist_combo(
     if tracker is None:
         return AbiCapability(
             "duelist.comboHit",
-            ABI_UNSUPPORTED,
-            "Sai.ComboStrikeTracker class is missing",
+            ABI_RUNTIME,
+            "Sai.ComboStrikeTracker is absent; combo bookkeeping will be skipped",
         )
 
     supported_protos = ("()V", f"({char_descriptor})V")
@@ -480,19 +480,31 @@ def _probe_char_attack_hook(
             "Char class is missing",
         )
 
-    proto = f"({char_descriptor}FFF)Z"
-    flags = char_class.methods.get(("attack", proto))
+    modern_proto = f"({char_descriptor}FFF)Z"
+    flags = char_class.methods.get(("attack", modern_proto))
     if flags is not None and "static" not in flags:
         return AbiCapability(
             "char.incomingAttackHook",
             ABI_DIRECT,
             "Char.attack(Char,float,float,float) is available for pre-resolution hook",
+            data={"proto": modern_proto},
+        )
+
+    legacy_proto = f"({char_descriptor})Z"
+    flags = char_class.methods.get(("attack", legacy_proto))
+    if flags is not None and "static" not in flags:
+        return AbiCapability(
+            "char.incomingAttackHook",
+            ABI_DIRECT,
+            "legacy Char.attack(Char) is available for pre-resolution hook",
+            data={"proto": legacy_proto},
         )
 
     return AbiCapability(
         "char.incomingAttackHook",
         ABI_UNSUPPORTED,
-        "Char.attack(Char,float,float,float) is missing or static",
+        "supported Char.attack ABI variants are missing or static: "
+        "attack(Char,float,float,float), attack(Char)",
     )
 
 
@@ -729,8 +741,13 @@ def _first_smali_instruction(block: str) -> tuple[int, str]:
     raise injector.InjectError("Char.attack has no executable instruction")
 
 
-def patch_char_attack(text: str, char_descriptor: str) -> str:
-    proto = f"({char_descriptor}FFF)Z"
+def patch_char_attack(
+    text: str,
+    char_descriptor: str,
+    proto: str | None = None,
+) -> str:
+    if proto is None:
+        proto = f"({char_descriptor}FFF)Z"
     start, end, block = injector.method_block(text, "attack", proto)
     hook = (
         "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack("
@@ -758,9 +775,16 @@ def compile_smali_with_char_hook(
     global _pending_char_overlay
     if _pending_char_overlay is None:
         raise injector.InjectError("Char.attack overlay source was not captured")
+    if _current_abi_profile is None:
+        raise injector.InjectError("Target ABI profile was not initialized")
+
+    capability = _current_abi_profile.get("char.incomingAttackHook")
+    proto = capability.data.get("proto")
+    if not proto:
+        raise injector.InjectError("Target Char.attack ABI profile did not preserve its descriptor")
 
     char_descriptor, original_char = _pending_char_overlay
-    patched_char = patch_char_attack(original_char, char_descriptor)
+    patched_char = patch_char_attack(original_char, char_descriptor, proto)
     char_output = directory / Path(char_descriptor[1:-1] + ".smali")
     if char_output.exists():
         raise injector.InjectError(
@@ -768,7 +792,7 @@ def compile_smali_with_char_hook(
         )
     char_output.parent.mkdir(parents=True, exist_ok=True)
     char_output.write_text(patched_char, encoding="utf-8")
-    injector.log("Char.attack incoming-attack hook: OK")
+    injector.log(f"Char.attack incoming-attack hook ({proto}): OK")
 
     try:
         _original_compile_smali(java, smali_jar, directory, output, api)
