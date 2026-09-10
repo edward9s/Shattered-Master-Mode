@@ -251,7 +251,7 @@ public class ModTotalInfoOverlay extends Gizmo {
             } else if (buff instanceof ModInstantKill) {
                 GameScene.show(new WndInstantKillInfo((ModInstantKill) buff));
             } else if (buff instanceof ModAssassinBuff) {
-                GameScene.show(new WndAssassinBuffInfo((ModAssassinBuff) buff));
+                GameScene.show(new WndTotalBuffInfo((ModAssassinBuff) buff));
             }
         }
 
