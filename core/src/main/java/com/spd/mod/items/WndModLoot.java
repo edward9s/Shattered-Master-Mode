@@ -1,16 +1,12 @@
 package com.spd.mod.items;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
-import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
-import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
-import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
-import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.InventorySlot;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.ScrollPane;
@@ -18,6 +14,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndBag;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoItem;
 import com.spd.mod.mechanics.ModDebug$Console;
+import com.spd.mod.mechanics.ModLegacyCompat;
 import com.spd.mod.mechanics.ModLootStorage;
 import com.watabou.input.PointerEvent;
 import com.watabou.noosa.BitmapText;
@@ -230,7 +227,9 @@ public class WndModLoot extends Window {
 
         Hero hero = Dungeon.hero;
         if (hero == null || !hero.isAlive() || !storage.getStored().contains(item)) {
-            ShatteredPixelDungeon.scene().addToFront(new WndInfoItem(item));
+            if (Game.scene() != null) {
+                Game.scene().addToFront(new WndInfoItem(item));
+            }
             return;
         }
 
@@ -272,7 +271,7 @@ public class WndModLoot extends Window {
             PixelScene.align(amt);
             add(amt);
         } else {
-            Image gold = Icons.get(Icons.COIN_SML);
+            Image gold = ModLegacyCompat.currencyIcon("COIN_SML");
             gold.x = width - gold.width() - 0.5f;
             gold.y = 0;
             PixelScene.align(gold);
@@ -286,7 +285,7 @@ public class WndModLoot extends Window {
             PixelScene.align(amt);
             add(amt);
 
-            Image energy = Icons.get(Icons.ENERGY_SML);
+            Image energy = ModLegacyCompat.currencyIcon("ENERGY_SML");
             energy.x = width - energy.width();
             energy.y = gold.height();
             PixelScene.align(energy);
@@ -362,7 +361,9 @@ public class WndModLoot extends Window {
             for (Slot s : slots) {
                 if (s.inside(x, y)) {
                     if (s.item != null) {
-                        ShatteredPixelDungeon.scene().addToFront(new WndInfoItem(s.item));
+                        if (Game.scene() != null) {
+                            Game.scene().addToFront(new WndInfoItem(s.item));
+                        }
                         return true;
                     }
                     return false;
@@ -408,12 +409,12 @@ public class WndModLoot extends Window {
             @Override
             public void update() {
                 super.update();
-                if (pressing && (pressTime += Game.elapsed) >= Button.longClick) {
+                if (pressing && (pressTime += Game.elapsed) >= ModLegacyCompat.longClickThreshold()) {
                     pressing = false;
                     PointF p = content.camera.screenToCamera((int) pressStart.x, (int) pressStart.y);
                     if (LootPane.this.onLongClick(p.x, p.y)) {
                         longClicked = true;
-                        if (SPDSettings.vibration()) {
+                        if (ModLegacyCompat.vibrationEnabled()) {
                             Game.vibrate(50);
                         }
                     }
