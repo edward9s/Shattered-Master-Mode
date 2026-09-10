@@ -4,7 +4,6 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.PinCushion;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSprite;
-import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.watabou.noosa.Image;
 
 import java.lang.reflect.Field;
@@ -24,20 +23,34 @@ import java.util.Iterator;
 public final class ModLegacyCompat {
 
     private static final float DEFAULT_LONG_CLICK = 0.25f;
+    private static final String ITEM_SPRITE_SHEET =
+            "com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet";
 
     private ModLegacyCompat() {
     }
 
-    public static int itemIcon(String name, int fallback) {
+    public static int itemIcon(String name, String fallbackName) {
         try {
-            Class<?> icons = Class.forName(
-                    "com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet$Icons");
+            Class<?> icons = Class.forName(ITEM_SPRITE_SHEET + "$Icons");
             Field field = icons.getField(name);
             if (Modifier.isStatic(field.getModifiers()) && field.getType() == Integer.TYPE) {
                 return field.getInt(null);
             }
         } catch (ReflectiveOperationException | LinkageError ignored) {
             // Old targets predate ItemSpriteSheet.Icons.
+        }
+        return itemSpriteIndex(fallbackName, 0);
+    }
+
+    private static int itemSpriteIndex(String name, int fallback) {
+        try {
+            Class<?> sheet = Class.forName(ITEM_SPRITE_SHEET);
+            Field field = sheet.getField(name);
+            if (Modifier.isStatic(field.getModifiers()) && field.getType() == Integer.TYPE) {
+                return field.getInt(null);
+            }
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+            // A missing cosmetic sprite must not make the injected payload unusable.
         }
         return fallback;
     }
@@ -64,9 +77,9 @@ public final class ModLegacyCompat {
                 }
             }
         } catch (ReflectiveOperationException | LinkageError ignored) {
-            // Fall through to the universally available gold item sprite.
+            // Fall through to the target's own gold item sprite.
         }
-        return new ItemSprite(ItemSpriteSheet.GOLD, null);
+        return new ItemSprite(itemSpriteIndex("GOLD", 0), null);
     }
 
     public static float longClickThreshold() {
