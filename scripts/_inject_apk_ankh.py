@@ -3,7 +3,77 @@
 from __future__ import annotations
 
 import re
+import zipfile
 from pathlib import Path
+
+
+_ACTION_MESSAGE_BUNDLE_RE = re.compile(
+    r"^assets/messages/items/items(?:_[^/]+)?\.properties$"
+)
+_ACTION_MESSAGES = (
+    (b"com.spd.mod.items.modankh.ac_store", b"Store"),
+    (b"com.spd.mod.items.modankh.ac_loot", b"Loot"),
+    (b"com.spd.mod.items.modankh.ac_console", b"Console"),
+    (b"com.spd.mod.items.modankh.ac_unbless", b"Unbless"),
+)
+
+
+def _append_action_messages(data: bytes) -> tuple[bytes, int]:
+    missing = []
+    for key, value in _ACTION_MESSAGES:
+        if re.search(rb"(?m)^" + re.escape(key) + rb"\s*=", data) is None:
+            missing.append((key, value))
+
+    if not missing:
+        return data, 0
+
+    out = bytearray(data)
+    if out and not out.endswith((b"\n", b"\r")):
+        out.extend(b"\n")
+    out.extend(b"\n# SMM ModAnkh injected action labels\n")
+    for key, value in missing:
+        out.extend(key + b"=" + value + b"\n")
+    return bytes(out), len(missing)
+
+
+def _patch_action_message_bundles(injector, apk: Path) -> None:
+    """Add only ModAnkh action keys needed by legacy WndUseItem implementations."""
+
+    temp = apk.with_name(apk.name + ".modankh-messages.tmp")
+    temp.unlink(missing_ok=True)
+    matched = 0
+    added = 0
+
+    try:
+        with zipfile.ZipFile(apk, "r") as zin, zipfile.ZipFile(
+            temp, "w", allowZip64=True
+        ) as zout:
+            zout.comment = zin.comment
+            for info in zin.infolist():
+                data = zin.read(info.filename)
+                if _ACTION_MESSAGE_BUNDLE_RE.fullmatch(info.filename):
+                    matched += 1
+                    data, count = _append_action_messages(data)
+                    added += count
+                zout.writestr(injector.clone_zipinfo(info), data)
+
+        if matched == 0:
+            temp.unlink(missing_ok=True)
+            injector.log(
+                "No standard SPD item message bundle found; "
+                "ModAnkh action labels rely on target actionName() support"
+            )
+            return
+
+        temp.replace(apk)
+        if added:
+            injector.log(
+                f"Injected ModAnkh action labels into {matched} item message bundle(s)"
+            )
+        else:
+            injector.log("ModAnkh action labels already present in target message bundles")
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def _is_interface(item) -> bool:
@@ -58,6 +128,7 @@ def configure(public_module) -> None:
 
     injector = public_module.injector
     full_prefix = public_module.FULL_SMM_PREFIX
+    original_rebuild_apk = injector.rebuild_apk
 
     def detect_target_game_prefix(target_index):
         game_prefix = public_module._original_detect_target_game_prefix(target_index)
@@ -251,6 +322,16 @@ def configure(public_module) -> None:
             allowed_target_prefixes + (injector.MOD_ANKH,),
         )
 
+    def rebuild_apk(target, overlay_dex, output, manifest=None):
+        mapping = original_rebuild_apk(
+            target,
+            overlay_dex,
+            output,
+            manifest,
+        )
+        _patch_action_message_bundles(injector, output)
+        return mapping
+
     def output_path(target: Path) -> Path:
         return target.with_name(
             target.stem + "-SMM-Ankh" + (target.suffix or ".apk")
@@ -265,4 +346,5 @@ def configure(public_module) -> None:
     injector.find_class = public_module._original_find_class
     injector.patch_dungeon = public_module._original_patch_dungeon
     injector.compile_smali = public_module._original_compile_smali
+    injector.rebuild_apk = rebuild_apk
     injector.output_path = output_path
