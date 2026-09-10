@@ -13,6 +13,7 @@ import com.shatteredpixel.shatteredpixeldungeon.items.bags.ScrollHolder;
 import java.util.Collections;
 
 import com.spd.mod.mechanics.ModAssassin;
+import com.spd.mod.mechanics.ModItemCompat;
 
 public class ModScrollOfAssassin extends Scroll implements ModReusable {
 
@@ -62,7 +63,7 @@ public class ModScrollOfAssassin extends Scroll implements ModReusable {
     @Override
     public void restoreFromBundle(Bundle bundle) {
         super.restoreFromBundle(bundle);
-        this.level(0);
+        ModItemCompat.setLevel(this, 0);
         reset();
     }
 
