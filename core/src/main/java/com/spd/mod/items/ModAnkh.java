@@ -71,6 +71,10 @@ public class ModAnkh extends Ankh {
     public void reset() {
         super.reset();
         this.icon = ModLegacyCompat.itemIcon("POTION_EXP", -1);
+        // Older SPD UIs filter quickslot candidates and highlight actions by the
+        // Item.defaultAction field directly instead of calling defaultAction().
+        // Keep both contracts synchronized so injected ModAnkh works on either ABI.
+        this.defaultAction = AC_STORE;
         this.keptThoughLostInvent = true;
         this.unique = true;
         this.revivalQuickslot = -1;
