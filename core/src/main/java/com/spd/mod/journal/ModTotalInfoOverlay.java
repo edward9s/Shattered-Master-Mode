@@ -7,6 +7,7 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
+import com.spd.mod.mechanics.ModAssassinBuff;
 import com.spd.mod.mechanics.ModForceHit;
 import com.spd.mod.mechanics.ModInstantKill;
 import com.spd.mod.mechanics.ModParryRiposte;
@@ -125,7 +126,8 @@ public class ModTotalInfoOverlay extends Gizmo {
         for (Char ch : Actor.chars()) {
             if (ModParryRiposte.find(ch) != null
                     || ModInstantKill.find(ch) != null
-                    || ModForceHit.findAttached(ch) != null) {
+                    || ModForceHit.findAttached(ch) != null
+                    || ModAssassinBuff.find(ch) != null) {
                 return true;
             }
         }
@@ -161,7 +163,8 @@ public class ModTotalInfoOverlay extends Gizmo {
             for (Map.Entry<Object, Object> entry : buffButtons.entrySet()) {
                 if (!(entry.getKey() instanceof ModParryRiposte)
                         && !(entry.getKey() instanceof ModInstantKill)
-                        && !(entry.getKey() instanceof ModForceHit)) {
+                        && !(entry.getKey() instanceof ModForceHit)
+                        && !(entry.getKey() instanceof ModAssassinBuff)) {
                     continue;
                 }
                 if (!(entry.getValue() instanceof Component)) {
@@ -241,6 +244,9 @@ public class ModTotalInfoOverlay extends Gizmo {
             if (buff instanceof ModForceHit) {
                 return ModForceHit.findAttached(buff.target) == buff;
             }
+            if (buff instanceof ModAssassinBuff) {
+                return ModAssassinBuff.find(buff.target) == buff;
+            }
             return false;
         }
 
@@ -252,6 +258,8 @@ public class ModTotalInfoOverlay extends Gizmo {
                 GameScene.show(new WndInstantKillInfo((ModInstantKill) buff));
             } else if (buff instanceof ModForceHit) {
                 GameScene.show(new WndForceHitInfo((ModForceHit) buff));
+            } else if (buff instanceof ModAssassinBuff) {
+                GameScene.show(new WndAssassinBuffInfo((ModAssassinBuff) buff));
             }
         }
 
