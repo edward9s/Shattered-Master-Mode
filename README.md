@@ -40,78 +40,33 @@ cd spd_src
 
 The Android APK is produced under `android/build/outputs/apk/`, and the desktop JAR under `desktop/build/libs/`.
 
-## Binary injection for prebuilt APK/JAR files
+## Binary injection
 
-Binary injection is a **fallback method** for SPD-derived builds whose source is unavailable or cannot reasonably be rebuilt. If compatible source is available, source-level integration and rebuilding remain the preferred and more reliable approach.
+Use the `SMM-m<version>-InjectKit.zip` artifact when you need to inject SMM into an already-built SPD fork.
 
-The injector works against already-compiled classes and ABI. SPD forks may rename, remove, or change classes, methods, fields, resources, inheritance relationships, or behavior. SMM includes compatibility checks and several runtime/structural adapters, but **successful injection does not guarantee that every target-specific runtime path is compatible**.
-
-Use the `SMM-m<version>-InjectKit.zip` artifact produced by **Build SMM Injection Kit**. Keep all files from the kit together; the included APK/JAR donors provide the compiled SMM payload used by the injectors.
-
-### Full SMM injection
-
-Full injection is the default mode and attempts to install the complete supported SMM payload.
+### Full SMM
 
 ```bash
 python inject_apk.py TARGET.apk
 python inject_jar.py TARGET.jar
 ```
 
-Default outputs:
+Default outputs are `TARGET-SMM.apk` and `TARGET-SMM.jar`.
 
-```text
-TARGET-SMM.apk
-TARGET-SMM.jar
-```
+### Minimal injection
 
-Use `--out` to choose another output path.
-
-Full injection validates the target ABI before rebuilding. If the target is too old or has diverged too far from the donor ABI, the injector fails rather than silently removing features or producing a knowingly incomplete build.
-
-### ModAnkh-only injection
-
-For older or heavily diverged SPD forks that cannot accept the full SMM payload, both APK and desktop JAR injection provide a narrower compatibility mode:
+For older or heavily modified forks:
 
 ```bash
 python inject_apk.py TARGET.apk --ankh-only
 python inject_jar.py TARGET.jar --ankh-only
 ```
 
-`--ankh-only` injects only the ModAnkh dependency closure required for:
+`--ankh-only` injects **ModAnkh**, **ModLastStand**, and the Store / Loot / Console support they need. It does not install the full SMM menu or unrelated combat features.
 
-- **ModAnkh**
-- **Store**
-- **Loot**
-- **Console**
-- Small helper classes required by those features
+Default outputs are `TARGET-SMM-Ankh.apk` and `TARGET-SMM-Ankh.jar`. Use `--out` to choose another path.
 
-It intentionally does **not** inject unrelated full-SMM features such as Journal, Assassin, Force Hit, Riposte, Enemy Surge, Last Stand, or their gameplay hooks.
-
-Default outputs:
-
-```text
-TARGET-SMM-Ankh.apk
-TARGET-SMM-Ankh.jar
-```
-
-You can still use `--out`:
-
-```bash
-python inject_apk.py TARGET.apk --ankh-only --out TARGET-ModAnkh.apk
-python inject_jar.py TARGET.jar --ankh-only --out TARGET-ModAnkh.jar
-```
-
-Ankh-only mode uses a reduced integration path and does not install full-SMM combat/menu hooks that the reduced payload does not need. It can also adapt known legacy SPD ABI differences used by Store, Loot, and Console. This makes it useful for forks where the basic Item/Ankh/inventory infrastructure is compatible but newer SMM UI or combat APIs are absent.
-
-Full injection does **not** automatically downgrade to Ankh-only. Running `python inject_apk.py TARGET.apk` or `python inject_jar.py TARGET.jar` always requests full SMM. If full injection is incompatible, rerun explicitly with `--ankh-only` when the reduced feature set is acceptable.
-
-### Compatibility notes
-
-Binary injection should fail closed when a required ABI cannot be resolved reliably. Do not bypass compatibility errors simply to force a build: unresolved symbolic references can survive packaging and fail later as `NoSuchMethodError`, `NoSuchFieldError`, `NoClassDefFoundError`, or `IncompatibleClassChangeError` at runtime.
-
-Older forks may expose methods with the same Java-level purpose but different bytecode descriptors, or may represent a type as a class in one generation and an interface in another. The injectors handle known cases where an equivalent adaptation can be made safely, but target-specific behavior can still require additional compatibility work.
-
-If a source change modifies Java classes included in the injection payload, rebuild the Injection Kit so that `smm-inject-donor.apk` and `smm-inject-donor.jar` match the current source. Changes that only modify injector Python code do not require rebuilding the donors.
+If Java classes included in the payload change, rebuild the Injection Kit so the donor APK/JAR matches the source.
 
 See [Binary injection rules](docs/smm_injection_rules.md) | [正體中文](docs/smm_injection_rules.zh-TW.md).
 
