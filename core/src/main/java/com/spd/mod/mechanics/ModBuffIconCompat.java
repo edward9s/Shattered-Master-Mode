@@ -1,7 +1,6 @@
 package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
-import com.spd.mod.journal.ModLastStandOverlay;
 
 import java.lang.reflect.Field;
 import java.util.HashMap;
@@ -13,17 +12,6 @@ public final class ModBuffIconCompat {
     private static final Map<String, Integer> CACHE = new HashMap<>();
 
     private ModBuffIconCompat() {
-    }
-
-    /**
-     * Dependency anchor for the narrow --ankh-only payload builder. ModLastStand
-     * loads its overlay reflectively so a normal dependency walk cannot see it.
-     * Keeping this unused class-literal reference makes the overlay part of the
-     * smali dependency closure without installing UI from inside icon layout.
-     */
-    @SuppressWarnings("unused")
-    private static Class<?> lastStandOverlayDependency() {
-        return ModLastStandOverlay.class;
     }
 
     public static synchronized int get(String fieldName) {
