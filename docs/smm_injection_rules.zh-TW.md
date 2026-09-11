@@ -2,99 +2,51 @@
 
 [English](smm_injection_rules.md)
 
-## 範圍
+## 模式
 
-Binary injection 會把已編譯的 SMM `com.spd.mod.*` payload 注入相容的 SPD 衍生 APK 或 desktop JAR。
+Injection Kit 用於已編譯完成的 SPD 衍生 APK 或 JAR。
 
-公開入口：
-
-- `scripts/inject_apk.py`
-- `scripts/inject_jar.py`
-
-必要的內部模組：
-
-- `scripts/_inject_apk_core.py`
-- `scripts/_inject_jar_core.py`
-
-## Injection Kit
-
-公開 artifact 以 SMM 版本命名：
-
-```text
-SMM-m<version>-InjectKit.zip
-```
-
-內容：
-
-- `smm-inject-donor.apk`
-- `smm-inject-donor.jar`
-- `inject_apk.py`
-- `_inject_apk_core.py`
-- `inject_jar.py`
-- `_inject_jar_core.py`
-- `README.txt`
-
-使用方式：
+完整 SMM：
 
 ```bash
 python inject_apk.py TARGET.apk
 python inject_jar.py TARGET.jar
 ```
 
-Injector 會從自身所在目錄取得對應 donor。預設輸出為 `<target>-SMM.apk` 與 `<target>-SMM.jar`；可用 `--out` 指定其他路徑。
+針對老舊或高度修改 fork 的最小注入：
 
-## Donor
+```bash
+python inject_apk.py TARGET.apk --ankh-only
+python inject_jar.py TARGET.jar --ankh-only
+```
 
-APK donor 使用 Injection Kit workflow 產生的專用 non-minified build。R8/minification 可能產生 donor-only 的混淆 dependency，不適合直接移植到 target。
+`--ankh-only` 只包含：
 
-JAR donor 使用 desktop release 輸出。
+- `ModAnkh`
+- `ModLastStand`
+- Store / Loot / Console 所需相依
 
-Donor 編譯時使用的 SPD source 版本只是 build baseline；InjectKit 的版本以 SMM 版本為準。
+不安裝完整 SMM 選單，也不帶入其他戰鬥功能。
 
-## Payload 與 target 處理
+## Injection Kit
 
-- Injectable payload 是已編譯的 `com.spd.mod.*`。
-- Target APK/JAR 始終是 base artifact。
-- 需要時將 SPD package reference rebase 到 target fork package。
-- `com.spd.mod.*` 名稱保持不變。
-- Patch target `WndGame` constructor 僅用來安裝 SMM 選單入口。
-- `Char.attack(Char,float,float,float)` 是唯一 gameplay-level 侵入式 hook。它只呼叫 `ModParryRiposte.onIncomingAttack(Char, Char)` 觀察 Riposte 事件，不取代 vanilla attack 邏輯。
-- 不再新增其他 gameplay-level hook；能使用 vanilla 既有 extension point 時一律優先使用。
-- Payload self-containment 或 target compatibility 無法解決時停止 injection。
+Artifact 名稱為 `SMM-m<version>-InjectKit.zip`。Injector script 與 donor APK/JAR 必須放在一起。
 
-### APK
-
-- 保留 target package identity。
-- 原始 target DEX byte-for-byte 保留，並移到 injected overlay DEX 之後。
-- 除 injector 明確處理的 manifest 修改外，保留 target resource。
-- 最終 APK 重新 build 並簽名。
-
-### JAR
-
-- 從 donor JAR 移植完整 `com.spd.mod.*` class。
-- 保留無關 target entry。
-- Repack 時可移除已失效的 signature / index metadata。
+只要注入 payload 內的 Java class 有變更，就要重新 build Injection Kit；只修改 injector Python 則不需要重建 donor。
 
 ## 相容性規則
 
-- 依 target 實際 class/member 結構選擇相容策略，不依賴 target 版本號。
-- APK injection 會建立 target ABI profile，並選擇 `direct`、`rewrite`、`structural` 或 `runtime` 策略。
-- 優先使用原生 API，其次使用語義等價 rewrite，再使用可唯一判定的 structural fallback。
-- 同一語義若存在不同 descriptor，視為 capability variant；例如 Duelist combo tracker 可提供 `addHit()` 或 `addHit(Char)`。
-- Structural match 不唯一時必須拒絕，不得猜測。
-- Fork-sensitive 或 minifier-sensitive reflection 在 member name 不穩定時必須以 type、descriptor、shape constraint 判定。
-- 不得為了繞過 compatibility error 而複製任意 donor-only 或 obfuscated class。
-- 不得放寬 validation 來忽略真正缺少的 executable reference。
-- CI 必須阻止已知 fork-sensitive ABI 再被 SMM 直接引用。
+- 以 target 實際編譯後的 API 為準，不以版本號推測相容性。
+- Fork package name 不同時，重新對應 SPD package reference。
+- ABI dependency 無法可靠解析時直接停止，不猜測、不硬塞。
+- 不複製任意 donor-only 或混淆 class 來掩蓋 compatibility error。
+- `--ankh-only` 必須保持精簡；除非明確決定納入，其他 SMM 功能不得進入 payload。
+- 完整注入可以使用既有 SMM 選單與 Riposte hook；最小注入不得安裝無關的 full-SMM hook。
+
+## 目前命名
+
+刺客 Buff class 已改名為 `ModAssassinate`。舊的 `ModAssassinBuff` 已移除，不保留相容 alias。
 
 ## 驗證
 
-會影響 injection 的改動會使用最新 source 重新編譯 donor，並從實際打包後的 Injection Kit layout 執行測試。
-
-目前 CI 驗證：
-
-- 官方 Shattered Pixel Dungeon 3.3.8 APK/JAR
-- 官方 Shattered Pixel Dungeon 4.0 beta APK/JAR
-- Rat King Adventure 2.3.3 APK/JAR
-
-靜態 packaging 無法涵蓋的行為仍需要 runtime 測試。
+代表性 APK/JAR 測試只能證明該 target 的靜態注入通過；若某個必要 ABI 無法安全適配，應 fail closed。
