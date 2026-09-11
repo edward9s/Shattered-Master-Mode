@@ -242,7 +242,10 @@ public class ModLastStand extends Buff {
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(0xFFF59D);
+        // The float overload permits channels above 1.0, so this genuinely
+        // brightens the older, relatively dim HEART sprite instead of merely
+        // multiplying it by an in-range RGB tint.
+        icon.hardlight(2f, 1.55f, 0.15f);
     }
 
     @Override
