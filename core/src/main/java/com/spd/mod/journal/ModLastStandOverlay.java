@@ -2,20 +2,18 @@ package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
-import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
-import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModLastStand;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.ui.Component;
-import com.watabou.utils.Callback;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -23,10 +21,7 @@ import java.util.WeakHashMap;
 public class ModLastStandOverlay extends Gizmo {
 
     private static ModLastStandOverlay instance;
-    private static boolean installPending;
-
     private static Field groupMembersField;
-    private static Field buffButtonsField;
 
     private final WeakHashMap<Component, LastStandButton> overlays = new WeakHashMap<>();
 
@@ -35,32 +30,15 @@ public class ModLastStandOverlay extends Gizmo {
             return;
         }
 
-        if (instance != null
-                && instance.exists
-                && instance.parent == ShatteredPixelDungeon.scene()) {
+        Group scene = (Group) ShatteredPixelDungeon.scene();
+        if (instance != null && instance.exists && instance.parent == scene) {
             return;
         }
 
-        if (installPending) {
-            return;
-        }
-        installPending = true;
-
-        ShatteredPixelDungeon.runOnRenderThread(new Callback() {
-            @Override
-            public void call() {
-                installPending = false;
-                if (!(ShatteredPixelDungeon.scene() instanceof GameScene) || !hasLastStandBuff()) {
-                    return;
-                }
-
-                Group scene = (Group) ShatteredPixelDungeon.scene();
-                if (instance == null || !instance.exists || instance.parent != scene) {
-                    instance = new ModLastStandOverlay();
-                    scene.addToFront(instance);
-                }
-            }
-        });
+        // Use only long-lived Noosa Group APIs here. Some legacy SPD forks used
+        // by --ankh-only do not expose newer render-thread helpers.
+        instance = new ModLastStandOverlay();
+        scene.add(instance);
     }
 
     @Override
@@ -79,10 +57,21 @@ public class ModLastStandOverlay extends Gizmo {
 
         cleanupDeadOverlays();
 
-        ArrayList<BuffIndicator> indicators = new ArrayList<>();
-        collectBuffIndicators((Group) ShatteredPixelDungeon.scene(), indicators);
-        for (BuffIndicator indicator : indicators) {
-            installForIndicator(indicator);
+        ArrayList<Component> components = new ArrayList<>();
+        collectComponents((Group) ShatteredPixelDungeon.scene(), components);
+        for (Component source : components) {
+            if (source instanceof LastStandButton || overlays.containsKey(source)) {
+                continue;
+            }
+
+            ModLastStand buff = lastStandBuff(source);
+            if (buff == null || source.parent == null) {
+                continue;
+            }
+
+            LastStandButton overlay = new LastStandButton(buff, source);
+            source.parent.add(overlay);
+            overlays.put(source, overlay);
         }
     }
 
@@ -105,41 +94,41 @@ public class ModLastStandOverlay extends Gizmo {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private void installForIndicator(BuffIndicator indicator) {
-        try {
-            if (buffButtonsField == null) {
-                buffButtonsField = BuffIndicator.class.getDeclaredField("buffButtons");
-                buffButtonsField.setAccessible(true);
+    /**
+     * Locate a component which owns the Last Stand buff without depending on a
+     * particular BuffIndicator private-field layout. Old forks and release builds
+     * use different field names, but their button still stores the Buff instance.
+     */
+    private static ModLastStand lastStandBuff(Component component) {
+        for (Class<?> cls = component.getClass(); cls != null; cls = cls.getSuperclass()) {
+            Field[] fields;
+            try {
+                fields = cls.getDeclaredFields();
+            } catch (RuntimeException ignored) {
+                continue;
             }
 
-            LinkedHashMap<Object, Object> buffButtons =
-                    (LinkedHashMap<Object, Object>) buffButtonsField.get(indicator);
-
-            for (Map.Entry<Object, Object> entry : buffButtons.entrySet()) {
-                if (!(entry.getKey() instanceof ModLastStand)
-                        || !(entry.getValue() instanceof Component)) {
+            for (Field field : fields) {
+                if (Modifier.isStatic(field.getModifiers())
+                        || !Buff.class.isAssignableFrom(field.getType())) {
                     continue;
                 }
-
-                Component source = (Component) entry.getValue();
-                if (!overlays.containsKey(source)) {
-                    LastStandButton overlay = new LastStandButton((ModLastStand) entry.getKey(), source);
-                    indicator.addToFront(overlay);
-                    overlays.put(source, overlay);
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(component);
+                    if (value instanceof ModLastStand) {
+                        return (ModLastStand) value;
+                    }
+                } catch (ReflectiveOperationException | SecurityException ignored) {
+                    // Keep looking through the component hierarchy.
                 }
             }
-        } catch (Exception ignored) {
-            // Optional UI extension failure must never break gameplay.
         }
+        return null;
     }
 
     @SuppressWarnings("unchecked")
-    private static void collectBuffIndicators(Group group, ArrayList<BuffIndicator> result) {
-        if (group instanceof BuffIndicator) {
-            result.add((BuffIndicator) group);
-        }
-
+    private static void collectComponents(Group group, ArrayList<Component> result) {
         try {
             if (groupMembersField == null) {
                 groupMembersField = Group.class.getDeclaredField("members");
@@ -148,12 +137,15 @@ public class ModLastStandOverlay extends Gizmo {
 
             ArrayList<Gizmo> members = new ArrayList<>((ArrayList<Gizmo>) groupMembersField.get(group));
             for (Gizmo child : members) {
+                if (child instanceof Component) {
+                    result.add((Component) child);
+                }
                 if (child instanceof Group) {
-                    collectBuffIndicators((Group) child, result);
+                    collectComponents((Group) child, result);
                 }
             }
         } catch (Exception ignored) {
-            // Reflection is isolated to this optional UI layer.
+            // Optional presentation failure must never affect Last Stand itself.
         }
     }
 
@@ -177,9 +169,7 @@ public class ModLastStandOverlay extends Gizmo {
             setRect(source.left(), source.top(), source.width(), source.height());
             visible = source.visible;
             active = source.active;
-
             super.update();
-            givePointerPriority();
         }
 
         @Override
@@ -189,13 +179,13 @@ public class ModLastStandOverlay extends Gizmo {
 
         @Override
         protected boolean onLongClick() {
-            GameScene.show(new WndInfoBuff(buff));
+            buff.open();
             return true;
         }
 
         @Override
         protected void onRightClick() {
-            GameScene.show(new WndInfoBuff(buff));
+            buff.open();
         }
 
         @Override
