@@ -208,7 +208,7 @@ public class SmmCharAttackPatcher {
     static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
 
     static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
-        try (JarFile jar = new JarFile(target.toFile())) {
+        try (JarFile jar = new JarFile(jarPath.toFile())) {
             JarEntry entry = jar.getJarEntry(entryName);
             if (entry == null) throw new IOException("Missing JAR entry: " + entryName);
             try (InputStream in = jar.getInputStream(entry)) {
@@ -255,7 +255,6 @@ public class SmmCharAttackPatcher {
                 if (!CHAR.equals(name)) {
                     throw new IllegalStateException("Target class is not Char: " + name);
                 }
-                superName[0] = parent;
                 super.visit(version, access, name, signature, parent, interfaces);
             }
 
