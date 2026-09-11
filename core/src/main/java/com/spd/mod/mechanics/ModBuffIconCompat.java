@@ -1,6 +1,7 @@
 package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
+import com.spd.mod.journal.ModLastStandOverlay;
 
 import java.lang.reflect.Field;
 import java.util.HashMap;
@@ -15,6 +16,17 @@ public final class ModBuffIconCompat {
     }
 
     public static synchronized int get(String fieldName) {
+        // ModLastStand is the only SMM buff which asks for AMULET. Keep its
+        // click overlay reachable through a normal bytecode dependency so the
+        // narrow --ankh-only dependency closure includes the overlay as well.
+        if ("AMULET".equals(fieldName)) {
+            try {
+                ModLastStandOverlay.ensureInstalled();
+            } catch (RuntimeException | LinkageError ignored) {
+                // Presentation must never break the buff itself on legacy forks.
+            }
+        }
+
         Integer cached = CACHE.get(fieldName);
         if (cached != null) {
             return cached;
@@ -40,11 +52,15 @@ public final class ModBuffIconCompat {
 
     /**
      * R8 may rename or remove public static final fields that are otherwise only
-     * referenced through reflection. These semantic IDs are shared by the SPD
-     * forks supported by SMM, so keep a non-reflective fallback for release builds.
+     * referenced through reflection. Keep conservative semantic fallbacks for
+     * release builds and old forks. AMULET deliberately falls back to HEART:
+     * older buff atlases do not contain slot 59, while HEART's low slot is
+     * available across the supported SPD lineage and is suitable for Last Stand.
      */
     private static int knownFallback(String fieldName) {
         switch (fieldName) {
+            case "HEART":
+                return 21;
             case "MARK":
                 return 27;
             case "RAGE":
@@ -54,7 +70,7 @@ public final class ModBuffIconCompat {
             case "INVERT_MARK":
                 return 57;
             case "AMULET":
-                return 59;
+                return 21;
             case "DUEL_CLEAVE":
                 return 60;
             case "DUEL_GUARD":
