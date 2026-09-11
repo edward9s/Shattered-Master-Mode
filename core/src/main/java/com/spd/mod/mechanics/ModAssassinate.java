@@ -1,6 +1,7 @@
 package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
@@ -10,6 +11,8 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
+import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
+import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.input.PointerEvent;
 import com.watabou.noosa.Camera;
 import com.watabou.noosa.Game;
@@ -23,13 +26,11 @@ import com.watabou.utils.PointF;
 import com.watabou.utils.Signal;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 
 /** Permanent Hero buff that exposes Assassinate through a map long press. */
 public class ModAssassinate extends Buff {
 
     private static final String ASSASSIN_ENABLED = "assassin_enabled";
-    private static final float DEFAULT_LONG_CLICK = 0.5f;
 
     private static LongPressLayer inputLayer;
     private static boolean installPending;
@@ -37,8 +38,6 @@ public class ModAssassinate extends Buff {
     private static Field cellSelectorField;
     private static Field defaultCellListenerField;
     private static Field selectorEventField;
-    private static Field gameSceneField;
-    private static Float longClickDelay;
 
     private boolean assassinEnabled = true;
 
@@ -69,7 +68,7 @@ public class ModAssassinate extends Buff {
             ensureInputLayer();
         }
         BuffIndicator.refreshHero();
-        invokeOptionalOverlay("refreshIndicators");
+        ModTotalInfoOverlay.refreshIndicators();
     }
 
     @Override
@@ -80,7 +79,7 @@ public class ModAssassinate extends Buff {
         if (!super.attachTo(target)) {
             return false;
         }
-        invokeOptionalOverlay("ensureInstalled");
+        ModTotalInfoOverlay.ensureInstalled();
         if (assassinEnabled) {
             ensureInputLayer();
         }
@@ -90,7 +89,7 @@ public class ModAssassinate extends Buff {
     @Override
     public void fx(boolean on) {
         if (on) {
-            invokeOptionalOverlay("ensureInstalled");
+            ModTotalInfoOverlay.ensureInstalled();
             if (assassinEnabled) {
                 ensureInputLayer();
             }
@@ -99,7 +98,7 @@ public class ModAssassinate extends Buff {
 
     @Override
     public boolean act() {
-        invokeOptionalOverlay("ensureInstalled");
+        ModTotalInfoOverlay.ensureInstalled();
         if (assassinEnabled) {
             ensureInputLayer();
         }
@@ -139,56 +138,8 @@ public class ModAssassinate extends Buff {
                 + "Attacks follow SPD's normal surprise-attack and weapon accuracy rules. Tap to configure.";
     }
 
-    private static void invokeOptionalOverlay(String methodName) {
-        try {
-            Class<?> overlay = Class.forName(
-                    "com.spd.mod.journal.ModTotalInfoOverlay",
-                    false,
-                    ModAssassinate.class.getClassLoader());
-            Method method = overlay.getDeclaredMethod(methodName);
-            method.setAccessible(true);
-            method.invoke(null);
-        } catch (ReflectiveOperationException | LinkageError ignored) {
-            // The narrow injection payload deliberately omits the optional overlay.
-        }
-    }
-
-    private static Group currentScene() {
-        if (Game.instance == null) {
-            return null;
-        }
-        try {
-            if (gameSceneField == null) {
-                try {
-                    gameSceneField = Game.class.getDeclaredField("scene");
-                } catch (NoSuchFieldException ignored) {
-                    for (Field field : Game.class.getDeclaredFields()) {
-                        if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())
-                                && Group.class.isAssignableFrom(field.getType())) {
-                            if (gameSceneField != null) {
-                                gameSceneField = null;
-                                break;
-                            }
-                            gameSceneField = field;
-                        }
-                    }
-                }
-                if (gameSceneField != null) {
-                    gameSceneField.setAccessible(true);
-                }
-            }
-            if (gameSceneField == null) {
-                return null;
-            }
-            Object scene = gameSceneField.get(Game.instance);
-            return scene instanceof Group ? (Group) scene : null;
-        } catch (ReflectiveOperationException | SecurityException ignored) {
-            return null;
-        }
-    }
-
     private static boolean assassinEnabledForHero() {
-        if (!(currentScene() instanceof GameScene) || Dungeon.hero == null) {
+        if (!(ShatteredPixelDungeon.scene() instanceof GameScene) || Dungeon.hero == null) {
             return false;
         }
         ModAssassinate buff = find(Dungeon.hero);
@@ -200,14 +151,9 @@ public class ModAssassinate extends Buff {
             return;
         }
 
-        Group scene = currentScene();
-        if (scene == null) {
-            return;
-        }
-
         if (inputLayer != null
                 && inputLayer.exists
-                && inputLayer.parent == scene) {
+                && inputLayer.parent == ShatteredPixelDungeon.scene()) {
             return;
         }
 
@@ -216,7 +162,7 @@ public class ModAssassinate extends Buff {
         }
         installPending = true;
 
-        Callback install = new Callback() {
+        ShatteredPixelDungeon.runOnRenderThread(new Callback() {
             @Override
             public void call() {
                 installPending = false;
@@ -225,35 +171,17 @@ public class ModAssassinate extends Buff {
                 }
 
                 CellSelector selector = currentCellSelector();
-                Group activeScene = currentScene();
-                if (selector == null || activeScene == null) {
+                if (selector == null) {
                     return;
                 }
 
-                if (inputLayer == null || !inputLayer.exists || inputLayer.parent != activeScene) {
+                Group scene = (Group) ShatteredPixelDungeon.scene();
+                if (inputLayer == null || !inputLayer.exists || inputLayer.parent != scene) {
                     inputLayer = new LongPressLayer(selector);
-                    activeScene.addToFront(inputLayer);
+                    scene.addToFront(inputLayer);
                 }
             }
-        };
-
-        if (!runOnRenderThreadIfAvailable(install)) {
-            install.call();
-        }
-    }
-
-    private static boolean runOnRenderThreadIfAvailable(Callback callback) {
-        try {
-            Class<?> game = Class.forName(
-                    "com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon",
-                    false,
-                    ModAssassinate.class.getClassLoader());
-            Method method = game.getMethod("runOnRenderThread", Callback.class);
-            method.invoke(null, callback);
-            return true;
-        } catch (ReflectiveOperationException | LinkageError ignored) {
-            return false;
-        }
+        });
     }
 
     private static CellSelector currentCellSelector() {
@@ -305,26 +233,6 @@ public class ModAssassinate extends Buff {
         // Compare its runtime enum text instead of linking the payload against
         // PointerEvent.Type.CANCEL as a mandatory target field.
         return event != null && "CANCEL".equals(String.valueOf(event.type));
-    }
-
-    private static float longClickDelay() {
-        if (longClickDelay != null) {
-            return longClickDelay;
-        }
-        float value = DEFAULT_LONG_CLICK;
-        try {
-            Class<?> button = Class.forName(
-                    "com.shatteredpixel.shatteredpixeldungeon.ui.Button",
-                    false,
-                    ModAssassinate.class.getClassLoader());
-            Field field = button.getDeclaredField("longClick");
-            field.setAccessible(true);
-            value = field.getFloat(null);
-        } catch (ReflectiveOperationException | LinkageError ignored) {
-            // Old targets without Button use the traditional half-second threshold.
-        }
-        longClickDelay = value;
-        return value;
     }
 
     private static class LongPressLayer extends Gizmo implements Signal.Listener<PointerEvent> {
@@ -392,7 +300,7 @@ public class ModAssassinate extends Buff {
             super.update();
 
             if (!assassinEnabledForHero()
-                    || parent != currentScene()
+                    || parent != ShatteredPixelDungeon.scene()
                     || currentCellSelector() != selector) {
                 killAndErase();
                 return;
@@ -408,7 +316,7 @@ public class ModAssassinate extends Buff {
             }
 
             heldTime += Game.elapsed;
-            if (heldTime < longClickDelay()) {
+            if (heldTime < Button.longClick) {
                 return;
             }
 
