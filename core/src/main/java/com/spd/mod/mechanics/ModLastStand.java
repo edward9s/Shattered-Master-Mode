@@ -6,17 +6,16 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ShieldBuff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Flare;
-import com.shatteredpixel.shatteredpixeldungeon.effects.FloatingText;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHealing;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.items.WndModLoot;
-import com.spd.mod.journal.ModLastStandOverlay;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 
 /**
  * Permanent Master Mode survival buff with built-in Loot storage and UI.
@@ -30,8 +29,8 @@ import java.lang.reflect.Field;
  * 1 HP through a mechanic which bypasses normal shielding.
  *
  * When attached to the Hero, the same buff also owns shared Loot storage. Tapping
- * its buff icon opens the Loot / Put / Take / Console panel; long-press/right-click
- * keeps the normal buff-description behavior.
+ * its buff icon opens the Loot / Put / Take / Console panel when the optional
+ * full-SMM overlay is available.
  *
  * This does not guarantee survival. Damage which bypasses normal shielding can
  * still kill if it skips directly past 1 HP, and direct die() calls or other
@@ -91,10 +90,28 @@ public class ModLastStand extends Buff {
         }
     }
 
+    /**
+     * The icon-click overlay is presentation-only and deliberately excluded from
+     * the narrow injection dependency closure. Full SMM loads it when available.
+     */
+    private static void ensureOptionalOverlay() {
+        try {
+            String className = ModLastStand.class.getName().replace(
+                    ".mechanics.ModLastStand", ".journal.ModLastStandOverlay");
+            Class<?> overlay = Class.forName(
+                    className, false, ModLastStand.class.getClassLoader());
+            Method method = overlay.getDeclaredMethod("ensureInstalled");
+            method.setAccessible(true);
+            method.invoke(null);
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+            // Narrow/legacy injection intentionally works without this UI layer.
+        }
+    }
+
     @Override
     public void fx(boolean on) {
         if (on) {
-            ModLastStandOverlay.ensureInstalled();
+            ensureOptionalOverlay();
 
             // Char.updateSpriteState() iterates the buff set while calling fx().
             // Do not attach another buff here; just schedule Last Stand to run
@@ -136,11 +153,10 @@ public class ModLastStand extends Buff {
             new Flare(8, 32).color(0xFFFF66, true).show(target.sprite, 2f);
         }
 
+        // showStatus() is available much farther back in the SPD lineage than
+        // showStatusWithIcon()/FloatingText.HEALING and is cosmetic only.
         if (healed > 0 && target.sprite != null) {
-            target.sprite.showStatusWithIcon(
-                    CharSprite.POSITIVE,
-                    Integer.toString(healed),
-                    FloatingText.HEALING);
+            target.sprite.showStatus(CharSprite.POSITIVE, Integer.toString(healed));
         }
     }
 
@@ -149,7 +165,7 @@ public class ModLastStand extends Buff {
         // Installing the hidden shield hook here avoids mutating the target's
         // buff collection while save restoration or sprite-state iteration runs.
         ensureLethalHook();
-        ModLastStandOverlay.ensureInstalled();
+        ensureOptionalOverlay();
 
         if (target != null && target.isAlive() && target.HP == 1) {
             recoverFromOneHP();
