@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mode adapter for the small ModAnkh + Store/Loot/Console APK payload."""
+"""Mode adapter for the small ModAnkh + Last Stand + Store/Loot/Console APK payload."""
 from __future__ import annotations
 
 import re
@@ -141,10 +141,11 @@ def _rewrite_listener_subclass(injector, item, listener_descriptor):
 
 
 def configure(public_module) -> None:
-    """Replace the full-injection hooks with the narrow ModAnkh-only pipeline."""
+    """Replace the full-injection hooks with the narrow ModAnkh + Last Stand pipeline."""
 
     injector = public_module.injector
     full_prefix = public_module.FULL_SMM_PREFIX
+    last_stand = full_prefix + "mechanics/ModLastStand;"
     original_rebuild_apk = injector.rebuild_apk
 
     def detect_target_game_prefix(target_index):
@@ -165,6 +166,10 @@ def configure(public_module) -> None:
             raise injector.InjectError(
                 "SMM donor is missing ModAnkh; rebuild the injection donor from current source"
             )
+        if donor_index.get(last_stand) is None:
+            raise injector.InjectError(
+                "SMM donor is missing ModLastStand; rebuild the injection donor from current source"
+            )
 
         direct = sorted(
             dep
@@ -177,7 +182,7 @@ def configure(public_module) -> None:
             )
 
         closure = {}
-        queue = list(direct)
+        queue = list(direct) + [last_stand]
         unresolved = set()
 
         while queue:
@@ -204,7 +209,7 @@ def configure(public_module) -> None:
 
         if unresolved:
             raise injector.InjectError(
-                "ModAnkh dependency closure has unresolved donor classes: "
+                "ModAnkh/ModLastStand dependency closure has unresolved donor classes: "
                 + ", ".join(sorted(unresolved))
             )
 
@@ -273,8 +278,8 @@ def configure(public_module) -> None:
             if descriptor.startswith(full_prefix)
         }
         injector.log(
-            f"ModAnkh dependency closure: {len(payload)} class(es) "
-            "(Store + Loot + Console)"
+            f"ModAnkh + ModLastStand dependency closure: {len(payload)} class(es) "
+            "(Store + Loot + Console + Last Stand)"
         )
         return payload, relocations
 
