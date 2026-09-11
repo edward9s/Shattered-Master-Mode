@@ -95,6 +95,23 @@ public class ModLastStand extends Buff {
         return null;
     }
 
+    @Override
+    public boolean attachTo(Char target) {
+        try {
+            return super.attachTo(target);
+        } catch (RuntimeException | Error failure) {
+            // Older Buff.attachTo implementations add the buff before calling
+            // fx(true). If an injected compatibility call fails from fx(), the
+            // half-attached buff would otherwise be serialized into the save.
+            try {
+                super.detach();
+            } catch (Throwable ignored) {
+                // Preserve the original failure; detach is only rollback.
+            }
+            throw failure;
+        }
+    }
+
     public boolean isAttached() {
         return target != null && find(target) == this;
     }
