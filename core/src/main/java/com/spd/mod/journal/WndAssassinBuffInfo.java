@@ -2,7 +2,7 @@ package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.ui.CheckBox;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
-import com.spd.mod.mechanics.ModAssassinBuff;
+import com.spd.mod.mechanics.ModAssassinate;
 import com.watabou.noosa.ui.Component;
 
 /** Assassinate's live configuration window. */
@@ -11,7 +11,7 @@ public class WndAssassinBuffInfo extends WndInfoBuff {
     private static final int GAP = 3;
     private static final int CHECK_HEIGHT = 18;
 
-    public WndAssassinBuffInfo(final ModAssassinBuff buff) {
+    public WndAssassinBuffInfo(final ModAssassinate buff) {
         super(buff);
 
         final CheckBox check = new CheckBox("Assassinate") {
@@ -45,7 +45,7 @@ public class WndAssassinBuffInfo extends WndInfoBuff {
         }
     }
 
-    private boolean valid(ModAssassinBuff buff) {
-        return buff.target != null && ModAssassinBuff.find(buff.target) == buff;
+    private boolean valid(ModAssassinate buff) {
+        return buff.target != null && ModAssassinate.find(buff.target) == buff;
     }
 }
