@@ -47,9 +47,10 @@ def populate_kit(
         "Full SMM:\n"
         "  python inject_apk.py TARGET.apk\n"
         "  python inject_jar.py TARGET.jar\n\n"
-        "Minimal (ModAnkh + ModLastStand):\n"
+        "Minimal (ModAnkh tools only):\n"
         "  python inject_apk.py TARGET.apk --ankh-only\n"
         "  python inject_jar.py TARGET.jar --ankh-only\n\n"
+        "Includes Store, Loot, and Debug Console support.\n"
         "Optional: --out OUTPUT\n"
         "Keep all kit files together.\n",
         encoding="utf-8",
