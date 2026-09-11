@@ -14,6 +14,11 @@ from typing import Sequence
 
 import _inject_jar_core as injector
 
+# ModAssassinBuff was renamed without a compatibility alias. Retarget the
+# existing full-injection family checks to the new compiled class name.
+injector.MOD_ASSASSIN_BUFF_PREFIX = "com/spd/mod/mechanics/ModAssassinate"
+injector.MOD_ASSASSIN_BUFF_ENTRY = "com/spd/mod/mechanics/ModAssassinate.class"
+
 
 _original_ensure_java = injector.ensure_java
 
@@ -203,7 +208,7 @@ public class SmmCharAttackPatcher {
     static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
 
     static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
-        try (JarFile jar = new JarFile(jarPath.toFile())) {
+        try (JarFile jar = new JarFile(target.toFile())) {
             JarEntry entry = jar.getJarEntry(entryName);
             if (entry == null) throw new IOException("Missing JAR entry: " + entryName);
             try (InputStream in = jar.getInputStream(entry)) {
@@ -250,6 +255,7 @@ public class SmmCharAttackPatcher {
                 if (!CHAR.equals(name)) {
                     throw new IllegalStateException("Target class is not Char: " + name);
                 }
+                superName[0] = parent;
                 super.visit(version, access, name, signature, parent, interfaces);
             }
 
@@ -439,6 +445,11 @@ ANKH_REQUIRED_ROOTS = {
     "com/spd/mod/mechanics/ModItemCompat.class",
 }
 
+ANKH_OPTIONAL_ROOTS = (
+    "com/spd/mod/mechanics/ModLastStand.class",
+    "com/spd/mod/mechanics/ModAssassinate.class",
+)
+
 _ACTION_MESSAGE_BUNDLE_RE = re.compile(
     r"^assets/messages/items/items(?:_[^/]+)?\.properties$"
 )
@@ -537,6 +548,12 @@ def build_ankh_payload(
 
     closure: set[str] = set()
     queue = list(_smm_dependencies(donor.read(root), available))
+    included_optional = []
+    for extra in ANKH_OPTIONAL_ROOTS:
+        if extra in available:
+            queue.append(extra)
+            included_optional.append(extra.rsplit("/", 1)[-1][:-6])
+
     while queue:
         name = queue.pop()
         if name == root or name in closure:
@@ -553,8 +570,10 @@ def build_ankh_payload(
             "Missing ModAnkh dependency root(s): " + ", ".join(missing)
         )
 
+    features = " + ".join(included_optional)
     injector.log(
-        f"ModAnkh dependency closure: {len(closure)} class(es) (Store + Loot + Console)"
+        f"ModAnkh{(' + ' + features) if features else ''} dependency closure: "
+        f"{len(closure)} class(es) (Store + Loot + Console)"
     )
     return {
         name: injector.rebase_class_bytes(donor.read(name), target_game_root)
@@ -806,7 +825,8 @@ def run_ankh_only(
     injector.log(f"Output : {output}")
     injector.log(f"SHA-256: {injector.sha256(output)}")
     injector.log(
-        f"Injected: ModAnkh only (Store + Loot + Console; {len(payload)} dependency classes)"
+        f"Injected: ModAnkh + Last Stand + Assassinate "
+        f"(Store + Loot + Console; {len(payload)} dependency classes)"
     )
     return 0
 
@@ -827,7 +847,7 @@ def print_help() -> None:
         "Inject SMM into an SPD-derived desktop JAR using smm-inject-donor.jar beside this script.\n\n"
         "modes:\n"
         "  default       inject the full supported SMM payload\n"
-        "  --ankh-only   inject ModAnkh + Store + Loot + Console only\n\n"
+        "  --ankh-only   inject ModAnkh + Last Stand + Assassinate + Store + Loot + Console\n\n"
         "options:\n"
         "  --out PATH    output JAR (default: <target>-SMM.jar or <target>-SMM-Ankh.jar)\n"
         "  --keep-work   keep temporary work files\n"
@@ -873,7 +893,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     injector.log("Target SPD-family package: " + target_game_root.replace("/", "."))
     injector.log(
         "Injection mode: "
-        + ("ModAnkh only (Store + Loot + Console)" if parsed.ankh_only else "full SMM")
+        + (
+            "ModAnkh + Last Stand + Assassinate (Store + Loot + Console)"
+            if parsed.ankh_only else "full SMM"
+        )
     )
     java = injector.ensure_java()
 
