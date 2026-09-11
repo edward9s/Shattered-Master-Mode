@@ -2,6 +2,7 @@ package com.spd.mod.items;
 
 import com.spd.mod.mechanics.ModDebug$Console;
 import com.spd.mod.mechanics.ModItemCompat;
+import com.spd.mod.mechanics.ModLastStand;
 import com.spd.mod.mechanics.ModLegacyCompat;
 import com.spd.mod.mechanics.ModLootStorage;
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
@@ -26,6 +27,14 @@ public class ModAnkh extends Ankh {
     public static final String AC_UNBLESS = "UNBLESS";
     public static final String AC_CONSOLE = "CONSOLE";
     public static final String AC_LOOT = "LOOT";
+
+    // Keep ModLastStand as an explicit donor dependency so --ankh-only's existing
+    // dependency-closure builder includes it without widening the injector rules.
+    // This method is intentionally not called at runtime.
+    @SuppressWarnings("unused")
+    private static Class<?> ankhOnlyPayloadCompanion() {
+        return ModLastStand.class;
+    }
 
     // Times revived via blessed ankh (kept inventory, instant revive).
     private int timesRevived = 0;
