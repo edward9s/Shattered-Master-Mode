@@ -1027,7 +1027,7 @@ def print_help() -> None:
         "usage: inject_apk.py TARGET.apk [--out OUTPUT.apk] [options]\n\n"
         "Inject SMM into an SPD-derived APK using smm-inject-donor.apk beside this script.\n\n"
         "options:\n"
-        "  --ankh-only         inject ModAnkh + Last Stand + Assassinate + Store + Loot + Console\n"
+        "  --ankh-only         inject ModAnkh + ModLastStand + Store + Loot + Console\n"
         "  --out PATH          output APK (default: <target>-SMM.apk, or -SMM-Ankh with --ankh-only)\n"
         "  --cache PATH        injector tool cache\n"
         "  --offline           do not download missing tools\n"
@@ -1082,7 +1082,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         _inject_apk_ankh.configure(sys.modules[__name__])
         injector.step("Injection mode")
-        injector.log("ModAnkh + Last Stand + Assassinate (Store + Loot + Console)")
+        injector.log("ModAnkh + ModLastStand (Store + Loot + Console)")
     else:
         injector.step("Injection mode")
         injector.log("Full SMM")
