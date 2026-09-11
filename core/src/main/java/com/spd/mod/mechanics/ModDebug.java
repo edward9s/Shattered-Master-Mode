@@ -2490,7 +2490,7 @@ public final class ModDebug {
         Object item = getVariable(args.get(0));
         if (item == null) {
             throw new IllegalArgumentException(str(
-                    args.get(0), " contains ", "null"));
+                    "Variable is undefined or inactive: ", args.get(0)));
         }
 
         String itemClassName = weapon ? WEAPON_CLASS : ARMOR_CLASS;
