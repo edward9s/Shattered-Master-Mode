@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mode adapter for the small ModAnkh + Last Stand + Store/Loot/Console APK payload."""
+"""Mode adapter for the small ModAnkh + Store/Loot/Console APK payload."""
 from __future__ import annotations
 
 import re
@@ -141,11 +141,10 @@ def _rewrite_listener_subclass(injector, item, listener_descriptor):
 
 
 def configure(public_module) -> None:
-    """Replace the full-injection hooks with the narrow ModAnkh + Last Stand pipeline."""
+    """Replace the full-injection hooks with the narrow ModAnkh tools pipeline."""
 
     injector = public_module.injector
     full_prefix = public_module.FULL_SMM_PREFIX
-    last_stand = full_prefix + "mechanics/ModLastStand;"
     original_rebuild_apk = injector.rebuild_apk
 
     def detect_target_game_prefix(target_index):
@@ -177,15 +176,8 @@ def configure(public_module) -> None:
                 "ModAnkh has no SMM dependency closure in the donor; rebuild the injection donor"
             )
 
-        include_last_stand = last_stand in donor_index
         closure = {}
         queue = list(direct)
-        if include_last_stand:
-            queue.append(last_stand)
-        else:
-            injector.log(
-                "Donor has no ModLastStand root; continuing with the legacy ModAnkh-only payload"
-            )
         unresolved = set()
 
         while queue:
@@ -212,7 +204,7 @@ def configure(public_module) -> None:
 
         if unresolved:
             raise injector.InjectError(
-                "ModAnkh/ModLastStand dependency closure has unresolved donor classes: "
+                "ModAnkh dependency closure has unresolved donor classes: "
                 + ", ".join(sorted(unresolved))
             )
 
@@ -280,16 +272,10 @@ def configure(public_module) -> None:
             for descriptor, item in donor_index.items()
             if descriptor.startswith(full_prefix)
         }
-        if include_last_stand:
-            injector.log(
-                f"ModAnkh + ModLastStand dependency closure: {len(payload)} class(es) "
-                "(Store + Loot + Console + Last Stand)"
-            )
-        else:
-            injector.log(
-                f"ModAnkh dependency closure: {len(payload)} class(es) "
-                "(Store + Loot + Console)"
-            )
+        injector.log(
+            f"ModAnkh dependency closure: {len(payload)} class(es) "
+            "(Store + Loot + Console)"
+        )
         return payload, relocations
 
     def adapt_legacy_payload(payload, target_index, game_prefix):
