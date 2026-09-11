@@ -62,7 +62,7 @@ python inject_apk.py TARGET.apk --ankh-only
 python inject_jar.py TARGET.jar --ankh-only
 ```
 
-`--ankh-only` injects **ModAnkh**, **ModLastStand**, and the Store / Loot / Console support they need. It does not install the full SMM menu or unrelated combat features.
+`--ankh-only` injects **ModAnkh** and its Store / Loot / Debug Console dependencies only. It does not add `ModLastStand`, the full SMM menu, or unrelated combat features.
 
 Default outputs are `TARGET-SMM-Ankh.apk` and `TARGET-SMM-Ankh.jar`. Use `--out` to choose another path.
 
