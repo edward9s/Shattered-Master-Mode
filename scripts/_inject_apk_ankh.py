@@ -166,10 +166,6 @@ def configure(public_module) -> None:
             raise injector.InjectError(
                 "SMM donor is missing ModAnkh; rebuild the injection donor from current source"
             )
-        if donor_index.get(last_stand) is None:
-            raise injector.InjectError(
-                "SMM donor is missing ModLastStand; rebuild the injection donor from current source"
-            )
 
         direct = sorted(
             dep
@@ -181,8 +177,15 @@ def configure(public_module) -> None:
                 "ModAnkh has no SMM dependency closure in the donor; rebuild the injection donor"
             )
 
+        include_last_stand = last_stand in donor_index
         closure = {}
-        queue = list(direct) + [last_stand]
+        queue = list(direct)
+        if include_last_stand:
+            queue.append(last_stand)
+        else:
+            injector.log(
+                "Donor has no ModLastStand root; continuing with the legacy ModAnkh-only payload"
+            )
         unresolved = set()
 
         while queue:
@@ -277,10 +280,16 @@ def configure(public_module) -> None:
             for descriptor, item in donor_index.items()
             if descriptor.startswith(full_prefix)
         }
-        injector.log(
-            f"ModAnkh + ModLastStand dependency closure: {len(payload)} class(es) "
-            "(Store + Loot + Console + Last Stand)"
-        )
+        if include_last_stand:
+            injector.log(
+                f"ModAnkh + ModLastStand dependency closure: {len(payload)} class(es) "
+                "(Store + Loot + Console + Last Stand)"
+            )
+        else:
+            injector.log(
+                f"ModAnkh dependency closure: {len(payload)} class(es) "
+                "(Store + Loot + Console)"
+            )
         return payload, relocations
 
     def adapt_legacy_payload(payload, target_index, game_prefix):
