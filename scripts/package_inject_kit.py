@@ -44,16 +44,14 @@ def populate_kit(
 
     (kit / "README.txt").write_text(
         "Shattered Master Mode Injection Kit\n\n"
-        "APK (full SMM):\n"
-        "  python inject_apk.py TARGET.apk\n\n"
-        "APK (ModAnkh + Store + Loot + Console only):\n"
-        "  python inject_apk.py TARGET.apk --ankh-only\n\n"
-        "Desktop JAR (full SMM):\n"
+        "Full SMM:\n"
+        "  python inject_apk.py TARGET.apk\n"
         "  python inject_jar.py TARGET.jar\n\n"
-        "Desktop JAR (ModAnkh + Store + Loot + Console only):\n"
+        "Minimal (ModAnkh + ModLastStand):\n"
+        "  python inject_apk.py TARGET.apk --ankh-only\n"
         "  python inject_jar.py TARGET.jar --ankh-only\n\n"
         "Optional: --out OUTPUT\n"
-        "Keep the kit files together. The donors are compiled payloads required for injection.\n",
+        "Keep all kit files together.\n",
         encoding="utf-8",
     )
 
