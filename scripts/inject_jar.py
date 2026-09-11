@@ -444,10 +444,6 @@ ANKH_REQUIRED_ROOTS = {
     "com/spd/mod/mechanics/ModItemCompat.class",
 }
 
-ANKH_OPTIONAL_ROOTS = (
-    "com/spd/mod/mechanics/ModLastStand.class",
-)
-
 _ACTION_MESSAGE_BUNDLE_RE = re.compile(
     r"^assets/messages/items/items(?:_[^/]+)?\.properties$"
 )
@@ -546,11 +542,6 @@ def build_ankh_payload(
 
     closure: set[str] = set()
     queue = list(_smm_dependencies(donor.read(root), available))
-    included_optional = []
-    for extra in ANKH_OPTIONAL_ROOTS:
-        if extra in available:
-            queue.append(extra)
-            included_optional.append(extra.rsplit("/", 1)[-1][:-6])
 
     while queue:
         name = queue.pop()
@@ -568,10 +559,8 @@ def build_ankh_payload(
             "Missing ModAnkh dependency root(s): " + ", ".join(missing)
         )
 
-    features = " + ".join(included_optional)
     injector.log(
-        f"ModAnkh{(' + ' + features) if features else ''} dependency closure: "
-        f"{len(closure)} class(es) (Store + Loot + Console)"
+        f"ModAnkh dependency closure: {len(closure)} class(es) (Store + Loot + Console)"
     )
     return {
         name: injector.rebase_class_bytes(donor.read(name), target_game_root)
@@ -823,7 +812,7 @@ def run_ankh_only(
     injector.log(f"Output : {output}")
     injector.log(f"SHA-256: {injector.sha256(output)}")
     injector.log(
-        f"Injected: ModAnkh + Last Stand "
+        f"Injected: ModAnkh only "
         f"(Store + Loot + Console; {len(payload)} dependency classes)"
     )
     return 0
@@ -845,7 +834,7 @@ def print_help() -> None:
         "Inject SMM into an SPD-derived desktop JAR using smm-inject-donor.jar beside this script.\n\n"
         "modes:\n"
         "  default       inject the full supported SMM payload\n"
-        "  --ankh-only   inject ModAnkh + ModLastStand + Store + Loot + Console\n\n"
+        "  --ankh-only   inject ModAnkh + Store + Loot + Console only\n\n"
         "options:\n"
         "  --out PATH    output JAR (default: <target>-SMM.jar or <target>-SMM-Ankh.jar)\n"
         "  --keep-work   keep temporary work files\n"
@@ -892,7 +881,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     injector.log(
         "Injection mode: "
         + (
-            "ModAnkh + ModLastStand (Store + Loot + Console)"
+            "ModAnkh only (Store + Loot + Console)"
             if parsed.ankh_only else "full SMM"
         )
     )
