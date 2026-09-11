@@ -72,6 +72,7 @@ public class ModBlobSelector extends CellSelector.Listener implements Callback {
             Class<? extends Blob> clazz = (Class<? extends Blob>) this.blobClass;
             Blob newBlob = Blob.seed(cell, amount, clazz);
             GameScene.add(newBlob);
+            newBlob.act();
             
             logMsg = "Placed %s";
         }
