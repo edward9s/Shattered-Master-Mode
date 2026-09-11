@@ -15,18 +15,18 @@ public final class ModBuffIconCompat {
     private ModBuffIconCompat() {
     }
 
-    public static synchronized int get(String fieldName) {
-        // ModLastStand is the only SMM buff which asks for AMULET. Keep its
-        // click overlay reachable through a normal bytecode dependency so the
-        // narrow --ankh-only dependency closure includes the overlay as well.
-        if ("AMULET".equals(fieldName)) {
-            try {
-                ModLastStandOverlay.ensureInstalled();
-            } catch (RuntimeException | LinkageError ignored) {
-                // Presentation must never break the buff itself on legacy forks.
-            }
-        }
+    /**
+     * Dependency anchor for the narrow --ankh-only payload builder. ModLastStand
+     * loads its overlay reflectively so a normal dependency walk cannot see it.
+     * Keeping this unused class-literal reference makes the overlay part of the
+     * smali dependency closure without installing UI from inside icon layout.
+     */
+    @SuppressWarnings("unused")
+    private static Class<?> lastStandOverlayDependency() {
+        return ModLastStandOverlay.class;
+    }
 
+    public static synchronized int get(String fieldName) {
         Integer cached = CACHE.get(fieldName);
         if (cached != null) {
             return cached;
