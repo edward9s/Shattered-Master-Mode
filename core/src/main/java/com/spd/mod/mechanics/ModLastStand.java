@@ -45,9 +45,9 @@ public class ModLastStand extends Buff {
     {
         type = buffType.POSITIVE;
         // These metadata fields do not exist in some older SPD-family Buff APIs.
-        // They are presentation/persistence hints, not required for Last Stand's
-        // core survival behavior, so apply them only when the target exposes them.
-        setOptionalBooleanField("announced", true);
+        // Disable announcement text so legacy targets do not try to resolve an
+        // injected message key and show "no text found" above the Hero.
+        setOptionalBooleanField("announced", false);
         setOptionalBooleanField("revivePersists", true);
         actPriority = VFX_PRIO;
     }
@@ -237,12 +237,12 @@ public class ModLastStand extends Buff {
 
     @Override
     public int icon() {
-        return ModBuffIconCompat.get("AMULET");
+        return ModBuffIconCompat.get("HEART");
     }
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(0xDDEEFF);
+        icon.hardlight(0xFFD54A);
     }
 
     @Override
