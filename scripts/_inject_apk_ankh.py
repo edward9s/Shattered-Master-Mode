@@ -16,6 +16,9 @@ _ACTION_MESSAGES = (
     (b"com.spd.mod.items.modankh.ac_console", b"Console"),
     (b"com.spd.mod.items.modankh.ac_unbless", b"Unbless"),
 )
+_LAST_STAND = "Lcom/spd/mod/mechanics/ModLastStand;"
+_LAST_STAND_OVERLAY = "Lcom/spd/mod/journal/ModLastStandOverlay;"
+_LAST_STAND_OVERLAY_INNER_PREFIX = "Lcom/spd/mod/journal/ModLastStandOverlay$"
 
 
 def _append_action_messages(data: bytes) -> tuple[bytes, int]:
@@ -140,6 +143,153 @@ def _rewrite_listener_subclass(injector, item, listener_descriptor):
     return item, True
 
 
+def _is_last_stand_overlay(descriptor: str) -> bool:
+    return descriptor == _LAST_STAND_OVERLAY or descriptor.startswith(
+        _LAST_STAND_OVERLAY_INNER_PREFIX
+    )
+
+
+def _find_buff_click_overlay(injector, target_index, game_prefix):
+    """Find the target BuffIndicator button that normally opens WndInfoBuff."""
+
+    ui_prefix = injector.game_descriptor(game_prefix, "ui/BuffIndicator$")[:-1]
+    wnd_info = injector.game_descriptor(game_prefix, "windows/WndInfoBuff")
+    candidates = []
+
+    for descriptor, item in target_index.items():
+        if not descriptor.startswith(ui_prefix) or wnd_info not in item.text:
+            continue
+        try:
+            _start, _end, block = injector.method_block(item.text, "onClick", "()V")
+        except injector.InjectError:
+            continue
+        if wnd_info in block:
+            candidates.append((descriptor, item.text))
+
+    if len(candidates) != 1:
+        detail = ", ".join(descriptor for descriptor, _ in candidates) or "none"
+        raise injector.InjectError(
+            "Unable to identify exactly one BuffIndicator onClick target for "
+            "Last Stand; candidates: " + detail
+        )
+    return candidates[0]
+
+
+def _first_instruction(block: str) -> tuple[int, str]:
+    offset = 0
+    saw_registers = False
+    in_annotation = False
+    for line in block.splitlines(keepends=True):
+        stripped = line.strip()
+        if not saw_registers:
+            if re.match(r"\.(?:locals|registers)\b", stripped):
+                saw_registers = True
+            offset += len(line)
+            continue
+
+        if in_annotation:
+            if stripped == ".end annotation":
+                in_annotation = False
+            offset += len(line)
+            continue
+        if stripped.startswith(".annotation"):
+            in_annotation = True
+            offset += len(line)
+            continue
+        if (
+            not stripped
+            or stripped.startswith("#")
+            or stripped.startswith(".")
+            or stripped.startswith(":")
+        ):
+            offset += len(line)
+            continue
+
+        indent = line[: len(line) - len(line.lstrip())]
+        return offset, indent
+
+    raise RuntimeError("onClick has no executable instruction")
+
+
+def _ensure_click_scratch_register(injector, block: str) -> tuple[str, str]:
+    locals_re = re.compile(r"(?m)^(?P<indent>\s*)\.locals\s+(?P<count>\d+)\s*$")
+    match = locals_re.search(block)
+    if match:
+        count = int(match.group("count"))
+        if count == 0:
+            block = (
+                block[: match.start()]
+                + f"{match.group('indent')}.locals 1"
+                + block[match.end() :]
+            )
+        return block, "v0"
+
+    registers_re = re.compile(
+        r"(?m)^(?P<indent>\s*)\.registers\s+(?P<count>\d+)\s*$"
+    )
+    match = registers_re.search(block)
+    if not match:
+        raise injector.InjectError("BuffIndicator.onClick has neither .locals nor .registers")
+
+    count = int(match.group("count"))
+    if count >= 2:
+        return block, "v0"
+
+    # onClick()V is an instance method with only p0. With exactly one register,
+    # any explicit v0 in the original body aliases p0. Normalize it before adding
+    # one real local register so the existing method keeps its original meaning.
+    body_start = match.end()
+    suffix = re.sub(r"\bv0\b", "p0", block[body_start:])
+    block = (
+        block[: match.start()]
+        + f"{match.group('indent')}.registers 2"
+        + suffix
+    )
+    return block, "v0"
+
+
+def _patch_last_stand_buff_click(injector, text: str, descriptor: str, game_prefix: str) -> str:
+    start, end, block = injector.method_block(text, "onClick", "()V")
+    hook = _LAST_STAND + "->open()V"
+    if hook in block:
+        return text
+
+    buff_descriptor = injector.game_descriptor(game_prefix, "actors/buffs/Buff")
+    field_re = re.compile(
+        r"(?m)^\s*iget-object\s+(?:[vp]\d+),\s*p0,\s*"
+        r"(?P<owner>L[^;\s]+;)->(?P<field>[^:\s]+):"
+        + re.escape(buff_descriptor)
+        + r"\s*$"
+    )
+    fields = list(field_re.finditer(block))
+    unique_fields = {(m.group("owner"), m.group("field")) for m in fields}
+    if len(unique_fields) != 1:
+        raise injector.InjectError(
+            "Unable to identify exactly one Buff field in " + descriptor + "->onClick()V"
+        )
+    field_owner, field_name = next(iter(unique_fields))
+
+    block, scratch = _ensure_click_scratch_register(injector, block)
+    insert_at, indent = _first_instruction(block)
+    label = ":smm_last_stand_click_continue"
+    if label in block:
+        raise injector.InjectError("BuffIndicator.onClick already contains Last Stand hook label")
+
+    injected = (
+        f"{indent}# SMM Last Stand direct buff-click hook\n"
+        f"{indent}iget-object {scratch}, p0, {field_owner}->{field_name}:{buff_descriptor}\n"
+        f"{indent}instance-of {scratch}, {scratch}, {_LAST_STAND}\n"
+        f"{indent}if-eqz {scratch}, {label}\n"
+        f"{indent}iget-object {scratch}, p0, {field_owner}->{field_name}:{buff_descriptor}\n"
+        f"{indent}check-cast {scratch}, {_LAST_STAND}\n"
+        f"{indent}invoke-virtual {{{scratch}}}, {hook}\n"
+        f"{indent}return-void\n"
+        f"{indent}{label}\n\n"
+    )
+    patched = block[:insert_at] + injected + block[insert_at:]
+    return text[:start] + patched + text[end:]
+
+
 def configure(public_module) -> None:
     """Replace the full-injection hooks with the narrow ModAnkh tools pipeline."""
 
@@ -151,6 +301,9 @@ def configure(public_module) -> None:
         game_prefix = public_module._original_detect_target_game_prefix(target_index)
         public_module._current_game_prefix = game_prefix
         public_module._pending_char_overlay = None
+        public_module._pending_ankh_buff_click_overlay = _find_buff_click_overlay(
+            injector, target_index, game_prefix
+        )
 
         profile = public_module.AbiProfile()
         profile.add(public_module._probe_item_set_current(target_index, game_prefix))
@@ -169,7 +322,9 @@ def configure(public_module) -> None:
         direct = sorted(
             dep
             for dep in injector.smali_dependencies(donor_ankh)
-            if dep.startswith(full_prefix) and dep != injector.MOD_ANKH
+            if dep.startswith(full_prefix)
+            and dep != injector.MOD_ANKH
+            and not _is_last_stand_overlay(dep)
         )
         if not direct:
             raise injector.InjectError(
@@ -182,7 +337,11 @@ def configure(public_module) -> None:
 
         while queue:
             descriptor = queue.pop()
-            if descriptor == injector.MOD_ANKH or descriptor in closure:
+            if (
+                descriptor == injector.MOD_ANKH
+                or descriptor in closure
+                or _is_last_stand_overlay(descriptor)
+            ):
                 continue
             if descriptor.startswith(injector.TARGET_API_PREFIXES):
                 continue
@@ -197,6 +356,7 @@ def configure(public_module) -> None:
                 if (
                     dep == injector.MOD_ANKH
                     or dep in closure
+                    or _is_last_stand_overlay(dep)
                     or dep.startswith(injector.TARGET_API_PREFIXES)
                 ):
                     continue
@@ -226,6 +386,7 @@ def configure(public_module) -> None:
                     full_prefix + "mechanics/ModDebug$Console;",
                     full_prefix + "mechanics/ModDebug;",
                     full_prefix + "mechanics/ModLegacyCompat;",
+                    full_prefix + "mechanics/ModLastStand;",
                 }
                 missing_roots = sorted(required_roots.difference(closure))
                 if missing_roots:
@@ -274,7 +435,7 @@ def configure(public_module) -> None:
         }
         injector.log(
             f"ModAnkh dependency closure: {len(payload)} class(es) "
-            "(Store + Loot + Console)"
+            "(Store + Loot + Console + Last Stand)"
         )
         return payload, relocations
 
@@ -341,6 +502,39 @@ def configure(public_module) -> None:
             allowed_target_prefixes + (injector.MOD_ANKH,),
         )
 
+    def compile_smali_with_last_stand_click(
+        java: Path,
+        smali_jar: Path,
+        directory: Path,
+        output: Path,
+        api: int,
+    ) -> None:
+        pending = getattr(public_module, "_pending_ankh_buff_click_overlay", None)
+        if pending is None:
+            raise injector.InjectError("Last Stand BuffIndicator click overlay source was not captured")
+        if public_module._current_game_prefix is None:
+            raise injector.InjectError("Target game prefix was not initialized")
+
+        descriptor, original_text = pending
+        patched = _patch_last_stand_buff_click(
+            injector, original_text, descriptor, public_module._current_game_prefix
+        )
+        overlay_path = directory / Path(descriptor[1:-1] + ".smali")
+        if overlay_path.exists():
+            raise injector.InjectError(
+                "Overlay already contains target BuffIndicator button class: " + descriptor
+            )
+        overlay_path.parent.mkdir(parents=True, exist_ok=True)
+        overlay_path.write_text(patched, encoding="utf-8")
+        injector.log("Last Stand BuffIndicator click hook: OK")
+
+        try:
+            public_module._original_compile_smali(
+                java, smali_jar, directory, output, api
+            )
+        finally:
+            public_module._pending_ankh_buff_click_overlay = None
+
     def rebuild_apk(target, overlay_dex, output, manifest=None):
         mapping = original_rebuild_apk(
             target,
@@ -358,12 +552,13 @@ def configure(public_module) -> None:
 
     # Ankh-only uses the original narrow injector mechanics: patch Dungeon.init()
     # after HeroClass.initHero(Hero), and do not install the full SMM menu or the
-    # independent Riposte Char.attack hook.
+    # independent Riposte Char.attack hook. Last Stand's buff click is patched
+    # directly into the target BuffIndicator instead of shipping its newer overlay.
     injector.detect_target_game_prefix = detect_target_game_prefix
     injector.build_debug_payload = build_ankh_payload
     injector.payload_compatibility_errors = payload_compatibility_errors
     injector.find_class = public_module._original_find_class
     injector.patch_dungeon = public_module._original_patch_dungeon
-    injector.compile_smali = public_module._original_compile_smali
+    injector.compile_smali = compile_smali_with_last_stand_click
     injector.rebuild_apk = rebuild_apk
     injector.output_path = output_path
