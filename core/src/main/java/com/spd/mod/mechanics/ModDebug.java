@@ -1922,6 +1922,21 @@ public final class ModDebug {
         }
 
         refreshTerrainCell(cell);
+
+        Char occupant = Actor.findChar(cell);
+        if (occupant != null) {
+            InvocationResult occupied = invokeCompatibleObjects(
+                    Dungeon.level,
+                    Dungeon.level.getClass(),
+                    "occupyCell",
+                    new Object[]{occupant},
+                    false, false);
+            if (!occupied.invoked) {
+                throw new NoSuchMethodException(
+                        "Target level has no compatible occupyCell(Char)");
+            }
+        }
+
         GLog.p(str(
                 "Set cell ", cell,
                 " to Terrain.", terrainName));
