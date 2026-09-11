@@ -1,21 +1,21 @@
 package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon;
-import com.spd.mod.mechanics.ModAssassinBuff;
+import com.spd.mod.mechanics.ModAssassinate;
 
 /** Journal entry for the permanent Assassin Instinct Master Mode buff. */
 public class ModGridAssassinBuff extends ModGridEntry {
 
     public ModGridAssassinBuff() {
-        super(new BuffIcon(new ModAssassinBuff(), true), title(), description());
+        super(new BuffIcon(new ModAssassinate(), true), title(), description());
     }
 
     private static String title() {
-        return new ModAssassinBuff().name();
+        return new ModAssassinate().name();
     }
 
     private static String description() {
-        return new ModAssassinBuff().desc();
+        return new ModAssassinate().desc();
     }
 
     @Override
@@ -24,7 +24,7 @@ public class ModGridAssassinBuff extends ModGridEntry {
             return false;
         }
 
-        ModCharSelector.startHeroOnly(ModAssassinBuff.class);
+        ModCharSelector.startHeroOnly(ModAssassinate.class);
         return true;
     }
 }
