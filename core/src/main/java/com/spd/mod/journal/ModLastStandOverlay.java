@@ -11,6 +11,7 @@ import com.watabou.noosa.Group;
 import com.watabou.noosa.ui.Component;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -22,6 +23,8 @@ public class ModLastStandOverlay extends Gizmo {
 
     private static ModLastStandOverlay instance;
     private static Field groupMembersField;
+    private static Method givePointerPriorityMethod;
+    private static boolean pointerPriorityResolved;
 
     private final WeakHashMap<Component, LastStandButton> overlays = new WeakHashMap<>();
 
@@ -149,6 +152,32 @@ public class ModLastStandOverlay extends Gizmo {
         }
     }
 
+    private static void givePointerPriorityCompat(Component component) {
+        if (!pointerPriorityResolved) {
+            pointerPriorityResolved = true;
+            for (Class<?> cls = component.getClass(); cls != null; cls = cls.getSuperclass()) {
+                try {
+                    Method method = cls.getDeclaredMethod("givePointerPriority");
+                    method.setAccessible(true);
+                    givePointerPriorityMethod = method;
+                    break;
+                } catch (NoSuchMethodException ignored) {
+                    // Continue through the legacy component hierarchy.
+                } catch (SecurityException ignored) {
+                    break;
+                }
+            }
+        }
+
+        if (givePointerPriorityMethod != null) {
+            try {
+                givePointerPriorityMethod.invoke(component);
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // Adding the overlay after the source still gives a useful fallback.
+            }
+        }
+    }
+
     private static class LastStandButton extends Button {
 
         private final ModLastStand buff;
@@ -170,6 +199,7 @@ public class ModLastStandOverlay extends Gizmo {
             visible = source.visible;
             active = source.active;
             super.update();
+            givePointerPriorityCompat(this);
         }
 
         @Override
