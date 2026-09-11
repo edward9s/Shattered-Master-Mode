@@ -1642,6 +1642,18 @@ public final class ModDebug {
                                 "No compatible GameScene.add(blob)");
                     }
 
+                    InvocationResult acted =
+                            invokeCompatibleObjects(
+                                    seeded.result,
+                                    seeded.result.getClass(), "act",
+                                    new Object[0],
+                                    false, false);
+
+                    if (!acted.invoked) {
+                        throw new NoSuchMethodException(
+                                "No compatible Blob.act()");
+                    }
+
                     if (storeVariable != null) {
                         putVariable(
                                 storeVariable, seeded.result);
@@ -2478,7 +2490,7 @@ public final class ModDebug {
         Object item = getVariable(args.get(0));
         if (item == null) {
             throw new IllegalArgumentException(str(
-                    "Variable is undefined or inactive: ", args.get(0)));
+                    args.get(0), " contains ", "null"));
         }
 
         String itemClassName = weapon ? WEAPON_CLASS : ARMOR_CLASS;
