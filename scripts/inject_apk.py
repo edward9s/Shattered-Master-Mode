@@ -16,6 +16,11 @@ from typing import Callable, Sequence
 
 import _inject_apk_core as injector
 
+# The source buff was renamed without a compatibility alias. Keep the mature
+# core injector implementation and retarget its payload-family globals here.
+injector.MOD_ASSASSIN_BUFF = "Lcom/spd/mod/mechanics/ModAssassinate;"
+injector.MOD_ASSASSIN_BUFF_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModAssassinate$"
+
 
 _original_toolchain_ensure_java = injector.Toolchain.ensure_java
 _original_toolchain_ensure_android_tools = injector.Toolchain.ensure_android_tools
@@ -1022,7 +1027,7 @@ def print_help() -> None:
         "usage: inject_apk.py TARGET.apk [--out OUTPUT.apk] [options]\n\n"
         "Inject SMM into an SPD-derived APK using smm-inject-donor.apk beside this script.\n\n"
         "options:\n"
-        "  --ankh-only         inject only ModAnkh + Store + Loot + Console dependencies\n"
+        "  --ankh-only         inject ModAnkh + Last Stand + Assassinate + Store + Loot + Console\n"
         "  --out PATH          output APK (default: <target>-SMM.apk, or -SMM-Ankh with --ankh-only)\n"
         "  --cache PATH        injector tool cache\n"
         "  --offline           do not download missing tools\n"
@@ -1045,7 +1050,7 @@ def _translate_core_error(exc: injector.InjectError) -> injector.InjectError:
             )
         return injector.InjectError(
             "Full SMM payload is incompatible with this target. "
-            "If only ModAnkh + Store + Loot + Console are needed, retry with --ankh-only."
+            "If only the narrow ModAnkh payload is needed, retry with --ankh-only."
         )
     return exc
 
@@ -1077,7 +1082,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         _inject_apk_ankh.configure(sys.modules[__name__])
         injector.step("Injection mode")
-        injector.log("ModAnkh only (Store + Loot + Console)")
+        injector.log("ModAnkh + Last Stand + Assassinate (Store + Loot + Console)")
     else:
         injector.step("Injection mode")
         injector.log("Full SMM")
