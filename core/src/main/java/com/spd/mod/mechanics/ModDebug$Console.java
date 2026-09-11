@@ -219,7 +219,7 @@ public final class ModDebug$Console {
         GameScene.selectCell(new CellSelector.Listener() {
             @Override
             public String prompt() {
-                return "Select the character to toggle the buff on:";
+                return "Select target:";
             }
 
             @Override
