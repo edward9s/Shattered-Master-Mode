@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mode adapter for the small ModAnkh + Last Stand + Assassinate + Store/Loot/Console APK payload."""
+"""Mode adapter for the small ModAnkh + Last Stand + Store/Loot/Console APK payload."""
 from __future__ import annotations
 
 import re
@@ -141,12 +141,11 @@ def _rewrite_listener_subclass(injector, item, listener_descriptor):
 
 
 def configure(public_module) -> None:
-    """Replace the full-injection hooks with the narrow ModAnkh + Last Stand + Assassinate pipeline."""
+    """Replace the full-injection hooks with the narrow ModAnkh + Last Stand pipeline."""
 
     injector = public_module.injector
     full_prefix = public_module.FULL_SMM_PREFIX
     last_stand = full_prefix + "mechanics/ModLastStand;"
-    assassinate = full_prefix + "mechanics/ModAssassinate;"
     original_rebuild_apk = injector.rebuild_apk
 
     def detect_target_game_prefix(target_index):
@@ -178,21 +177,15 @@ def configure(public_module) -> None:
                 "ModAnkh has no SMM dependency closure in the donor; rebuild the injection donor"
             )
 
-        optional_roots = (
-            (last_stand, "ModLastStand"),
-            (assassinate, "ModAssassinate"),
-        )
-        included_features = []
+        include_last_stand = last_stand in donor_index
         closure = {}
         queue = list(direct)
-        for descriptor, label in optional_roots:
-            if descriptor in donor_index:
-                queue.append(descriptor)
-                included_features.append(label)
-            else:
-                injector.log(
-                    f"Donor has no {label} root; continuing without that optional feature"
-                )
+        if include_last_stand:
+            queue.append(last_stand)
+        else:
+            injector.log(
+                "Donor has no ModLastStand root; continuing with the legacy ModAnkh-only payload"
+            )
         unresolved = set()
 
         while queue:
@@ -219,7 +212,7 @@ def configure(public_module) -> None:
 
         if unresolved:
             raise injector.InjectError(
-                "ModAnkh optional-feature dependency closure has unresolved donor classes: "
+                "ModAnkh/ModLastStand dependency closure has unresolved donor classes: "
                 + ", ".join(sorted(unresolved))
             )
 
@@ -287,11 +280,10 @@ def configure(public_module) -> None:
             for descriptor, item in donor_index.items()
             if descriptor.startswith(full_prefix)
         }
-        feature_text = " + ".join(included_features)
-        if feature_text:
+        if include_last_stand:
             injector.log(
-                f"ModAnkh + {feature_text} dependency closure: {len(payload)} class(es) "
-                "(Store + Loot + Console + optional combat buffs)"
+                f"ModAnkh + ModLastStand dependency closure: {len(payload)} class(es) "
+                "(Store + Loot + Console + Last Stand)"
             )
         else:
             injector.log(
