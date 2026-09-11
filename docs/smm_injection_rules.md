@@ -23,10 +23,9 @@ python inject_jar.py TARGET.jar --ankh-only
 `--ankh-only` contains:
 
 - `ModAnkh`
-- `ModLastStand`
-- Store / Loot / Console dependencies
+- Store / Loot / Debug Console dependencies
 
-It does not install the full SMM menu or unrelated combat features.
+It does not add `ModLastStand`, install the full SMM menu, or include unrelated combat features.
 
 ## Injection Kit
 
@@ -40,8 +39,9 @@ If an injected Java class changes, rebuild the kit so the donors match the sourc
 - Rebase SPD package references when the fork uses another package name.
 - Reject unresolved or ambiguous ABI dependencies instead of forcing the build.
 - Do not copy arbitrary donor-only or obfuscated classes to hide compatibility errors.
-- Keep `--ankh-only` narrow. New SMM features must not enter that payload unless explicitly intended.
+- Keep `--ankh-only` narrow. It exists to provide ModAnkh's Store / Loot / Debug Console tools on older forks.
 - Full injection may use the existing SMM menu and Riposte hooks; minimal injection must not install unrelated full-SMM hooks.
+- A Debug Console command can expose bugs already present in the target game. Do not patch unrelated target gameplay bugs merely to make a command appear successful.
 
 ## Current naming
 
