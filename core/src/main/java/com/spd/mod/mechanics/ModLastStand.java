@@ -108,6 +108,14 @@ public class ModLastStand extends Buff {
         }
     }
 
+    /**
+     * Equivalent to newer Actor.timeToNow(), but uses spend()/cooldown(), which
+     * already existed in the original Pixel Dungeon Actor API.
+     */
+    private void scheduleNow() {
+        spend(-cooldown());
+    }
+
     @Override
     public void fx(boolean on) {
         if (on) {
@@ -116,7 +124,7 @@ public class ModLastStand extends Buff {
             // Char.updateSpriteState() iterates the buff set while calling fx().
             // Do not attach another buff here; just schedule Last Stand to run
             // immediately once actor processing resumes.
-            timeToNow();
+            scheduleNow();
         }
     }
 
@@ -133,7 +141,7 @@ public class ModLastStand extends Buff {
 
         // Schedule recovery to happen as soon as actors can run again, after
         // the lethal hit has been limited to leave the target at 1 HP.
-        timeToNow();
+        scheduleNow();
     }
 
     private void recoverFromOneHP() {
