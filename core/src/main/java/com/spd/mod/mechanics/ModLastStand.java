@@ -44,9 +44,30 @@ public class ModLastStand extends Buff {
 
     {
         type = buffType.POSITIVE;
-        announced = true;
-        revivePersists = true;
+        // These metadata fields do not exist in some older SPD-family Buff APIs.
+        // They are presentation/persistence hints, not required for Last Stand's
+        // core survival behavior, so apply them only when the target exposes them.
+        setOptionalBooleanField("announced", true);
+        setOptionalBooleanField("revivePersists", true);
         actPriority = VFX_PRIO;
+    }
+
+    private void setOptionalBooleanField(String name, boolean value) {
+        for (Class<?> cls = getClass(); cls != null; cls = cls.getSuperclass()) {
+            try {
+                Field field = cls.getDeclaredField(name);
+                if (field.getType() != Boolean.TYPE) {
+                    return;
+                }
+                field.setAccessible(true);
+                field.setBoolean(this, value);
+                return;
+            } catch (NoSuchFieldException ignored) {
+                // Keep walking the inherited target hierarchy.
+            } catch (ReflectiveOperationException | SecurityException ignored) {
+                return;
+            }
+        }
     }
 
     /**
