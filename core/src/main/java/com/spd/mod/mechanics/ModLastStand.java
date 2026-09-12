@@ -1,17 +1,19 @@
 package com.spd.mod.mechanics;
 
+import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Invulnerability;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ShieldBuff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
-import com.shatteredpixel.shatteredpixeldungeon.effects.Flare;
+import com.shatteredpixel.shatteredpixeldungeon.effects.SpellSprite;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHealing;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
-import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.items.WndModLoot;
 import com.watabou.noosa.Image;
+import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundle;
 
 import java.lang.reflect.Field;
@@ -23,10 +25,10 @@ import java.lang.reflect.Method;
  * The persistent Last Stand object remains a plain Buff. A hidden ShieldBuff
  * hook performs pre-damage interception after save restoration has completed.
  * If normal shield-handled damage would be lethal, the hook limits it to leave
- * 1 HP and schedules Last Stand to restore the bearer to 50% HP and apply the
- * target game's PotionOfHealing.cure() behavior. Last Stand does not grant
- * invulnerability. It also recovers any living bearer that reaches exactly
- * 1 HP through a mechanic which bypasses normal shielding.
+ * 1 HP and schedules Last Stand to recover like a blessed Ankh: restore the
+ * bearer to 25% HP, cure ailments, grant temporary invulnerability, and play
+ * the blessed-Ankh recovery effects. It also recovers any living bearer that
+ * reaches exactly 1 HP through a mechanic which bypasses normal shielding.
  *
  * When attached to the Hero, the same buff also owns shared Loot storage. Tapping
  * its buff icon opens the Loot / Put / Take / Console panel when the optional
@@ -187,23 +189,17 @@ public class ModLastStand extends Buff {
             return;
         }
 
-        int recoveredHP = Math.max(1, (target.HT + 1) / 2);
-        int healed = Math.max(0, recoveredHP - target.HP);
-        target.HP = recoveredHP;
-
-        // Use the target game's healing-potion cure semantics directly. This
-        // intentionally does not invoke PotionOfHealing.heal() or reset hunger.
+        // Match blessed-Ankh resurrection semantics: recover to 25% max HP,
+        // cure ailments, then grant the same temporary invulnerability.
+        target.HP = Math.max(1, target.HT / 4);
         PotionOfHealing.cure(target);
+        Buff.prolong(target, Invulnerability.class, Invulnerability.DURATION);
 
-        if (target.sprite != null) {
-            new Flare(8, 32).color(0xFFFF66, true).show(target.sprite, 2f);
-        }
-
-        // showStatus() is available much farther back in the SPD lineage than
-        // showStatusWithIcon()/FloatingText.HEALING and is cosmetic only.
-        if (healed > 0 && target.sprite != null) {
-            target.sprite.showStatus(CharSprite.POSITIVE, Integer.toString(healed));
-        }
+        // Reuse the blessed-Ankh visual/audio feedback. Do not increment Ankh
+        // usage statistics or catalog counters because no Ankh is consumed here.
+        SpellSprite.show(target, SpellSprite.ANKH);
+        GameScene.flash(0x80FFFF40);
+        Sample.INSTANCE.play(Assets.Sounds.TELEPORT);
     }
 
     @Override
@@ -260,8 +256,9 @@ public class ModLastStand extends Buff {
 
     @Override
     public String desc() {
-        return "Lethal damage handled by normal shielding leaves 1 HP, then restores 50% HP and cures ailments. "
-                + "Grants no invulnerability; some direct death effects can bypass it. Tap to open Loot storage.";
+        return "Lethal damage handled by normal shielding leaves 1 HP, then restores 25% HP, cures ailments, "
+                + "and grants blessed-Ankh invulnerability. Some direct death effects can still bypass it. "
+                + "Tap to open Loot storage.";
     }
 
     @Override
