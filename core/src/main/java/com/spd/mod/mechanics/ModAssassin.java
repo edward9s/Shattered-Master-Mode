@@ -15,6 +15,7 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.watabou.utils.Callback;
 
 import java.util.ArrayList;
 
@@ -95,14 +96,21 @@ public class ModAssassin {
         CharSprite sprite = hero.sprite;
         int targetPos = target.pos;
         if (sprite != null) {
-            sprite.attack(targetPos);
+            // The damage above is already resolved synchronously. This animation is
+            // visual-only. Supplying a callback prevents CharSprite.onComplete() from
+            // calling Hero.onAttackComplete(), which on forks such as MLPD performs
+            // normal-attack side effects including Invisibility.dispel() and
+            // spend(attackDelay()). Leaving the callback null makes Assassinate cost
+            // a real turn on those forks.
+            sprite.attack(targetPos, new Callback() {
+                @Override
+                public void call() {
+                    // Intentionally no-op: Assassinate must stay in the same actor tick.
+                }
+            });
         }
 
-        // Assassinate is intentionally turn-free. Do not call spendToWhole() here:
-        // on forks where the hero is ready at a fractional actor time (notably MLPD),
-        // spendToWhole() rounds that time upward and unintentionally consumes the
-        // remainder of the current turn. On stock SPD actor time is usually already
-        // integral here, which is why the old code appeared to be free there.
+        // Assassinate is intentionally turn-free. Do not spend or round actor time.
     }
 
     /**
