@@ -47,7 +47,6 @@ public class ModAssassin {
         // 「傳送了卻沒攻擊、也沒有任何訊息」這種狀況在本分支永遠不可能發生。
         if (!hero.canAttack(target)) {
             GLog.w("Target is out of reach", new Object[0]);
-            hero.spendToWhole();
             return;
         }
 
@@ -99,7 +98,11 @@ public class ModAssassin {
             sprite.attack(targetPos);
         }
 
-        hero.spendToWhole();
+        // Assassinate is intentionally turn-free. Do not call spendToWhole() here:
+        // on forks where the hero is ready at a fractional actor time (notably MLPD),
+        // spendToWhole() rounds that time upward and unintentionally consumes the
+        // remainder of the current turn. On stock SPD actor time is usually already
+        // integral here, which is why the old code appeared to be free there.
     }
 
     /**
