@@ -130,10 +130,10 @@ public class ModParryRiposte extends ChampionEnemy {
     }
 
     /**
-     * Pre-resolution incoming-attack hook. Riposte is intentionally independent
-     * from Parry, hit/miss resolution, and defender invulnerability. The hook only
-     * queues the counterattack; it never executes it inline with the incoming
-     * attack, so the triggering action can finish first.
+     * Pre-resolution incoming-attack hook. The terminal Char.attack() injector
+     * pairs this with onIncomingAttackComplete() at every normal return. Riposte
+     * is armed before hit resolution, then queued at the same Actor.now only after
+     * the triggering attack has fully resolved so its animation can play naturally.
      */
     public static void onIncomingAttack(Char attacker, Char defender) {
         if (!(defender instanceof Hero)
@@ -146,8 +146,31 @@ public class ModParryRiposte extends ChampionEnemy {
 
         ModParryRiposte total = find(defender);
         if (total != null && total.riposteEnabled) {
-            scheduleRiposte(defender, attacker);
+            prepareTerminalRiposte(defender, attacker);
         }
+    }
+
+    /** Queues the prepared Riposte immediately after terminal Char.attack() resolves. */
+    public static void onIncomingAttackComplete(Char attacker, Char defender) {
+        if (attacker == null || defender == null) {
+            return;
+        }
+
+        RiposteActor pending;
+        synchronized (PENDING_RIPOSTES) {
+            pending = PENDING_RIPOSTES.get(attacker);
+            if (pending == null
+                    || pending.riposter != defender
+                    || pending.scheduled) {
+                return;
+            }
+            pending.scheduled = true;
+        }
+
+        // Actor.add(actor) uses Actor.now. VFX_PRIO makes this run immediately
+        // after the current attacker releases the actor thread, while RiposteActor
+        // waits for the visible attack animation callback before applying damage.
+        Actor.add(pending);
     }
 
     @Override
@@ -404,6 +427,17 @@ public class ModParryRiposte extends ChampionEnemy {
         }
     }
 
+    private static void prepareTerminalRiposte(Char riposter, Char attacker) {
+        synchronized (PENDING_RIPOSTES) {
+            RiposteActor pending = PENDING_RIPOSTES.get(attacker);
+            if (pending != null && pending.scheduled) {
+                return;
+            }
+
+            PENDING_RIPOSTES.put(attacker, new RiposteActor(riposter, attacker));
+        }
+    }
+
     private static void scheduleRiposte(Char riposter, Char attacker) {
         synchronized (PENDING_RIPOSTES) {
             RiposteActor pending = PENDING_RIPOSTES.get(attacker);
@@ -412,6 +446,7 @@ public class ModParryRiposte extends ChampionEnemy {
             }
 
             RiposteActor actor = new RiposteActor(riposter, attacker);
+            actor.scheduled = true;
             PENDING_RIPOSTES.put(attacker, actor);
             Actor.add(actor);
         }
@@ -490,6 +525,7 @@ public class ModParryRiposte extends ChampionEnemy {
         private final Char riposter;
         private final Char attacker;
         private boolean waitingForAnimation;
+        private boolean scheduled;
 
         RiposteActor(Char riposter, Char attacker) {
             this.riposter = riposter;

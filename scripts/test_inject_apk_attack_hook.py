@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pathlib
+import re
 import sys
 import unittest
 
@@ -52,16 +53,52 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(terminal, capability.data.get("proto"))
 
         patched = mod.patch_char_attack(text, self.char)
-        hook = (
+        pre_hook = (
             "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack("
             + self.char + self.char + ")V"
         )
-        self.assertEqual(1, patched.count(hook))
+        post_hook = (
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete("
+            + self.char + self.char + ")V"
+        )
+        self.assertEqual(1, patched.count(pre_hook))
+        self.assertEqual(1, patched.count(post_hook))
         for proto in wrappers:
             _, _, block = mod.injector.method_block(patched, "attack", proto)
-            self.assertNotIn(hook, block)
+            self.assertNotIn(pre_hook, block)
+            self.assertNotIn(post_hook, block)
         _, _, block = mod.injector.method_block(patched, "attack", terminal)
-        self.assertIn(hook, block)
+        self.assertIn(pre_hook, block)
+        self.assertIn(post_hook, block)
+        self.assertLess(block.index(pre_hook), block.index("const/4 v0, 0x1"))
+        self.assertLess(block.index(post_hook), block.index("return v0"))
+
+
+    def test_completion_hook_is_added_before_every_terminal_return(self):
+        terminal = f"({self.char}FFF{self.damage_type})Z"
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public attack{terminal}\n"
+            "    .locals 1\n"
+            "    if-eqz p1, :miss\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ":miss\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        patched = mod.patch_char_attack(text, self.char)
+        post_hook = (
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete("
+            + self.char + self.char + ")V"
+        )
+        _, _, block = mod.injector.method_block(patched, "attack", terminal)
+        self.assertEqual(2, block.count(post_hook))
+        self.assertEqual(2, len(re.findall(
+            re.escape(post_hook) + r"\n\s*return v0", block
+        )))
 
     def test_multiple_terminal_overloads_are_rejected(self):
         first = f"({self.char})Z"

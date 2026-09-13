@@ -630,14 +630,15 @@ def build_full_debug_payload(
         donor_total.path,
         injector.rebase_smali_text(donor_total.text, _current_game_prefix),
     )
-    hook_flags = rebased_total.methods.get(
-        ("onIncomingAttack", f"({char_descriptor}{char_descriptor})V")
-    )
-    if hook_flags is None or not {"public", "static"}.issubset(hook_flags):
-        raise injector.InjectError(
-            "SMM donor ModParryRiposte lacks public static "
-            "onIncomingAttack(Char, Char); rebuild donor from current source"
+    for hook_name in ("onIncomingAttack", "onIncomingAttackComplete"):
+        hook_flags = rebased_total.methods.get(
+            (hook_name, f"({char_descriptor}{char_descriptor})V")
         )
+        if hook_flags is None or not {"public", "static"}.issubset(hook_flags):
+            raise injector.InjectError(
+                "SMM donor ModParryRiposte lacks public static "
+                f"{hook_name}(Char, Char); rebuild donor from current source"
+            )
 
     return _original_build_debug_payload(donor_index, target_index)
 
@@ -822,19 +823,44 @@ def patch_char_attack(
                 "Unable to identify terminal Char.attack overload: " + detail
             )
     start, end, block = injector.method_block(text, "attack", proto)
-    hook = (
+    pre_hook = (
         "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack("
         f"{char_descriptor}{char_descriptor})V"
     )
-    if hook in block:
-        raise injector.InjectError("Char.attack already contains SMM incoming-attack hook")
+    post_hook = (
+        "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete("
+        f"{char_descriptor}{char_descriptor})V"
+    )
+    if pre_hook in block or post_hook in block:
+        raise injector.InjectError(
+            "Char.attack already contains SMM incoming-attack hook"
+        )
 
     insert_at, indent = _first_smali_instruction(block)
     injected = (
         f"{indent}# SMM independent Riposte incoming-attack hook\n"
-        f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n\n"
+        f"{indent}invoke-static/range {{p0 .. p1}}, {pre_hook}\n\n"
     )
     patched = block[:insert_at] + injected + block[insert_at:]
+
+    return_re = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)return\s+(?P<reg>[vp]\d+)\s*(?P<comment>#.*)?$"
+    )
+
+    def add_completion_hook(match: re.Match[str]) -> str:
+        ind = match.group("indent")
+        original = match.group(0)
+        return (
+            f"{ind}# SMM immediate Riposte completion hook\n"
+            f"{ind}invoke-static/range {{p0 .. p1}}, {post_hook}\n"
+            f"{original}"
+        )
+
+    patched, return_count = return_re.subn(add_completion_hook, patched)
+    if return_count == 0:
+        raise injector.InjectError(
+            "Terminal Char.attack has no normal boolean return for Riposte completion"
+        )
     return text[:start] + patched + text[end:]
 
 
@@ -890,7 +916,7 @@ def compile_smali_with_char_hook(
         )
     char_output.parent.mkdir(parents=True, exist_ok=True)
     char_output.write_text(patched_char, encoding="utf-8")
-    injector.log(f"Char.attack incoming-attack hook ({proto}): OK")
+    injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
     injector.log("Char.hit Force Hit pre-defense hook: OK")
 
     try:
