@@ -474,6 +474,80 @@ def _probe_duelist_combo(
     )
 
 
+def _char_attack_family_graph(
+    char_class: injector.SmaliClass,
+    char_descriptor: str,
+) -> tuple[list[str], dict[str, set[str]]]:
+    protos = sorted(
+        proto
+        for (name, proto), flags in char_class.methods.items()
+        if name == "attack"
+        and "static" not in flags
+        and "abstract" not in flags
+        and "native" not in flags
+        and proto.startswith(f"({char_descriptor}")
+        and proto.endswith(")Z")
+    )
+    family = set(protos)
+    invoke_re = re.compile(
+        r"(?m)^\s*invoke-(?:virtual|direct|super|interface)(?:/range)?\s+"
+        r"\{[^}]*\},\s*"
+        + re.escape(char_descriptor)
+        + r"->attack(?P<proto>\([^)]*\)Z)(?:\s+#.*)?$"
+    )
+    edges: dict[str, set[str]] = {}
+    for proto in protos:
+        _, _, block = injector.method_block(char_class.text, "attack", proto)
+        edges[proto] = {
+            match.group("proto")
+            for match in invoke_re.finditer(block)
+            if match.group("proto") in family
+        }
+    return protos, edges
+
+
+def _terminal_char_attack_proto(
+    char_class: injector.SmaliClass,
+    char_descriptor: str,
+) -> tuple[str | None, str]:
+    protos, edges = _char_attack_family_graph(char_class, char_descriptor)
+    if not protos:
+        return None, "no non-static Char.attack(Char, ...):boolean overloads are available"
+
+    state: dict[str, int] = {}
+
+    def visit(proto: str) -> bool:
+        marker = state.get(proto, 0)
+        if marker == 1:
+            return False
+        if marker == 2:
+            return True
+        state[proto] = 1
+        for callee in edges[proto]:
+            if not visit(callee):
+                return False
+        state[proto] = 2
+        return True
+
+    if not all(visit(proto) for proto in protos):
+        return None, "Char.attack overload delegation graph contains a cycle"
+
+    terminals = [proto for proto in protos if not edges[proto]]
+    if len(terminals) != 1:
+        found = ", ".join(terminals) if terminals else "none"
+        return (
+            None,
+            "expected exactly one terminal Char.attack overload, found "
+            f"{len(terminals)}: {found}",
+        )
+
+    terminal = terminals[0]
+    return (
+        terminal,
+        f"unique terminal Char.attack{terminal} selected from {len(protos)} overload(s)",
+    )
+
+
 def _probe_char_attack_hook(
     target_index: dict[str, injector.SmaliClass],
     game_prefix: str,
@@ -487,31 +561,18 @@ def _probe_char_attack_hook(
             "Char class is missing",
         )
 
-    modern_proto = f"({char_descriptor}FFF)Z"
-    flags = char_class.methods.get(("attack", modern_proto))
-    if flags is not None and "static" not in flags:
+    proto, detail = _terminal_char_attack_proto(char_class, char_descriptor)
+    if proto is None:
         return AbiCapability(
             "char.incomingAttackHook",
-            ABI_DIRECT,
-            "Char.attack(Char,float,float,float) is available for pre-resolution hook",
-            data={"proto": modern_proto},
+            ABI_UNSUPPORTED,
+            detail,
         )
-
-    legacy_proto = f"({char_descriptor})Z"
-    flags = char_class.methods.get(("attack", legacy_proto))
-    if flags is not None and "static" not in flags:
-        return AbiCapability(
-            "char.incomingAttackHook",
-            ABI_DIRECT,
-            "legacy Char.attack(Char) is available for pre-resolution hook",
-            data={"proto": legacy_proto},
-        )
-
     return AbiCapability(
         "char.incomingAttackHook",
-        ABI_UNSUPPORTED,
-        "supported Char.attack ABI variants are missing or static: "
-        "attack(Char,float,float,float), attack(Char)",
+        ABI_DIRECT,
+        detail,
+        data={"proto": proto},
     )
 
 
@@ -754,7 +815,12 @@ def patch_char_attack(
     proto: str | None = None,
 ) -> str:
     if proto is None:
-        proto = f"({char_descriptor}FFF)Z"
+        char_class = injector.SmaliClass.from_text(Path("Char.smali"), text)
+        proto, detail = _terminal_char_attack_proto(char_class, char_descriptor)
+        if proto is None:
+            raise injector.InjectError(
+                "Unable to identify terminal Char.attack overload: " + detail
+            )
     start, end, block = injector.method_block(text, "attack", proto)
     hook = (
         "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack("
