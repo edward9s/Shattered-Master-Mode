@@ -14,6 +14,10 @@ final class ModCombatCompat {
     private static Method heroAttackTargetMethod;
     private static Field heroAttackTargetField;
     private static boolean heroAttackTargetResolved;
+    private static boolean heroAttackTargetNeedsActionGate;
+
+    private static Field heroAttackActionField;
+    private static boolean heroAttackActionResolved;
 
     private static Field hitMissIconField;
     private static boolean hitMissIconResolved;
@@ -42,7 +46,15 @@ final class ModCombatCompat {
             }
             if (heroAttackTargetField != null) {
                 Object value = heroAttackTargetField.get(hero);
-                return value instanceof Char ? (Char) value : null;
+                if (!(value instanceof Char)) {
+                    return null;
+                }
+                Char attackTarget = (Char) value;
+                if (heroAttackTargetNeedsActionGate
+                        && !fallbackAttackActionMatches(hero, attackTarget)) {
+                    return null;
+                }
+                return attackTarget;
             }
         } catch (Exception ignored) {
             // Attack observation is an optional compatibility path.
@@ -89,6 +101,74 @@ final class ModCombatCompat {
         if (candidate != null) {
             candidate.setAccessible(true);
             heroAttackTargetField = candidate;
+            heroAttackTargetNeedsActionGate = true;
+        }
+    }
+
+    /**
+     * Some older forks keep the last attacked Char in a persistent Hero.enemy
+     * field even after the attack is complete. When the target adapter had to
+     * fall back to a structurally unique Char field, gate that value on the
+     * fork's current HeroAction so stale enemy state is not mistaken for an
+     * in-progress attack forever.
+     */
+    private static boolean fallbackAttackActionMatches(Hero hero, Char attackTarget) {
+        try {
+            resolveHeroAttackAction(hero.getClass());
+            if (heroAttackActionField == null) {
+                // No compatible action state exists on this fork. Preserve the
+                // previous structural fallback instead of disabling it outright.
+                return true;
+            }
+
+            Object action = heroAttackActionField.get(hero);
+            if (action == null || !"Attack".equals(action.getClass().getSimpleName())) {
+                return false;
+            }
+
+            Field actionTarget = null;
+            for (Field field : action.getClass().getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())
+                        || !Char.class.isAssignableFrom(field.getType())) {
+                    continue;
+                }
+                if (actionTarget != null) {
+                    return false;
+                }
+                actionTarget = field;
+            }
+
+            if (actionTarget == null) {
+                // The semantic Attack class is sufficient to establish that an
+                // attack is live even on a fork that does not expose its target.
+                return true;
+            }
+            actionTarget.setAccessible(true);
+            return actionTarget.get(action) == attackTarget;
+        } catch (Exception ignored) {
+            // If an action field exists but its runtime shape cannot be proven,
+            // do not treat a persistent enemy reference as a live attack.
+            return false;
+        }
+    }
+
+    private static void resolveHeroAttackAction(Class<?> heroClass) {
+        if (heroAttackActionResolved) {
+            return;
+        }
+        heroAttackActionResolved = true;
+
+        for (Class<?> type = heroClass; type != null; type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())) {
+                    continue;
+                }
+                if ("curAction".equals(field.getName())) {
+                    field.setAccessible(true);
+                    heroAttackActionField = field;
+                    return;
+                }
+            }
         }
     }
 
