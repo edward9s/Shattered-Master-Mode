@@ -9,8 +9,10 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Barkskin;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Bleeding;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.FlavourBuff;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.GreaterHaste;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Healing;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Poison;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.WellFed;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.elixirs.ElixirOfMight;
 import com.shatteredpixel.shatteredpixeldungeon.plants.Sungrass;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
@@ -22,10 +24,46 @@ import com.watabou.utils.Reflection;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.HashMap;
+import java.util.Map;
 
 import com.spd.mod.tools.ModToolsWindow;
 
 public class ModCharSelector extends CellSelector.Listener implements Callback {
+
+    @FunctionalInterface
+    private interface DurationCompatibilityHandler {
+        boolean apply(Buff buff, float duration);
+    }
+
+    // Explicit handlers are only for buffs whose duration semantics are known.
+    // This lets old SPD/fork implementations keep working without making unsafe
+    // guesses about arbitrary numeric fields on unknown target-only buffs.
+    private static final Map<Class<? extends Buff>, DurationCompatibilityHandler> DURATION_COMPATIBILITY = new HashMap<>();
+
+    // Fork-only classes which are not on SMM's compile classpath can be registered
+    // here by fully-qualified class name. Such rules must be based on verified target
+    // source semantics; unknown fork-only buffs intentionally have no fallback.
+    private static final Map<String, DurationCompatibilityHandler> OPTIONAL_DURATION_COMPATIBILITY = new HashMap<>();
+
+    static {
+        DURATION_COMPATIBILITY.put(AdrenalineSurge.class, (buff, duration) ->
+                invokeCompatibleMethod(buff, "reset", new Class<?>[]{int.class, float.class}, 1, duration));
+
+        DURATION_COMPATIBILITY.put(Barkskin.class, (buff, duration) ->
+                invokeCompatibleMethod(buff, "set", new Class<?>[]{int.class, int.class},
+                        1, Math.max(1, (int) duration)));
+
+        DURATION_COMPATIBILITY.put(WellFed.class, (buff, duration) ->
+                setKnownDurationField(buff, duration, "left"));
+
+        DURATION_COMPATIBILITY.put(GreaterHaste.class, (buff, duration) -> {
+            if (invokeCompatibleMethod(buff, "set", new Class<?>[]{int.class}, Math.max(1, (int) duration))) {
+                return true;
+            }
+            return setKnownDurationField(buff, duration, "left");
+        });
+    }
 
     private Class<? extends Buff> buffClass;
     private boolean heroOnly;
@@ -163,7 +201,7 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
     }
 
     public static void smartSetDuration(Buff buff, float duration) {
-        // 策略 0: 特例處理
+        // Strategy 0: cases which need semantic initialization, not just duration.
         if (buff instanceof Healing) {
             Healing h = (Healing) buff;
             int amount = (h.target == null) ? 10 : (int) (h.target.HT * 0.8f + 14);
@@ -193,40 +231,38 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
             return;
         }
 
-        // These buffs encode duration together with a strength/value parameter.
-        // Only initialize real attached instances; journal preview objects must stay untouched.
-        if (buff.target != null && buff instanceof AdrenalineSurge) {
-            ((AdrenalineSurge) buff).reset(1, duration);
+        // Journal enumeration creates unattached temporary Buffs for names/descriptions/icons.
+        // Never run compatibility or field fallbacks on those preview objects.
+        if (buff.target != null && tryCompatibilityDuration(buff, duration)) {
             return;
         }
 
-        if (buff.target != null && buff instanceof Barkskin) {
-            ((Barkskin) buff).set(1, Math.max(1, (int) duration));
-            return;
-        }
-
-        // 策略 1: extend(float)
+        // Strategy 1: explicit single-argument duration APIs.
         try {
             Method m = buff.getClass().getMethod("extend", float.class);
             m.invoke(buff, duration);
             return;
         } catch (Exception ignore) {}
 
-        // 策略 2: set(float)
+        try {
+            Method m = buff.getClass().getMethod("delay", float.class);
+            m.invoke(buff, duration);
+            return;
+        } catch (Exception ignore) {}
+
         try {
             Method m = buff.getClass().getMethod("set", float.class);
             m.invoke(buff, duration);
             return;
         } catch (Exception ignore) {}
 
-        // 策略 3: reset(int)
         try {
             Method m = buff.getClass().getMethod("reset", int.class);
             m.invoke(buff, (int) duration);
             return;
         } catch (Exception ignore) {}
 
-        // 策略 4: postpone(float)
+        // Strategy 2: standard FlavourBuff scheduling.
         if (buff instanceof FlavourBuff) {
             try {
                 Method m = Actor.class.getDeclaredMethod("postpone", float.class);
@@ -236,17 +272,15 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
             } catch (Exception ignore) {}
         }
 
-        // Journal enumeration uses unattached temporary Buff instances only to render
-        // names/descriptions/icons. Keep those previews on the old method-based paths;
-        // field guessing is only safe enough for a real Buff.affect() result.
         if (buff.target == null) {
             return;
         }
 
-        // 策略 5: 舊版 buff 常把剩餘回合直接存在數值欄位。
-        // 必須依欄位實際型別寫入；例如舊版 WellFed.left 是 int，setFloat 會直接失敗。
-        String[] durationFields = {"left", "duration", "turnsLeft", "remaining", "time"};
-        for (Class<?> c = buff.getClass(); c != null && Buff.class.isAssignableFrom(c); c = c.getSuperclass()) {
+        // Strategy 3: conservative named-field fallback. Only names that clearly
+        // express remaining duration are accepted. Generic "left"/"time" and
+        // unique-numeric-field guessing are intentionally excluded for unknown buffs.
+        String[] durationFields = {"duration", "turnsLeft", "remainingTurns", "turnsRemaining"};
+        for (Class<?> c = buff.getClass(); c != null && c != Buff.class && Buff.class.isAssignableFrom(c); c = c.getSuperclass()) {
             for (String fieldName : durationFields) {
                 try {
                     Field f = c.getDeclaredField(fieldName);
@@ -257,8 +291,86 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
             }
         }
 
-        // 策略 6: APK 經 R8 後欄位名可能已被改掉。只有在 Buff 子類別層級中
-        // 恰好只有一個非 static 數值欄位時才使用，避免誤改有多個計數器的 buff。
+        // Unknown fork-only buffs deliberately stop here. If their duration semantics
+        // are verified later, add an explicit compatibility handler instead of guessing.
+    }
+
+    private static boolean tryCompatibilityDuration(Buff buff, float duration) {
+        DurationCompatibilityHandler handler = DURATION_COMPATIBILITY.get(buff.getClass());
+        if (handler == null) {
+            handler = OPTIONAL_DURATION_COMPATIBILITY.get(buff.getClass().getName());
+        }
+        if (handler == null) {
+            return false;
+        }
+        try {
+            return handler.apply(buff, duration);
+        } catch (Exception ignore) {
+            return false;
+        }
+    }
+
+    private static boolean invokeCompatibleMethod(Buff buff, String preferredName,
+                                                  Class<?>[] parameterTypes, Object... args) {
+        try {
+            Method m = buff.getClass().getMethod(preferredName, parameterTypes);
+            m.invoke(buff, args);
+            return true;
+        } catch (Exception ignore) {}
+
+        // R8 may rename methods. Structural matching is allowed only from an explicit
+        // compatibility handler, where the class semantics have already been verified.
+        Method candidate = null;
+        for (Class<?> c = buff.getClass(); c != null && c != Buff.class && Buff.class.isAssignableFrom(c); c = c.getSuperclass()) {
+            for (Method m : c.getDeclaredMethods()) {
+                if (Modifier.isStatic(m.getModifiers()) || m.isSynthetic()
+                        || m.getReturnType() != void.class
+                        || !parameterTypesMatch(m.getParameterTypes(), parameterTypes)) {
+                    continue;
+                }
+                if (candidate != null) {
+                    return false;
+                }
+                candidate = m;
+            }
+        }
+
+        if (candidate != null) {
+            try {
+                candidate.setAccessible(true);
+                candidate.invoke(buff, args);
+                return true;
+            } catch (Exception ignore) {}
+        }
+        return false;
+    }
+
+    private static boolean parameterTypesMatch(Class<?>[] actual, Class<?>[] expected) {
+        if (actual.length != expected.length) {
+            return false;
+        }
+        for (int i = 0; i < actual.length; i++) {
+            if (actual[i] != expected[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean setKnownDurationField(Buff buff, float duration, String... preferredNames) {
+        for (Class<?> c = buff.getClass(); c != null && c != Buff.class && Buff.class.isAssignableFrom(c); c = c.getSuperclass()) {
+            for (String fieldName : preferredNames) {
+                try {
+                    Field f = c.getDeclaredField(fieldName);
+                    if (setNumericDurationField(buff, f, duration)) {
+                        return true;
+                    }
+                } catch (Exception ignore) {}
+            }
+        }
+
+        // R8 may rename the field. Unique-numeric fallback is safe enough here because
+        // this method is called only by an explicit handler for a verified buff class.
         Field candidate = null;
         for (Class<?> c = buff.getClass(); c != null && c != Buff.class && Buff.class.isAssignableFrom(c); c = c.getSuperclass()) {
             for (Field f : c.getDeclaredFields()) {
@@ -266,16 +378,18 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
                     continue;
                 }
                 if (candidate != null) {
-                    return;
+                    return false;
                 }
                 candidate = f;
             }
         }
+
         if (candidate != null) {
             try {
-                setNumericDurationField(buff, candidate, duration);
+                return setNumericDurationField(buff, candidate, duration);
             } catch (Exception ignore) {}
         }
+        return false;
     }
 
     private static boolean isNumericField(Field f) {
