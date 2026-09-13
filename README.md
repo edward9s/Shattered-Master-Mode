@@ -8,6 +8,10 @@
 - **Preserves Vanilla Mechanics:** SMM does not replace or rewrite vanilla gameplay mechanics. Vanilla behavior remains unchanged unless an SMM feature is explicitly enabled.
 - **Minimal Integration:** SMM uses existing vanilla extension points whenever possible. The only gameplay-level invasive hook is `Char.attack()`, used by Riposte; no additional gameplay hooks should be added.
 
+## Documentation
+
+- **Debug Console:** [English](docs/debug_console.md) | [正體中文](docs/debug_console.zh-TW.md)
+
 ## Known Limitations & Warnings
 
 - **Boss Floor Binding (High Crash Risk):** Bosses with multi-stage transformations (for example Tengu and DM-300) have scripts deeply bound to their specific floors. Forcing them to spawn on non-designated floors may immediately crash the game.
@@ -69,8 +73,6 @@ Default outputs are `TARGET-SMM-Ankh.apk` and `TARGET-SMM-Ankh.jar`. Use `--out`
 If Java classes included in the payload change, rebuild the Injection Kit so the donor APK/JAR matches the source.
 
 See [Binary injection rules](docs/smm_injection_rules.md) | [正體中文](docs/smm_injection_rules.zh-TW.md).
-
-Debug Console documentation: [English](docs/debug_console.md) | [正體中文](docs/debug_console.zh-TW.md)
 
 ## Acknowledgements
 
