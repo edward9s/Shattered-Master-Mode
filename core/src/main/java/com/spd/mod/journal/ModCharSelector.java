@@ -19,6 +19,7 @@ import com.watabou.utils.Reflection;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 
 import com.spd.mod.tools.ModToolsWindow;
 
@@ -221,11 +222,85 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
             } catch (Exception ignore) {}
         }
 
-        // 策略 5: 修改 left 欄位
-        try {
-            Field f = buff.getClass().getDeclaredField("left");
-            f.setAccessible(true);
+        // 策略 5: 舊版 buff 常把剩餘回合直接存在數值欄位。
+        // 必須依欄位實際型別寫入；例如舊版 WellFed.left 是 int，setFloat 會直接失敗。
+        String[] durationFields = {"left", "duration", "turnsLeft", "remaining", "time"};
+        for (Class<?> c = buff.getClass(); c != null && Buff.class.isAssignableFrom(c); c = c.getSuperclass()) {
+            for (String fieldName : durationFields) {
+                try {
+                    Field f = c.getDeclaredField(fieldName);
+                    if (setNumericDurationField(buff, f, duration)) {
+                        return;
+                    }
+                } catch (Exception ignore) {}
+            }
+        }
+
+        // 策略 6: APK 經 R8 後欄位名可能已被改掉。只有在 Buff 子類別層級中
+        // 恰好只有一個非 static 數值欄位時才使用，避免誤改有多個計數器的 buff。
+        Field candidate = null;
+        for (Class<?> c = buff.getClass(); c != null && c != Buff.class && Buff.class.isAssignableFrom(c); c = c.getSuperclass()) {
+            for (Field f : c.getDeclaredFields()) {
+                if (Modifier.isStatic(f.getModifiers()) || f.isSynthetic() || !isNumericField(f)) {
+                    continue;
+                }
+                if (candidate != null) {
+                    return;
+                }
+                candidate = f;
+            }
+        }
+        if (candidate != null) {
+            try {
+                setNumericDurationField(buff, candidate, duration);
+            } catch (Exception ignore) {}
+        }
+    }
+
+    private static boolean isNumericField(Field f) {
+        Class<?> t = f.getType();
+        return t == byte.class || t == Byte.class
+                || t == short.class || t == Short.class
+                || t == int.class || t == Integer.class
+                || t == long.class || t == Long.class
+                || t == float.class || t == Float.class
+                || t == double.class || t == Double.class;
+    }
+
+    private static boolean setNumericDurationField(Buff buff, Field f, float duration) throws IllegalAccessException {
+        if (Modifier.isStatic(f.getModifiers()) || !isNumericField(f)) {
+            return false;
+        }
+
+        f.setAccessible(true);
+        Class<?> t = f.getType();
+        if (t == byte.class) {
+            f.setByte(buff, (byte) duration);
+        } else if (t == short.class) {
+            f.setShort(buff, (short) duration);
+        } else if (t == int.class) {
+            f.setInt(buff, (int) duration);
+        } else if (t == long.class) {
+            f.setLong(buff, (long) duration);
+        } else if (t == float.class) {
             f.setFloat(buff, duration);
-        } catch (Exception ignore) {}
+        } else if (t == double.class) {
+            f.setDouble(buff, duration);
+        } else if (t == Byte.class) {
+            f.set(buff, (byte) duration);
+        } else if (t == Short.class) {
+            f.set(buff, (short) duration);
+        } else if (t == Integer.class) {
+            f.set(buff, (int) duration);
+        } else if (t == Long.class) {
+            f.set(buff, (long) duration);
+        } else if (t == Float.class) {
+            f.set(buff, duration);
+        } else if (t == Double.class) {
+            f.set(buff, (double) duration);
+        } else {
+            return false;
+        }
+        return true;
     }
 }
