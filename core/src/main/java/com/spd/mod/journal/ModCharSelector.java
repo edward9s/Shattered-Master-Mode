@@ -4,6 +4,8 @@ import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.AdrenalineSurge;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Barkskin;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Bleeding;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.FlavourBuff;
@@ -188,6 +190,18 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
 
         if (buff instanceof Poison) {
             ((Poison) buff).set(30f);
+            return;
+        }
+
+        // These buffs encode duration together with a strength/value parameter.
+        // Only initialize real attached instances; journal preview objects must stay untouched.
+        if (buff.target != null && buff instanceof AdrenalineSurge) {
+            ((AdrenalineSurge) buff).reset(1, duration);
+            return;
+        }
+
+        if (buff.target != null && buff instanceof Barkskin) {
+            ((Barkskin) buff).set(1, Math.max(1, (int) duration));
             return;
         }
 
