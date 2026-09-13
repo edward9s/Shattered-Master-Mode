@@ -635,7 +635,7 @@ def adapt_modankh(
     def registers(m: re.Match[str]) -> tuple[str, str]:
         raw = m.group("args").strip()
         if m.group("range"):
-            parts = [part.strip() for part in raw.split("..")]
+            parts = [part.strip() for part in raw.split("..")] 
             if len(parts) != 2:
                 raise injector.InjectError("Unexpected ModAnkh setCurrent register range")
             start, end = parts
@@ -772,6 +772,30 @@ def patch_char_attack(
     return text[:start] + patched + text[end:]
 
 
+def patch_char_hit(text: str, char_descriptor: str) -> str:
+    proto = f"({char_descriptor}{char_descriptor}FZ)Z"
+    start, end, block = injector.method_block(text, "hit", proto)
+    hook = (
+        "Lcom/spd/mod/mechanics/ModForceHit;->forceHitCheck("
+        f"{char_descriptor}{char_descriptor})Z"
+    )
+    if hook in block:
+        raise injector.InjectError("Char.hit already contains SMM Force Hit hook")
+
+    insert_at, indent = _first_smali_instruction(block)
+    injected = (
+        f"{indent}# SMM Force Hit pre-defense hook\n"
+        f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
+        f"{indent}move-result v0\n"
+        f"{indent}if-eqz v0, :smm_force_hit_native\n"
+        f"{indent}const/4 v0, 0x1\n"
+        f"{indent}return v0\n"
+        f"{indent}:smm_force_hit_native\n\n"
+    )
+    patched = block[:insert_at] + injected + block[insert_at:]
+    return text[:start] + patched + text[end:]
+
+
 def compile_smali_with_char_hook(
     java: Path,
     smali_jar: Path,
@@ -792,6 +816,7 @@ def compile_smali_with_char_hook(
 
     char_descriptor, original_char = _pending_char_overlay
     patched_char = patch_char_attack(original_char, char_descriptor, proto)
+    patched_char = patch_char_hit(patched_char, char_descriptor)
     char_output = directory / Path(char_descriptor[1:-1] + ".smali")
     if char_output.exists():
         raise injector.InjectError(
@@ -800,6 +825,7 @@ def compile_smali_with_char_hook(
     char_output.parent.mkdir(parents=True, exist_ok=True)
     char_output.write_text(patched_char, encoding="utf-8")
     injector.log(f"Char.attack incoming-attack hook ({proto}): OK")
+    injector.log("Char.hit Force Hit pre-defense hook: OK")
 
     try:
         _original_compile_smali(java, smali_jar, directory, output, api)
