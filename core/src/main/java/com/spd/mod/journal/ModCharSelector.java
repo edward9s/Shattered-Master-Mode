@@ -236,6 +236,15 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
             }
         }
 
+        // Journal enumeration uses unattached temporary Buff instances only to render
+        // names/descriptions/icons. Do not guess arbitrary numeric fields there: a
+        // target-specific buff may use its sole numeric field for tint/intensity/state,
+        // and mutating it can corrupt the preview icon. Real Buff.affect() instances
+        // are attached to a target before this method is called.
+        if (buff.target == null) {
+            return;
+        }
+
         // 策略 6: APK 經 R8 後欄位名可能已被改掉。只有在 Buff 子類別層級中
         // 恰好只有一個非 static 數值欄位時才使用，避免誤改有多個計數器的 buff。
         Field candidate = null;
