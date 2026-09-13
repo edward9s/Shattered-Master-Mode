@@ -20,12 +20,13 @@ python inject_apk.py TARGET.apk --ankh-only
 python inject_jar.py TARGET.jar --ankh-only
 ```
 
-`--ankh-only` 只包含：
+`--ankh-only` 包含：
 
 - `ModAnkh`
+- `ModLastStand`
 - Store / Loot / Debug Console 所需相依
 
-不加入 `ModLastStand`，也不安裝完整 SMM 選單或其他無關戰鬥功能。
+不安裝完整 SMM 選單，也不加入其他無關戰鬥功能。
 
 ## Injection Kit
 
@@ -39,7 +40,7 @@ Artifact 名稱為 `SMM-m<version>-InjectKit.zip`。Injector script 與 donor AP
 - Fork package name 不同時，重新對應 SPD package reference。
 - ABI dependency 無法可靠解析時直接停止，不猜測、不硬塞。
 - 不複製任意 donor-only 或混淆 class 來掩蓋 compatibility error。
-- `--ankh-only` 必須保持精簡；用途就是讓老 fork 能使用 ModAnkh 的 Store / Loot / Debug Console。
+- `--ankh-only` 必須保持精簡；用途就是讓老 fork 能使用 ModAnkh、ModLastStand，以及 Store / Loot / Debug Console 工具。
 - 完整注入可以使用既有 SMM 選單與 Riposte hook；最小注入不得安裝無關的 full-SMM hook。
 - Debug Console 指令可能觸發 target 本身既有的 bug；不要為了讓指令表面成功而順便修改無關的 target 遊戲邏輯。
 
