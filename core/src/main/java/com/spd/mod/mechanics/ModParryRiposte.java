@@ -573,10 +573,13 @@ public class ModParryRiposte extends ChampionEnemy {
                             performRiposte(riposter, attacker);
                         } finally {
                             RiposteActor.this.next();
-                            RiposteActor.this.removeSelf();
                         }
                     }
                 });
+                // Match native Combo.RiposteTracker: once its animation starts,
+                // the VFX actor is no longer a scheduler candidate. Actor.current
+                // remains this object until the callback calls next().
+                removeSelf();
                 return false;
             }
 
