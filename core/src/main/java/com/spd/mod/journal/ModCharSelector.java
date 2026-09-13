@@ -222,6 +222,13 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
             } catch (Exception ignore) {}
         }
 
+        // Journal enumeration uses unattached temporary Buff instances only to render
+        // names/descriptions/icons. Keep those previews on the old method-based paths;
+        // field guessing is only safe enough for a real Buff.affect() result.
+        if (buff.target == null) {
+            return;
+        }
+
         // 策略 5: 舊版 buff 常把剩餘回合直接存在數值欄位。
         // 必須依欄位實際型別寫入；例如舊版 WellFed.left 是 int，setFloat 會直接失敗。
         String[] durationFields = {"left", "duration", "turnsLeft", "remaining", "time"};
@@ -234,15 +241,6 @@ public class ModCharSelector extends CellSelector.Listener implements Callback {
                     }
                 } catch (Exception ignore) {}
             }
-        }
-
-        // Journal enumeration uses unattached temporary Buff instances only to render
-        // names/descriptions/icons. Do not guess arbitrary numeric fields there: a
-        // target-specific buff may use its sole numeric field for tint/intensity/state,
-        // and mutating it can corrupt the preview icon. Real Buff.affect() instances
-        // are attached to a target before this method is called.
-        if (buff.target == null) {
-            return;
         }
 
         // 策略 6: APK 經 R8 後欄位名可能已被改掉。只有在 Buff 子類別層級中
