@@ -63,6 +63,22 @@ public class ModForceHit extends ChampionEnemy {
         return buff != null && buff.forceHitEnabled ? buff : null;
     }
 
+    /**
+     * Injected Char.hit calls this before defender.defenseSkill(). Returning true
+     * means the hit roll itself is resolved immediately, which avoids side effects
+     * from defensive hit-check methods such as GreatCrab's block message/sound.
+     * Invulnerability remains an engine-level hard stop and is never bypassed.
+     */
+    public static boolean forceHitCheck(Char attacker, Char defender) {
+        return attacker instanceof Hero
+                && defender != null
+                && attacker != defender
+                && attacker.isAlive()
+                && defender.isAlive()
+                && find(attacker) != null
+                && !defender.isInvulnerable(attacker.getClass());
+    }
+
     public boolean forceHitEnabled() {
         return forceHitEnabled;
     }
