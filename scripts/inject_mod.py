@@ -2,6 +2,8 @@ import sys
 import re
 from pathlib import Path
 
+from _attack_hook_common import select_unique_terminal
+
 wnd_path = Path(sys.argv[1])
 
 _ATTACK_METHOD_RE = re.compile(
@@ -68,26 +70,56 @@ def _mask_non_code(text: str) -> str:
     return ''.join(chars)
 
 
-def _find_matching_brace(masked: str, open_index: int) -> int:
+def _find_matching(text: str, open_index: int, opener: str, closer: str) -> int:
     depth = 0
-    for index in range(open_index, len(masked)):
-        if masked[index] == '{':
+    for index in range(open_index, len(text)):
+        if text[index] == opener:
             depth += 1
-        elif masked[index] == '}':
+        elif text[index] == closer:
             depth -= 1
             if depth == 0:
                 return index
-    raise RuntimeError('Unmatched Char.attack method brace')
+    raise RuntimeError(f'Unmatched {opener}{closer} while parsing Char.attack')
+
+
+def _argument_count(masked: str) -> int:
+    if not masked.strip():
+        return 0
+
+    depth = 0
+    count = 1
+    pairs = {'(': ')', '[': ']', '{': '}'}
+    closers = set(pairs.values())
+    for ch in masked:
+        if ch in pairs:
+            depth += 1
+        elif ch in closers:
+            depth -= 1
+            if depth < 0:
+                raise RuntimeError('Unbalanced expression while parsing Char.attack')
+        elif ch == ',' and depth == 0:
+            count += 1
+    if depth != 0:
+        raise RuntimeError('Unbalanced expression while parsing Char.attack')
+    return count
+
+
+def _self_attack_arities(masked_body: str) -> list[int]:
+    arities = []
+    for match in _SELF_ATTACK_RE.finditer(masked_body):
+        open_paren = masked_body.find('(', match.start(), match.end())
+        if open_paren < 0:
+            raise RuntimeError('Malformed Char.attack delegation call')
+        close_paren = _find_matching(masked_body, open_paren, '(', ')')
+        arities.append(_argument_count(masked_body[open_paren + 1:close_paren]))
+    return arities
 
 
 def _terminal_attack_method(content: str) -> tuple[str, int, int]:
-    """
-    Find the one Char.attack overload that does not delegate to another attack()
-    overload in the same class. Source builds mirror the APK injector's
-    fail-closed terminal-overload rule instead of assuming a fixed signature.
-    """
+    """Find the unique terminal Char.attack() using the shared graph semantics."""
     masked = _mask_non_code(content)
-    candidates = []
+    candidates: dict[str, tuple[str, int, int, int]] = {}
+    by_arity: dict[int, list[str]] = {}
 
     for match in _ATTACK_METHOD_RE.finditer(masked):
         if re.search(r'\bstatic\b', match.group('head')):
@@ -102,24 +134,36 @@ def _terminal_attack_method(content: str) -> tuple[str, int, int]:
         if defender_match is None:
             continue
 
+        signature = params.strip()
+        if signature in candidates:
+            raise RuntimeError(f'Duplicate Char.attack signature: {signature}')
+
         open_brace = match.end('head') - 1
-        close_brace = _find_matching_brace(masked, open_brace)
+        close_brace = _find_matching(masked, open_brace, '{', '}')
+        arity = _argument_count(_mask_non_code(params))
+        candidates[signature] = (
+            defender_match.group(1), open_brace, close_brace, arity
+        )
+        by_arity.setdefault(arity, []).append(signature)
+
+    edges: dict[str, set[str]] = {signature: set() for signature in candidates}
+    for signature, (_, open_brace, close_brace, _) in candidates.items():
         body_masked = masked[open_brace + 1:close_brace]
-        delegates = _SELF_ATTACK_RE.search(body_masked) is not None
+        for arity in _self_attack_arities(body_masked):
+            targets = by_arity.get(arity, [])
+            if len(targets) != 1:
+                found = ', '.join(targets) if targets else 'none'
+                raise RuntimeError(
+                    f'Unable to resolve Char.attack delegation with {arity} argument(s); '
+                    f'candidates: {found}'
+                )
+            edges[signature].add(targets[0])
 
-        candidates.append(
-            (defender_match.group(1), open_brace, close_brace, delegates, params.strip())
-        )
+    terminal, detail = select_unique_terminal(candidates, edges)
+    if terminal is None:
+        raise RuntimeError('Unable to identify terminal Char.attack overload: ' + detail)
 
-    terminals = [candidate for candidate in candidates if not candidate[3]]
-    if len(terminals) != 1:
-        signatures = ', '.join(candidate[4] for candidate in candidates) or 'none'
-        raise RuntimeError(
-            'Unable to identify one terminal Char.attack overload '
-            f'(found {len(terminals)} terminals among: {signatures})'
-        )
-
-    defender, open_brace, close_brace, _, _ = terminals[0]
+    defender, open_brace, close_brace, _ = candidates[terminal]
     return defender, open_brace, close_brace
 
 

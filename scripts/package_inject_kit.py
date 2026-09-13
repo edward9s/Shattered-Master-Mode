@@ -34,6 +34,7 @@ def populate_kit(
 
     for relative in (
         "scripts/inject_apk.py",
+        "scripts/_attack_hook_common.py",
         "scripts/_inject_apk_core.py",
         "scripts/_inject_apk_ankh.py",
         "scripts/inject_jar.py",

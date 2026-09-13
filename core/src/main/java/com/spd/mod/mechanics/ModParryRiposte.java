@@ -52,6 +52,12 @@ public class ModParryRiposte extends ChampionEnemy {
     private static final Map<Char, RiposteActor> PENDING_RIPOSTES =
             Collections.synchronizedMap(new WeakHashMap<Char, RiposteActor>());
 
+    private enum RiposteQueueMode {
+        PREPARE,
+        COMPLETE,
+        IMMEDIATE
+    }
+
     private boolean parryEnabled = true;
     private boolean riposteEnabled = true;
     private boolean ownsParryFocus;
@@ -146,7 +152,7 @@ public class ModParryRiposte extends ChampionEnemy {
 
         ModParryRiposte total = find(defender);
         if (total != null && total.riposteEnabled) {
-            prepareTerminalRiposte(defender, attacker);
+            queueRiposte(defender, attacker, RiposteQueueMode.PREPARE);
         }
     }
 
@@ -155,22 +161,7 @@ public class ModParryRiposte extends ChampionEnemy {
         if (attacker == null || defender == null) {
             return;
         }
-
-        RiposteActor pending;
-        synchronized (PENDING_RIPOSTES) {
-            pending = PENDING_RIPOSTES.get(attacker);
-            if (pending == null
-                    || pending.riposter != defender
-                    || pending.scheduled) {
-                return;
-            }
-            pending.scheduled = true;
-        }
-
-        // Actor.add(actor) uses Actor.now. VFX_PRIO makes this run immediately
-        // after the current attacker releases the actor thread, while RiposteActor
-        // waits for the visible attack animation callback before applying damage.
-        Actor.add(pending);
+        queueRiposte(defender, attacker, RiposteQueueMode.COMPLETE);
     }
 
     @Override
@@ -367,13 +358,8 @@ public class ModParryRiposte extends ChampionEnemy {
         // Char.attack() hook. When no exact Focus short-circuits Char.hit(), this
         // defender-factor callback supplies the missing Riposte trigger. Pending
         // Ripostes deduplicate it against an ordinary Char.attack() observation.
-        if (riposteEnabled
-                && target instanceof Hero
-                && target.isAlive()
-                && attacker != null
-                && attacker != target
-                && attacker.isAlive()) {
-            scheduleRiposte(target, attacker);
+        if (target instanceof Hero) {
+            queueRiposteFromCurrentAttack(attacker);
         }
 
         if (!parryEnabled) {
@@ -398,12 +384,17 @@ public class ModParryRiposte extends ChampionEnemy {
 
     /** Called when native Hero.defenseVerb() consumes Total's exact Focus helper. */
     private void onFocusParry() {
-        if (!riposteEnabled || target == null || !target.isAlive()) {
-            return;
-        }
-        Char attacker = currentAttackSource();
-        if (attacker != null && attacker != target && attacker.isAlive()) {
-            scheduleRiposte(target, attacker);
+        queueRiposteFromCurrentAttack(currentAttackSource());
+    }
+
+    private void queueRiposteFromCurrentAttack(Char attacker) {
+        if (riposteEnabled
+                && target != null
+                && target.isAlive()
+                && attacker != null
+                && attacker != target
+                && attacker.isAlive()) {
+            queueRiposte(target, attacker, RiposteQueueMode.IMMEDIATE);
         }
     }
 
@@ -427,28 +418,46 @@ public class ModParryRiposte extends ChampionEnemy {
         }
     }
 
-    private static void prepareTerminalRiposte(Char riposter, Char attacker) {
+    private static void queueRiposte(
+            Char riposter,
+            Char attacker,
+            RiposteQueueMode mode) {
+        RiposteActor prepared = null;
         synchronized (PENDING_RIPOSTES) {
             RiposteActor pending = PENDING_RIPOSTES.get(attacker);
-            if (pending != null && pending.scheduled) {
+
+            if (mode == RiposteQueueMode.PREPARE) {
+                if (pending != null && pending.scheduled) {
+                    return;
+                }
+                PENDING_RIPOSTES.put(attacker, new RiposteActor(riposter, attacker));
                 return;
             }
 
-            PENDING_RIPOSTES.put(attacker, new RiposteActor(riposter, attacker));
+            if (mode == RiposteQueueMode.COMPLETE) {
+                if (pending == null
+                        || pending.riposter != riposter
+                        || pending.scheduled) {
+                    return;
+                }
+                pending.scheduled = true;
+                prepared = pending;
+            } else {
+                if (pending != null && pending.riposter == riposter) {
+                    return;
+                }
+                RiposteActor actor = new RiposteActor(riposter, attacker);
+                actor.scheduled = true;
+                PENDING_RIPOSTES.put(attacker, actor);
+                Actor.add(actor);
+                return;
+            }
         }
-    }
 
-    private static void scheduleRiposte(Char riposter, Char attacker) {
-        synchronized (PENDING_RIPOSTES) {
-            RiposteActor pending = PENDING_RIPOSTES.get(attacker);
-            if (pending != null && pending.riposter == riposter) {
-                return;
-            }
-
-            RiposteActor actor = new RiposteActor(riposter, attacker);
-            actor.scheduled = true;
-            PENDING_RIPOSTES.put(attacker, actor);
-            Actor.add(actor);
+        // COMPLETE is intentionally scheduled after leaving the map lock, matching
+        // the terminal-attack completion path's original ordering.
+        if (prepared != null) {
+            Actor.add(prepared);
         }
     }
 

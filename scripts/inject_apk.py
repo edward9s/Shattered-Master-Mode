@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
 
+from _attack_hook_common import select_unique_terminal
 import _inject_apk_core as injector
 
 # The source buff was renamed without a compatibility alias. Keep the mature
@@ -511,37 +512,22 @@ def _terminal_char_attack_proto(
     char_descriptor: str,
 ) -> tuple[str | None, str]:
     protos, edges = _char_attack_family_graph(char_class, char_descriptor)
-    if not protos:
-        return None, "no non-static Char.attack(Char, ...):boolean overloads are available"
+    terminal, detail = select_unique_terminal(protos, edges)
 
-    state: dict[str, int] = {}
+    if terminal is None:
+        if not protos:
+            return None, "no non-static Char.attack(Char, ...):boolean overloads are available"
+        if detail == "delegation graph contains a cycle":
+            return None, "Char.attack overload delegation graph contains a cycle"
+        prefix = "expected exactly one terminal, found "
+        if detail.startswith(prefix):
+            return (
+                None,
+                "expected exactly one terminal Char.attack overload, found "
+                + detail[len(prefix):],
+            )
+        return None, detail
 
-    def visit(proto: str) -> bool:
-        marker = state.get(proto, 0)
-        if marker == 1:
-            return False
-        if marker == 2:
-            return True
-        state[proto] = 1
-        for callee in edges[proto]:
-            if not visit(callee):
-                return False
-        state[proto] = 2
-        return True
-
-    if not all(visit(proto) for proto in protos):
-        return None, "Char.attack overload delegation graph contains a cycle"
-
-    terminals = [proto for proto in protos if not edges[proto]]
-    if len(terminals) != 1:
-        found = ", ".join(terminals) if terminals else "none"
-        return (
-            None,
-            "expected exactly one terminal Char.attack overload, found "
-            f"{len(terminals)}: {found}",
-        )
-
-    terminal = terminals[0]
     return (
         terminal,
         f"unique terminal Char.attack{terminal} selected from {len(protos)} overload(s)",
