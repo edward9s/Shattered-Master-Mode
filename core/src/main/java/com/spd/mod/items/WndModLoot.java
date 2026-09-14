@@ -394,6 +394,7 @@ public class WndModLoot extends Window {
                 pressing = false;
                 if (longClicked) {
                     longClicked = false;
+                    curEvent = null;
                     return;
                 }
                 super.onPointerUp(event);
