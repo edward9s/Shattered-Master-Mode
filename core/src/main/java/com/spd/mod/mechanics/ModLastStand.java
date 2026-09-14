@@ -11,6 +11,7 @@ import com.shatteredpixel.shatteredpixeldungeon.effects.SpellSprite;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHealing;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
+import com.spd.mod.ModGame;
 import com.spd.mod.items.WndModLoot;
 import com.watabou.noosa.Image;
 import com.watabou.noosa.audio.Sample;
@@ -258,7 +259,8 @@ public class ModLastStand extends Buff {
     public String desc() {
         return "Lethal damage handled by normal shielding leaves 1 HP, then restores 25% HP, cures ailments, "
                 + "and grants blessed-Ankh invulnerability. Some direct death effects can still bypass it. "
-                + "Tap to open Loot storage.";
+                + "Tap to open Loot storage."
+                + "\n\nSMM v" + ModGame.VERSION;
     }
 
     @Override

@@ -1,5 +1,6 @@
 package com.spd.mod.items;
 
+import com.spd.mod.ModGame;
 import com.spd.mod.mechanics.ModDebug$Console;
 import com.spd.mod.mechanics.ModItemCompat;
 import com.spd.mod.mechanics.ModLastStand;
@@ -253,6 +254,7 @@ public class ModAnkh extends Ankh {
         if (storage.size() > 0) {
             sb.append(" Stored: ").append(storage.size()).append(".");
         }
+        sb.append("\n\nSMM v").append(ModGame.VERSION);
         return sb.toString();
     }
 

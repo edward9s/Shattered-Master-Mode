@@ -5,16 +5,23 @@ def extract_version(file_path):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-            
-        # 匹配 public static String version() { return "版本號";
+
+        # Prefer the compile-time VERSION constant used by narrow injection
+        # payloads. Keep the old literal-return form as a compatibility fallback.
+        pattern = r'public\s+static\s+final\s+String\s+VERSION\s*=\s*"([^"]+)"\s*;'
+        match = re.search(pattern, content)
+
+        if match:
+            return match.group(1)
+
         pattern = r'public\s+static\s+String\s+version\(\)\s*\{\s*return\s*"([^"]+)";'
         match = re.search(pattern, content)
-        
+
         if match:
             return match.group(1)
         else:
             return "找不到版本號"
-            
+
     except FileNotFoundError:
         return "檔案不存在"
 

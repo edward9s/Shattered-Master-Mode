@@ -19,8 +19,15 @@ public class ModGame {
     public ModGame() {
     }
 
+    /**
+     * Compile-time constant so narrow payloads such as --ankh-only can display
+     * the SMM version without pulling ModGame's full dependency graph into the
+     * injected payload.
+     */
+    public static final String VERSION = "0.3.5";
+
     public static String version() {
-        return "0.3.5";
+        return VERSION;
     }
     
     public static int maxDepth() {
