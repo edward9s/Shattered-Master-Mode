@@ -391,8 +391,12 @@ public class WndModLoot extends Window {
 
             @Override
             protected void onPointerUp(PointerEvent event) {
-                super.onPointerUp(event);
                 pressing = false;
+                if (longClicked) {
+                    longClicked = false;
+                    return;
+                }
+                super.onPointerUp(event);
             }
 
             @Override
