@@ -178,6 +178,26 @@ public class ModLastStandOverlay extends Gizmo {
         }
     }
 
+    /**
+     * Reuse the target fork's own buff-button click implementation to show info.
+     * This avoids depending on any particular WndInfoBuff constructor or layout.
+     */
+    private static boolean openNativeBuffInfo(Component source) {
+        for (Class<?> cls = source.getClass(); cls != null; cls = cls.getSuperclass()) {
+            try {
+                Method method = cls.getDeclaredMethod("onClick");
+                method.setAccessible(true);
+                method.invoke(source);
+                return true;
+            } catch (NoSuchMethodException ignored) {
+                // Continue through the legacy component hierarchy.
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                return false;
+            }
+        }
+        return false;
+    }
+
     private static class LastStandButton extends Button {
 
         private final ModLastStand buff;
@@ -209,13 +229,17 @@ public class ModLastStandOverlay extends Gizmo {
 
         @Override
         protected boolean onLongClick() {
-            buff.open();
+            if (!openNativeBuffInfo(source)) {
+                buff.open();
+            }
             return true;
         }
 
         @Override
         protected void onRightClick() {
-            buff.open();
+            if (!openNativeBuffInfo(source)) {
+                buff.open();
+            }
         }
 
         @Override
