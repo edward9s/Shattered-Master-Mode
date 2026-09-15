@@ -248,6 +248,66 @@ def _ensure_click_scratch_register(injector, block: str) -> tuple[str, str]:
     return block, "v0"
 
 
+def _add_legacy_last_stand_long_click(
+    injector,
+    text: str,
+    descriptor: str,
+    original_click: str,
+    field_owner: str,
+    field_name: str,
+    buff_descriptor: str,
+) -> str:
+    """Add a long-click bridge only when the target button has none of its own."""
+
+    try:
+        injector.method_block(text, "onLongClick", "()Z")
+        return text
+    except injector.InjectError:
+        pass
+
+    helper_name = "smmOpenLastStandInfo"
+    helper_re = re.compile(
+        r"(?m)^\.method\b[^\n]*\s+" + re.escape(helper_name) + r"\(\)V\s*$"
+    )
+    if helper_re.search(text):
+        raise injector.InjectError(
+            "BuffIndicator already contains the Last Stand info helper: " + descriptor
+        )
+
+    first_newline = original_click.find("\n")
+    if first_newline < 0:
+        raise injector.InjectError(
+            "Unable to clone BuffIndicator.onClick for Last Stand info: " + descriptor
+        )
+    helper = ".method private " + helper_name + "()V" + original_click[first_newline:]
+
+    super_match = re.search(r"(?m)^\.super\s+(L[^;\s]+;)\s*$", text)
+    if super_match is None:
+        raise injector.InjectError(
+            "Unable to identify BuffIndicator button superclass: " + descriptor
+        )
+    super_descriptor = super_match.group(1)
+
+    long_click = (
+        ".method protected onLongClick()Z\n"
+        "    .locals 1\n\n"
+        f"    iget-object v0, p0, {field_owner}->{field_name}:{buff_descriptor}\n"
+        f"    instance-of v0, v0, {_LAST_STAND}\n"
+        "    if-eqz v0, :smm_last_stand_long_click_super\n\n"
+        f"    invoke-direct {{p0}}, {descriptor}->{helper_name}()V\n"
+        "    const/4 v0, 0x1\n"
+        "    return v0\n\n"
+        ":smm_last_stand_long_click_super\n"
+        f"    invoke-super {{p0}}, {super_descriptor}->onLongClick()Z\n"
+        "    move-result v0\n"
+        "    return v0\n"
+        ".end method"
+    )
+
+    injector.log("Last Stand BuffIndicator legacy long-click bridge: added")
+    return text.rstrip() + "\n\n" + helper + "\n\n" + long_click + "\n"
+
+
 def _patch_last_stand_buff_click(injector, text: str, descriptor: str, game_prefix: str) -> str:
     start, end, block = injector.method_block(text, "onClick", "()V")
     hook = _LAST_STAND + "->open()V"
@@ -268,6 +328,21 @@ def _patch_last_stand_buff_click(injector, text: str, descriptor: str, game_pref
             "Unable to identify exactly one Buff field in " + descriptor + "->onClick()V"
         )
     field_owner, field_name = next(iter(unique_fields))
+
+    # Some legacy BuffIndicator buttons (for example ARK_PD 0.5.2) inherit the
+    # default Button.onLongClick(), which returns false. Preserve the target's
+    # original info-window click body before replacing short-click behavior, and
+    # use it only for Last Stand long presses. Targets with their own long-click
+    # handler are intentionally left untouched.
+    text = _add_legacy_last_stand_long_click(
+        injector,
+        text,
+        descriptor,
+        block,
+        field_owner,
+        field_name,
+        buff_descriptor,
+    )
 
     block, scratch = _ensure_click_scratch_register(injector, block)
     insert_at, indent = _first_instruction(block)
