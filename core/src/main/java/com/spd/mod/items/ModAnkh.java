@@ -51,7 +51,7 @@ public class ModAnkh extends Ankh {
     private static final String TIMES_REVIVED     = "times_revived";
     private static final String TIMES_RESURRECTED = "times_resurrected";
 
-    private final ModLootStorage storage = new ModLootStorage();
+    private final ModLootStorage storage = new ModLootStorage(this);
 
     public ModAnkh() {
         super();
