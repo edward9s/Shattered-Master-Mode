@@ -28,14 +28,44 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      - name: Patch desktop release JAR duplicate handling
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("desktop/build.gradle")
+          text = path.read_text()
+          needle = "task release(dependsOn: compileForRelease, type: Jar) {\n"
+          patch = needle + "    duplicatesStrategy = org.gradle.api.file.DuplicatesStrategy.EXCLUDE\n"
+
+          if "duplicatesStrategy = org.gradle.api.file.DuplicatesStrategy.EXCLUDE" not in text:
+              if needle not in text:
+                  raise SystemExit("Could not locate desktop release Jar task")
+              text = text.replace(needle, patch, 1)
+              path.write_text(text)
+          PY
+
       - name: Build release APK and JAR
         run: ./gradlew :android:assembleRelease :desktop:release
 
-      - name: Upload APK
+      - name: Install Android build tools for signer
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;29.0.3"
+
+      - name: Sign Android APK
+        uses: r0adkll/sign-android-release@v1
+        id: sign
+        with:
+          releaseDirectory: android/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
           name: ARK-release-apk
-          path: android/build/outputs/apk/release/*.apk
+          path: ${{ steps.sign.outputs.signedReleaseFile }}
           if-no-files-found: error
 
       - name: Upload JAR
