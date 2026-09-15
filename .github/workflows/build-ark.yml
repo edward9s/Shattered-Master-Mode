@@ -52,7 +52,7 @@ jobs:
         working-directory: ARK_PD
         run: ./gradlew :android:assembleRelease :desktop:release
 
-      - name: Record native artifact names
+      - name: Determine artifact names
         run: |
           APK=$(find ARK_PD/android/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -1)
           JAR=$(find ARK_PD/desktop/build/libs -maxdepth 1 -type f -name '*.jar' | head -1)
@@ -60,12 +60,13 @@ jobs:
           test -n "$JAR" -a -f "$JAR"
 
           APK_NAME=$(basename "$APK")
-          JAR_NAME=$(basename "$JAR")
+          BASE_NAME="${APK_NAME%.apk}"
+          BASE_NAME="${BASE_NAME%-Release}"
 
-          echo "APK_NAME=$APK_NAME" >> "$GITHUB_ENV"
-          echo "JAR_NAME=$JAR_NAME" >> "$GITHUB_ENV"
-          echo "APK_ARTIFACT_NAME=${APK_NAME%.apk}" >> "$GITHUB_ENV"
-          echo "JAR_ARTIFACT_NAME=${JAR_NAME%.jar}" >> "$GITHUB_ENV"
+          echo "SOURCE_JAR=$JAR" >> "$GITHUB_ENV"
+          echo "BASE_NAME=$BASE_NAME" >> "$GITHUB_ENV"
+          echo "OUTPUT_APK=${BASE_NAME}.apk" >> "$GITHUB_ENV"
+          echo "OUTPUT_JAR=${BASE_NAME}.jar" >> "$GITHUB_ENV"
 
       - name: Install Android build tools for signer
         run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;29.0.3"
@@ -83,19 +84,19 @@ jobs:
       - name: Prepare artifacts
         run: |
           mkdir -p out
-          cp "${{ steps.sign.outputs.signedReleaseFile }}" "out/$APK_NAME"
-          cp "ARK_PD/desktop/build/libs/$JAR_NAME" "out/$JAR_NAME"
+          cp "${{ steps.sign.outputs.signedReleaseFile }}" "out/$OUTPUT_APK"
+          cp "$SOURCE_JAR" "out/$OUTPUT_JAR"
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APK_ARTIFACT_NAME }}
-          path: out/${{ env.APK_NAME }}
+          name: ${{ env.BASE_NAME }}-APK
+          path: out/${{ env.OUTPUT_APK }}
           if-no-files-found: error
 
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.JAR_ARTIFACT_NAME }}
-          path: out/${{ env.JAR_NAME }}
+          name: ${{ env.BASE_NAME }}-JAR
+          path: out/${{ env.OUTPUT_JAR }}
           if-no-files-found: error
