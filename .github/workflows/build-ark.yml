@@ -61,7 +61,6 @@ jobs:
 
           APK_NAME=$(basename "$APK")
           BASE_NAME="${APK_NAME%.apk}"
-          BASE_NAME="${BASE_NAME%-Release}"
 
           echo "SOURCE_JAR=$JAR" >> "$GITHUB_ENV"
           echo "BASE_NAME=$BASE_NAME" >> "$GITHUB_ENV"
