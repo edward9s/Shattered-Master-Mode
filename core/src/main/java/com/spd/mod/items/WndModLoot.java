@@ -179,7 +179,7 @@ public class WndModLoot extends Window {
 
             @Override
             public boolean itemSelectable(Item item) {
-                return ModLootStorage.canStore(item);
+                return storage.canStore(item);
             }
 
             @Override
