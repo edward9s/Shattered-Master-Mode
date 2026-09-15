@@ -16,6 +16,13 @@ jobs:
         with:
           repository: tomorrows-ark-pd/ARK_PD
 
+      - name: Read ARK version
+        run: |
+          ARK_VERSION=$(sed -n "s/.*appVersionName = '\([^']*\)'.*/\1/p" build.gradle | head -1)
+          test -n "$ARK_VERSION"
+          echo "ARK_VERSION=$ARK_VERSION" >> "$GITHUB_ENV"
+          echo "ARK version: $ARK_VERSION"
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -61,16 +68,24 @@ jobs:
           keyStorePassword: ${{ secrets.STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
+      - name: Prepare versioned artifacts
+        run: |
+          mkdir -p out
+          cp "${{ steps.sign.outputs.signedReleaseFile }}" "out/ARK-v${ARK_VERSION}.apk"
+          JAR=$(find desktop/build/libs -maxdepth 1 -type f -name '*.jar' | head -1)
+          test -n "$JAR" -a -f "$JAR"
+          cp "$JAR" "out/ARK-v${ARK_VERSION}.jar"
+
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: ARK-release-apk
-          path: ${{ steps.sign.outputs.signedReleaseFile }}
+          name: ARK-v${{ env.ARK_VERSION }}-APK
+          path: out/ARK-v${{ env.ARK_VERSION }}.apk
           if-no-files-found: error
 
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
-          name: ARK-release-jar
-          path: desktop/build/libs/*.jar
+          name: ARK-v${{ env.ARK_VERSION }}-JAR
+          path: out/ARK-v${{ env.ARK_VERSION }}.jar
           if-no-files-found: error
