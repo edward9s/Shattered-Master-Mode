@@ -256,6 +256,11 @@ public class ModLastStand extends Buff {
     }
 
     @Override
+    public String toString() {
+        return name();
+    }
+
+    @Override
     public String desc() {
         return "Lethal damage handled by normal shielding leaves 1 HP, then restores 25% HP, cures ailments, "
                 + "and grants blessed-Ankh invulnerability. Some direct death effects can still bypass it. "
