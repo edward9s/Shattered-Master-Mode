@@ -23,9 +23,12 @@ public class ModLootStorage implements Bundlable {
     private static final String STORED = "stored";
     private static final String RECLAIM_TEMPLATE = "reclaim_template";
     private static final String RECLAIM_LIMIT = "reclaim_limit";
-    private static final String MOD_ANKH_CLASS = "com.spd.mod.items.ModAnkh";
 
     private ArrayList<Item> stored = new ArrayList<>();
+
+    // Optional item which owns this storage. Identity, rather than class, is what matters:
+    // a ModAnkh may contain another ModAnkh, but it must never contain itself.
+    private transient Item ownerItem;
 
     /**
      * At most one item-use session can be pending because opening Loot always reclaims before the
@@ -41,6 +44,14 @@ public class ModLootStorage implements Bundlable {
     private int reclaimLimit;
 
     private transient Runnable changeListener;
+
+    public ModLootStorage() {
+        this(null);
+    }
+
+    public ModLootStorage(Item ownerItem) {
+        this.ownerItem = ownerItem;
+    }
 
     public void setChangeListener(Runnable listener) {
         changeListener = listener;
@@ -89,21 +100,8 @@ public class ModLootStorage implements Bundlable {
         return actions != null && actions.contains(action);
     }
 
-    private static boolean isClassOrSubclassNamed(Object value, String className) {
-        if (value == null) {
-            return false;
-        }
-        for (Class<?> cls = value.getClass(); cls != null; cls = cls.getSuperclass()) {
-            if (className.equals(cls.getName())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public static boolean canStore(Item item) {
-        return item != null
-                && !isClassOrSubclassNamed(item, MOD_ANKH_CLASS);
+    public boolean canStore(Item item) {
+        return item != null && item != ownerItem;
     }
 
     private boolean hasPendingReclaim() {
@@ -303,8 +301,8 @@ public class ModLootStorage implements Bundlable {
 
     public boolean putSingle(Hero hero, Item item) {
         if (hero == null || !canStore(item)) {
-            if (isClassOrSubclassNamed(item, MOD_ANKH_CLASS)) {
-                GLog.w(item.name() + " can't be stored in Loot storage.");
+            if (item != null && item == ownerItem) {
+                GLog.w(item.name() + " can't be stored inside itself.");
             }
             return false;
         }
