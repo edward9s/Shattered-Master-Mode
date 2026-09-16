@@ -53,7 +53,15 @@ def populate_kit(
         "  python inject_jar.py TARGET.jar --ankh-only\n\n"
         "Includes Store, Loot, and Debug Console support.\n"
         "Optional: --out OUTPUT\n"
-        "Keep all kit files together.\n",
+        "Keep all kit files together.\n\n"
+        "APK signing key:\n"
+        "  inject_apk.py creates smm-inject.keystore in this directory on first use\n"
+        "  and reuses it for later APK injections. Keep this file if you want future\n"
+        "  injected APKs to update an already-installed APK with the same package name.\n"
+        "  When extracting a newer Injection Kit, copy your existing\n"
+        "  smm-inject.keystore into the new kit directory before injecting.\n"
+        "  If the key changes, Android normally requires uninstalling the old APK first.\n"
+        "  Keep the keystore local; do not publish or commit it.\n",
         encoding="utf-8",
     )
 
