@@ -34,6 +34,16 @@ The artifact is `SMM-m<version>-InjectKit.zip`. Keep the injector scripts and do
 
 If an injected Java class changes, rebuild the kit so the donors match the source. Injector-only Python changes do not require rebuilding the donors.
 
+## APK signing key
+
+The APK injector creates `smm-inject.keystore` beside `smm-inject-donor.apk` the first time a signing key is needed. Later APK injections reuse the same keystore.
+
+Keep this file if you want later injected APKs to update an already-installed injected APK with the same package name. If the keystore is deleted or a different one is used, the Android package signature changes and the old installed APK normally must be uninstalled before the newly signed APK can be installed.
+
+When upgrading to a newly extracted Injection Kit, copy the existing `smm-inject.keystore` into the new kit directory before running `inject_apk.py` if signature continuity matters. The keystore is local-only and must not be committed to the repository or bundled into public artifacts.
+
+JAR injection does not use this APK signing key.
+
 ## Compatibility rules
 
 - Treat the target's compiled API as authoritative; do not assume compatibility from its version number.
