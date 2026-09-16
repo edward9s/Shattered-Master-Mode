@@ -44,6 +44,8 @@ The Android APK is produced under `android/build/outputs/apk/`, and the desktop 
 
 Use the `SMM-m<version>-InjectKit.zip` artifact when you need to inject SMM into an already-built SPD fork.
 
+For APK injection, the injector creates `smm-inject.keystore` beside `smm-inject-donor.apk` the first time it is needed and reuses that key for later injections. Keep this file: APKs signed with a different key cannot normally update an already-installed injected APK with the same package name. When moving to a newly extracted Injection Kit, copy your existing `smm-inject.keystore` into the new kit directory before injecting if you want to preserve update compatibility. The keystore is local-only and must not be committed to the repository.
+
 ### Full SMM
 
 ```bash
