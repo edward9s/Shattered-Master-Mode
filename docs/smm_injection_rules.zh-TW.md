@@ -34,6 +34,16 @@ Artifact 名稱為 `SMM-m<version>-InjectKit.zip`。Injector script 與 donor AP
 
 只要注入 payload 內的 Java class 有變更，就要重新 build Injection Kit；只修改 injector Python 則不需要重建 donor。
 
+## APK 簽章金鑰
+
+APK injector 第一次需要簽章時，會在 `smm-inject-donor.apk` 旁建立 `smm-inject.keystore`，之後的 APK 注入會持續重用同一個 keystore。
+
+如果希望之後注入的新 APK 能直接更新手機上已安裝、且 package name 相同的舊注入 APK，請保留這個檔案。若刪除 keystore 或改用另一把金鑰，Android package 簽章就會改變，通常必須先解除安裝舊 APK，才能安裝新簽章的 APK。
+
+升級到新版本並重新解壓 Injection Kit 時，如果需要維持簽章連續性，請先把原本的 `smm-inject.keystore` 複製到新的 kit 目錄，再執行 `inject_apk.py`。這個 keystore 只應保留在本機，不要 commit 到 repository，也不要打包進公開 artifact。
+
+JAR 注入不使用這把 APK 簽章金鑰。
+
 ## 相容性規則
 
 - 以 target 實際編譯後的 API 為準，不以版本號推測相容性。
