@@ -32,8 +32,9 @@ public class ModParryRiposte extends ChampionEnemy {
     private static Field currentActorField;
 
     /*
-     * Char.buff(Class) deliberately matches exact classes, not subclasses. Total
-     * Parry therefore has to keep a real Monk FocusBuff in the Hero's buff set.
+     * Char.buff(Class) deliberately matches exact classes, not subclasses. Hero
+     * Total Parry therefore has to keep a real Monk FocusBuff in the Hero's buff set.
+     * Riposte itself is Char-generic and does not depend on this Focus helper.
      * Hero.defenseVerb() tries to consume that Focus by calling detach(), whose
      * implementation removes the buff from buff.target. We point the helper's
      * target at this out-of-world sink instead, so the exact Focus remains in the
@@ -142,7 +143,7 @@ public class ModParryRiposte extends ChampionEnemy {
      * the triggering attack has fully resolved so its animation can play naturally.
      */
     public static void onIncomingAttack(Char attacker, Char defender) {
-        if (!(defender instanceof Hero)
+        if (defender == null
                 || attacker == null
                 || attacker == defender
                 || !attacker.isAlive()
@@ -150,6 +151,9 @@ public class ModParryRiposte extends ChampionEnemy {
             return;
         }
 
+        // Riposte belongs to the buff owner, not specifically to Hero. This keeps
+        // the source/injection ABI generic so companions and fork-defined Char
+        // implementations can counterattack without any compile-time dependency.
         ModParryRiposte total = find(defender);
         if (total != null && total.riposteEnabled) {
             queueRiposte(defender, attacker, RiposteQueueMode.PREPARE);
@@ -356,11 +360,10 @@ public class ModParryRiposte extends ChampionEnemy {
 
         // Direct Char.hit() special attacks do not pass through the injected
         // Char.attack() hook. When no exact Focus short-circuits Char.hit(), this
-        // defender-factor callback supplies the missing Riposte trigger. Pending
-        // Ripostes deduplicate it against an ordinary Char.attack() observation.
-        if (target instanceof Hero) {
-            queueRiposteFromCurrentAttack(attacker);
-        }
+        // defender-factor callback supplies the missing Riposte trigger for any
+        // Char which owns this buff. Pending Ripostes deduplicate it against an
+        // ordinary Char.attack() observation.
+        queueRiposteFromCurrentAttack(attacker);
 
         if (!parryEnabled) {
             return 1f;
