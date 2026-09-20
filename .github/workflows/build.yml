@@ -247,6 +247,7 @@ jobs:
         if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: Release-${{ env.EXPECTED_TAG }}
           path: out/*
 
@@ -254,6 +255,7 @@ jobs:
         if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: SMM-m${{ env.MOD_VER }}-InjectKit
           path: inject-kit/*
           if-no-files-found: error
