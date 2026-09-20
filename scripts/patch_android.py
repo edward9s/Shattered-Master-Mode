@@ -157,10 +157,14 @@ def patch_manifest(file_path):
         f.write(data)
 
 if __name__ == '__main__':
-    # 預設路徑對應 CI/CD 執行時的相對位置
-    patch_gradle('spd_src/build.gradle')
-    patch_play_games_version(
-        'spd_src/build.gradle', 'spd_src/android/build.gradle'
-    )
-    patch_proguard('spd_src/android/proguard-rules.pro')
-    patch_manifest('spd_src/android/src/main/AndroidManifest.xml')
+    if len(sys.argv) > 2:
+        raise SystemExit('usage: patch_android.py [SPD_ROOT]')
+
+    root = sys.argv[1] if len(sys.argv) == 2 else 'spd_src'
+    build_file = f'{root}/build.gradle'
+    android_build_file = f'{root}/android/build.gradle'
+
+    patch_gradle(build_file)
+    patch_play_games_version(build_file, android_build_file)
+    patch_proguard(f'{root}/android/proguard-rules.pro')
+    patch_manifest(f'{root}/android/src/main/AndroidManifest.xml')
