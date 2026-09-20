@@ -4,10 +4,14 @@ import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
+import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
+import com.shatteredpixel.shatteredpixeldungeon.ui.Tag;
 import com.spd.mod.mechanics.ModLastStand;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
+import com.watabou.noosa.Image;
 import com.watabou.noosa.ui.Component;
 
 import java.lang.reflect.Field;
@@ -18,7 +22,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.WeakHashMap;
 
-/** Redirects Last Stand's normal buff-icon click to its Loot-storage panel. */
+/** Redirects Last Stand's buff-icon click and exposes its Store as an edge Tag. */
 public class ModLastStandOverlay extends Gizmo {
 
     private static ModLastStandOverlay instance;
@@ -27,6 +31,7 @@ public class ModLastStandOverlay extends Gizmo {
     private static boolean pointerPriorityResolved;
 
     private final WeakHashMap<Component, LastStandButton> overlays = new WeakHashMap<>();
+    private LastStandTag storeTag;
 
     public static void ensureInstalled() {
         if (!(ShatteredPixelDungeon.scene() instanceof GameScene) || !hasLastStandBuff()) {
@@ -42,6 +47,7 @@ public class ModLastStandOverlay extends Gizmo {
         // by --ankh-only do not expose newer render-thread helpers.
         instance = new ModLastStandOverlay();
         scene.add(instance);
+        instance.ensureStoreTag(scene);
     }
 
     @Override
@@ -51,6 +57,7 @@ public class ModLastStandOverlay extends Gizmo {
         if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
                 || parent != ShatteredPixelDungeon.scene()
                 || !hasLastStandBuff()) {
+            removeStoreTag();
             killAndErase();
             if (instance == this) {
                 instance = null;
@@ -58,10 +65,14 @@ public class ModLastStandOverlay extends Gizmo {
             return;
         }
 
+        Group scene = (Group) ShatteredPixelDungeon.scene();
+        ensureStoreTag(scene);
+        ModRuntimeTagStack.layout();
+
         cleanupDeadOverlays();
 
         ArrayList<Component> components = new ArrayList<>();
-        collectComponents((Group) ShatteredPixelDungeon.scene(), components);
+        collectComponents(scene, components);
         for (Component source : components) {
             if (source instanceof LastStandButton || overlays.containsKey(source)) {
                 continue;
@@ -75,6 +86,34 @@ public class ModLastStandOverlay extends Gizmo {
             LastStandButton overlay = new LastStandButton(buff, source);
             source.parent.add(overlay);
             overlays.put(source, overlay);
+        }
+    }
+
+    private void ensureStoreTag(Group scene) {
+        if (storeTag != null && storeTag.exists && storeTag.parent == scene) {
+            return;
+        }
+
+        if (storeTag != null) {
+            ModRuntimeTagStack.unregister(storeTag);
+        }
+
+        storeTag = new LastStandTag();
+        storeTag.camera = PixelScene.uiCamera;
+        scene.addToFront(storeTag);
+        ModRuntimeTagStack.register(storeTag, 10);
+    }
+
+    private void removeStoreTag() {
+        LastStandTag tag = storeTag;
+        storeTag = null;
+        if (tag == null) {
+            return;
+        }
+
+        ModRuntimeTagStack.unregister(tag);
+        if (tag.exists) {
+            tag.killAndErase();
         }
     }
 
@@ -196,6 +235,77 @@ public class ModLastStandOverlay extends Gizmo {
             }
         }
         return false;
+    }
+
+    @Override
+    public void destroy() {
+        removeStoreTag();
+        if (instance == this) {
+            instance = null;
+        }
+        super.destroy();
+    }
+
+    private static class LastStandTag extends Tag {
+
+        private final Image icon;
+
+        LastStandTag() {
+            super(0x444444);
+
+            icon = new BuffIcon(new ModLastStand(), true);
+            add(icon);
+
+            setSize(SIZE, SIZE);
+        }
+
+        @Override
+        public void update() {
+            if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
+                    || parent != ShatteredPixelDungeon.scene()
+                    || !hasLastStandBuff()) {
+                ModRuntimeTagStack.unregister(this);
+                killAndErase();
+                return;
+            }
+
+            ModRuntimeTagStack.layout();
+            super.update();
+            givePointerPriorityCompat(this);
+        }
+
+        @Override
+        protected void layout() {
+            super.layout();
+
+            if (!flipped) {
+                icon.x = x + (SIZE - icon.width()) / 2f + 1f;
+            } else {
+                icon.x = x + width - (SIZE + icon.width()) / 2f - 1f;
+            }
+            icon.y = y + (height - icon.height()) / 2f;
+            PixelScene.align(icon);
+        }
+
+        @Override
+        protected void onClick() {
+            super.onClick();
+            ModLastStand buff = ModLastStand.find(Dungeon.hero);
+            if (buff != null) {
+                buff.open();
+            }
+        }
+
+        @Override
+        protected String hoverText() {
+            return "Last Stand Store";
+        }
+
+        @Override
+        public void destroy() {
+            ModRuntimeTagStack.unregister(this);
+            super.destroy();
+        }
     }
 
     private static class LastStandButton extends Button {

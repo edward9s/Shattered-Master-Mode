@@ -2,7 +2,6 @@ package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
-import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
@@ -17,6 +16,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.QuickSlotButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Tag;
+import com.spd.mod.journal.ModRuntimeTagStack;
 import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.input.PointerEvent;
 import com.watabou.noosa.Camera;
@@ -25,7 +25,6 @@ import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
 import com.watabou.noosa.PointerArea;
-import com.watabou.noosa.ui.Component;
 import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
 import com.watabou.utils.PointF;
@@ -35,8 +34,6 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Permanent Hero buff that exposes Assassinate through an edge Tag and an
@@ -482,18 +479,10 @@ public class ModAssassinate extends Buff {
         private static Char aimedTarget;
         private static boolean installPending;
 
-        private static Field[] hudTagFields;
-        private static Field[] hudTagStateFields;
-        private static Field toolbarField;
-        private static Field statusField;
         private static Field quickSlotLastTargetField;
-        private static Method flipTagsMethod;
-        private static Method interfaceSizeMethod;
-        private static Method tagFlipMethod;
 
         private final Image icon;
         private final Image crosshair;
-        private boolean leftSide;
 
         AssassinateTag() {
             super(COLOR);
@@ -589,6 +578,7 @@ public class ModAssassinate extends Buff {
                         instance = new AssassinateTag();
                         instance.camera = PixelScene.uiCamera;
                         scene.addToFront(instance);
+                        ModRuntimeTagStack.register(instance, 20);
                     }
                 }
             });
@@ -610,6 +600,7 @@ public class ModAssassinate extends Buff {
                         clearSelectionState(null);
                     }
 
+                    ModRuntimeTagStack.unregister(tag);
                     if (tag.exists) {
                         tag.killAndErase();
                     }
@@ -630,6 +621,7 @@ public class ModAssassinate extends Buff {
                 } else {
                     clearSelectionState(null);
                 }
+                ModRuntimeTagStack.unregister(this);
                 killAndErase();
                 if (instance == this) {
                     instance = null;
@@ -637,7 +629,7 @@ public class ModAssassinate extends Buff {
                 return;
             }
 
-            layoutAgainstHud();
+            ModRuntimeTagStack.layout();
             refreshCrosshair();
 
             super.update();
@@ -689,170 +681,22 @@ public class ModAssassinate extends Buff {
         protected void layout() {
             super.layout();
 
-            if (!leftSide) {
-                icon.x = x + width - (SIZE + icon.width()) / 2f - 1f;
-            } else {
+            if (!flipped) {
                 icon.x = x + (SIZE - icon.width()) / 2f + 1f;
+            } else {
+                icon.x = x + width - (SIZE + icon.width()) / 2f - 1f;
             }
             icon.y = y + (height - icon.height()) / 2f;
             PixelScene.align(icon);
         }
 
-        private void layoutAgainstHud() {
-            Object scene = ShatteredPixelDungeon.scene();
-            boolean left = readFlipTags();
-            float tagWidth = SIZE;
-            float tagLeft = left ? 0f : PixelScene.uiCamera.width - tagWidth;
-            float pos = basePosition(scene, left);
-            boolean foundNativeTag = false;
-
-            try {
-                ensureHudFields();
-                for (int i = 0; i < hudTagFields.length; i++) {
-                    Object value = hudTagFields[i].get(scene);
-                    if (!(value instanceof Tag)) {
-                        continue;
-                    }
-
-                    Tag tag = (Tag) value;
-                    Field stateField = hudTagStateFields[i];
-                    boolean inStack = stateField != null
-                            ? stateField.getBoolean(scene)
-                            : tag.visible && tag.active;
-                    if (!inStack) {
-                        continue;
-                    }
-
-                    if (!foundNativeTag) {
-                        tagWidth = tag.width();
-                        tagLeft = tag.left();
-                        pos = tag.top();
-                        left = tag.left() < PixelScene.uiCamera.width / 2f;
-                        foundNativeTag = true;
-                    } else {
-                        pos = Math.min(pos, tag.top());
-                    }
-                }
-            } catch (Exception ignored) {
-                // Private HUD fields vary between forks. The edge fallback below
-                // remains usable even when no native tag stack can be inspected.
+        @Override
+        public void destroy() {
+            ModRuntimeTagStack.unregister(this);
+            if (instance == this) {
+                instance = null;
             }
-
-            leftSide = left;
-            reflectFlip(left);
-            setRect(tagLeft, pos - SIZE, tagWidth, SIZE);
-        }
-
-        private static void ensureHudFields() {
-            if (hudTagFields != null && hudTagStateFields != null) {
-                return;
-            }
-
-            List<Field> tags = new ArrayList<>();
-            List<Field> states = new ArrayList<>();
-
-            for (Field field : GameScene.class.getDeclaredFields()) {
-                if (!Tag.class.isAssignableFrom(field.getType())) {
-                    continue;
-                }
-
-                field.setAccessible(true);
-                tags.add(field);
-
-                Field state = null;
-                String name = field.getName();
-                if (!name.isEmpty()) {
-                    String stateName = "tag"
-                            + Character.toUpperCase(name.charAt(0))
-                            + name.substring(1);
-                    try {
-                        state = GameScene.class.getDeclaredField(stateName);
-                        if (state.getType() == boolean.class) {
-                            state.setAccessible(true);
-                        } else {
-                            state = null;
-                        }
-                    } catch (NoSuchFieldException ignored) {
-                        // Third-party tags may not expose a parallel tag-state
-                        // field. Their live component visibility is the fallback.
-                    }
-                }
-                states.add(state);
-            }
-
-            hudTagFields = tags.toArray(new Field[0]);
-            hudTagStateFields = states.toArray(new Field[0]);
-        }
-
-        private static float basePosition(Object scene, boolean left) {
-            float pos = PixelScene.uiCamera.height;
-
-            try {
-                if (toolbarField == null) {
-                    toolbarField = GameScene.class.getDeclaredField("toolbar");
-                    toolbarField.setAccessible(true);
-                }
-                Object toolbar = toolbarField.get(scene);
-                if (toolbar instanceof Component) {
-                    pos = ((Component) toolbar).top();
-                }
-
-                if (left && readInterfaceSize() > 0) {
-                    if (statusField == null) {
-                        statusField = GameScene.class.getDeclaredField("status");
-                        statusField.setAccessible(true);
-                    }
-                    Object status = statusField.get(scene);
-                    if (status instanceof Component) {
-                        pos = ((Component) status).top();
-                    }
-                }
-            } catch (Exception ignored) {
-                // The bottom edge is the only safe generic fallback when a fork
-                // changes GameScene's private HUD field names.
-            }
-
-            return Math.max(SIZE, pos);
-        }
-
-        private static boolean readFlipTags() {
-            try {
-                if (flipTagsMethod == null) {
-                    flipTagsMethod = SPDSettings.class.getDeclaredMethod("flipTags");
-                    flipTagsMethod.setAccessible(true);
-                }
-                Object result = flipTagsMethod.invoke(null);
-                return result instanceof Boolean && (Boolean) result;
-            } catch (Exception ignored) {
-                return false;
-            }
-        }
-
-        private static int readInterfaceSize() {
-            try {
-                if (interfaceSizeMethod == null) {
-                    interfaceSizeMethod =
-                            SPDSettings.class.getDeclaredMethod("interfaceSize");
-                    interfaceSizeMethod.setAccessible(true);
-                }
-                Object result = interfaceSizeMethod.invoke(null);
-                return result instanceof Number ? ((Number) result).intValue() : 0;
-            } catch (Exception ignored) {
-                return 0;
-            }
-        }
-
-        private void reflectFlip(boolean left) {
-            try {
-                if (tagFlipMethod == null) {
-                    tagFlipMethod = Tag.class.getMethod("flip", boolean.class);
-                    tagFlipMethod.setAccessible(true);
-                }
-                tagFlipMethod.invoke(this, left);
-            } catch (Exception ignored) {
-                // Older forks without Tag.flip() still get a functional right-edge
-                // tag; only the decorative chrome orientation differs.
-            }
+            super.destroy();
         }
 
         private void refreshCrosshair() {
