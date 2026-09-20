@@ -669,7 +669,6 @@ public class ModAssassinate extends Buff {
             selector = newSelector;
             GameScene.selectCell(newSelector);
             setAimTarget(preferredTarget());
-            flash();
         }
 
         @Override

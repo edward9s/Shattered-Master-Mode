@@ -25,6 +25,8 @@ import java.util.WeakHashMap;
 /** Redirects Last Stand's buff-icon click and exposes its Store as an edge Tag. */
 public class ModLastStandOverlay extends Gizmo {
 
+    private static final int LAST_STAND_RED = 0xC03838;
+
     private static ModLastStandOverlay instance;
     private static Field groupMembersField;
     private static Method givePointerPriorityMethod;
@@ -251,7 +253,7 @@ public class ModLastStandOverlay extends Gizmo {
         private final Image icon;
 
         LastStandTag() {
-            super(0x444444);
+            super(LAST_STAND_RED);
 
             icon = new BuffIcon(new ModLastStand(), true);
             add(icon);
