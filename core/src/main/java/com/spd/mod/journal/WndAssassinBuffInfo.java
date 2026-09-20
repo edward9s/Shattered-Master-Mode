@@ -14,7 +14,7 @@ public class WndAssassinBuffInfo extends WndInfoBuff {
     public WndAssassinBuffInfo(final ModAssassinate buff) {
         super(buff);
 
-        final CheckBox check = new CheckBox("Assassinate") {
+        final CheckBox assassinateCheck = new CheckBox("Assassinate") {
             @Override
             protected void onClick() {
                 if (!valid(buff)) {
@@ -27,16 +27,33 @@ public class WndAssassinBuffInfo extends WndInfoBuff {
                 checked(buff.assassinEnabled());
             }
         };
-        check.checked(buff.assassinEnabled());
+        assassinateCheck.checked(buff.assassinEnabled());
+
+        final CheckBox mapLongPressCheck = new CheckBox("Map long press") {
+            @Override
+            protected void onClick() {
+                if (!valid(buff)) {
+                    WndAssassinBuffInfo.this.hide();
+                    return;
+                }
+
+                super.onClick();
+                buff.toggleMapLongPress();
+                checked(buff.mapLongPressEnabled());
+            }
+        };
+        mapLongPressCheck.checked(buff.mapLongPressEnabled());
 
         final Component controls = new Component() {
             @Override
             protected void layout() {
-                check.setRect(x, y, width, CHECK_HEIGHT);
+                assassinateCheck.setRect(x, y, width, CHECK_HEIGHT);
+                mapLongPressCheck.setRect(x, y + CHECK_HEIGHT, width, CHECK_HEIGHT);
             }
         };
-        controls.add(check);
-        controls.setSize(width, CHECK_HEIGHT);
+        controls.add(assassinateCheck);
+        controls.add(mapLongPressCheck);
+        controls.setSize(width, CHECK_HEIGHT * 2);
 
         if (!ModWindowCompat.addToBottom(this, controls, GAP, 2)) {
             controls.setPos(0, height + GAP);

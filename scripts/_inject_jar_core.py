@@ -46,8 +46,19 @@ MOD_ANKH_STORE_PREFIX = "com/spd/mod/items/ModAnkhStore"
 MOD_ANKH_STORE_ENTRY = "com/spd/mod/items/ModAnkhStore.class"
 MOD_DEBUG_PREFIX = "com/spd/mod/mechanics/ModDebug"
 MOD_DEBUG_ENTRY = "com/spd/mod/mechanics/ModDebug.class"
-MOD_ASSASSIN_BUFF_PREFIX = "com/spd/mod/mechanics/ModAssassinBuff"
-MOD_ASSASSIN_BUFF_ENTRY = "com/spd/mod/mechanics/ModAssassinBuff.class"
+MOD_ASSASSINATE_PREFIX = "com/spd/mod/mechanics/ModAssassinate"
+MOD_ASSASSINATE_ENTRY = "com/spd/mod/mechanics/ModAssassinate.class"
+ASSASSIN_SUPPORT_PREFIXES = (
+    "com/spd/mod/mechanics/ModBuffIconCompat",
+    "com/spd/mod/mechanics/ModCombatCompat",
+    "com/spd/mod/mechanics/ModForceHit",
+    "com/spd/mod/mechanics/ModInstantKill",
+    "com/spd/mod/journal/WndAssassinBuffInfo",
+    "com/spd/mod/journal/WndForceHitInfo",
+    "com/spd/mod/journal/WndInstantKillInfo",
+    "com/spd/mod/journal/ModWindowCompat",
+)
+ASSASSIN_SUPPORT_ENTRIES = tuple(prefix + ".class" for prefix in ASSASSIN_SUPPORT_PREFIXES)
 MOD_ASSASSIN_PREFIX = "com/spd/mod/mechanics/ModAssassin"
 MOD_ASSASSIN_ENTRY = "com/spd/mod/mechanics/ModAssassin.class"
 MOD_FLASH_PREFIX = "com/spd/mod/mechanics/ModFlash"
@@ -413,7 +424,8 @@ def rebuild_jar(
     if MOD_VALUE_SEARCH_ENTRY not in debug_payload:
         raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModValueSearch")
     for required in (
-        MOD_ASSASSIN_BUFF_ENTRY,
+        MOD_ASSASSINATE_ENTRY,
+        *ASSASSIN_SUPPORT_ENTRIES,
         MOD_ASSASSIN_ENTRY,
         MOD_FLASH_ENTRY,
         MOD_PARRY_RIPOSTE_ENTRY,
@@ -1146,11 +1158,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                         name.startswith(MOD_SAVE_TRANSFER_PREFIX + "$")
                         and name.endswith(".class")
                     )
-                    or name == MOD_ASSASSIN_BUFF_ENTRY
+                    or name == MOD_ASSASSINATE_ENTRY
                     or (
-                        name.startswith(MOD_ASSASSIN_BUFF_PREFIX + "$")
+                        name.startswith(MOD_ASSASSINATE_PREFIX + "$")
                         and name.endswith(".class")
                     )
+                    or any(is_payload_family(name, prefix) for prefix in ASSASSIN_SUPPORT_PREFIXES)
                     or name == MOD_ASSASSIN_ENTRY
                     or (
                         name.startswith(MOD_ASSASSIN_PREFIX + "$")
@@ -1203,7 +1216,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             if MOD_SAVE_TRANSFER_ENTRY not in debug_names:
                 raise InjectError("Donor JAR is missing com.spd.mod.mechanics.ModSaveTransfer")
             for required in (
-                MOD_ASSASSIN_BUFF_ENTRY,
+                MOD_ASSASSINATE_ENTRY,
+                *ASSASSIN_SUPPORT_ENTRIES,
                 MOD_ASSASSIN_ENTRY,
                 MOD_FLASH_ENTRY,
                 MOD_PARRY_RIPOSTE_ENTRY,
@@ -1257,7 +1271,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_DEBUG_ENTRY,
                 MOD_VALUE_SEARCH_ENTRY,
                 MOD_SAVE_TRANSFER_ENTRY,
-                MOD_ASSASSIN_BUFF_ENTRY,
+                MOD_ASSASSINATE_ENTRY,
+                *ASSASSIN_SUPPORT_ENTRIES,
                 MOD_ASSASSIN_ENTRY,
                 MOD_FLASH_ENTRY,
                 MOD_PARRY_RIPOSTE_ENTRY,

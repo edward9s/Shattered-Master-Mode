@@ -59,8 +59,8 @@ MOD_ANKH_STORE = "Lcom/spd/mod/items/ModAnkhStore;"
 MOD_ANKH_STORE_INNER_PREFIX = "Lcom/spd/mod/items/ModAnkhStore$"
 MOD_DEBUG = "Lcom/spd/mod/mechanics/ModDebug;"
 MOD_DEBUG_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModDebug$"
-MOD_ASSASSIN_BUFF = "Lcom/spd/mod/mechanics/ModAssassinBuff;"
-MOD_ASSASSIN_BUFF_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModAssassinBuff$"
+MOD_ASSASSINATE = "Lcom/spd/mod/mechanics/ModAssassinate;"
+MOD_ASSASSINATE_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModAssassinate$"
 MOD_ASSASSIN = "Lcom/spd/mod/mechanics/ModAssassin;"
 MOD_ASSASSIN_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModAssassin$"
 MOD_FLASH = "Lcom/spd/mod/mechanics/ModFlash;"
@@ -742,8 +742,8 @@ def is_debug_root(descriptor: str) -> bool:
     return (
         descriptor == MOD_DEBUG
         or descriptor.startswith(MOD_DEBUG_INNER_PREFIX)
-        or descriptor == MOD_ASSASSIN_BUFF
-        or descriptor.startswith(MOD_ASSASSIN_BUFF_INNER_PREFIX)
+        or descriptor == MOD_ASSASSINATE
+        or descriptor.startswith(MOD_ASSASSINATE_INNER_PREFIX)
         or descriptor == MOD_ASSASSIN
         or descriptor.startswith(MOD_ASSASSIN_INNER_PREFIX)
         or descriptor == MOD_FLASH
@@ -861,7 +861,7 @@ def build_debug_payload(
     }
     required_roots = (
         MOD_DEBUG,
-        MOD_ASSASSIN_BUFF,
+        MOD_ASSASSINATE,
         MOD_ASSASSIN,
         MOD_FLASH,
         MOD_PARRY_RIPOSTE,
