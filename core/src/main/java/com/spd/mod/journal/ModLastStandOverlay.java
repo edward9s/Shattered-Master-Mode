@@ -1,5 +1,6 @@
 package com.spd.mod.journal;
 
+import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
@@ -10,6 +11,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Tag;
 import com.spd.mod.mechanics.ModLastStand;
 import com.watabou.noosa.BitmapText;
+import com.watabou.noosa.ColorBlock;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
@@ -26,7 +28,10 @@ import java.util.WeakHashMap;
 /** Redirects Last Stand's buff-icon click and exposes its Store as an edge Tag. */
 public class ModLastStandOverlay extends Gizmo {
 
-    private static final int LAST_STAND_RED = 0xC03838;
+    private static final int TAG_NEUTRAL = 0x7B8073;
+    private static final int BADGE_RED = 0xFFC03838;
+    private static final int HEART_YELLOW = 0xFFD54A;
+    private static final float BADGE_SIZE = 9f;
 
     private static ModLastStandOverlay instance;
     private static Field groupMembersField;
@@ -252,19 +257,32 @@ public class ModLastStandOverlay extends Gizmo {
     private static class LastStandTag extends Tag {
 
         private final Image icon;
+        private final Image heart;
+        private final ColorBlock[] badgeBorder = new ColorBlock[4];
         private final BitmapText count;
         private int lastCount = -1;
 
         LastStandTag() {
-            super(LAST_STAND_RED);
+            super(TAG_NEUTRAL);
 
-            // Component's constructor invokes createChildren() before Tag's
-            // constructor body assigns its RGB fields, so custom Tags must
-            // re-apply their intended color after super(...) returns.
-            setColor(LAST_STAND_RED);
+            // Component creates Tag's chrome before Tag(int) has assigned its
+            // RGB fields, so re-apply the intended neutral color here.
+            setColor(TAG_NEUTRAL);
 
-            icon = new BuffIcon(new ModLastStand(), true);
+            // Reuse the exact inventory glyph from SPD's normal toolbar.
+            icon = new Image(Assets.Interfaces.TOOLBAR);
+            icon.frame(160, 0, 16, 16);
             add(icon);
+
+            for (int i = 0; i < badgeBorder.length; i++) {
+                badgeBorder[i] = new ColorBlock(1, 1, BADGE_RED);
+                add(badgeBorder[i]);
+            }
+
+            heart = new BuffIcon(new ModLastStand(), true);
+            heart.hardlight(HEART_YELLOW);
+            heart.scale.set(PixelScene.align(0.42f));
+            add(heart);
 
             count = new BitmapText(PixelScene.pixelFont);
             count.hardlight(0xFFFFFF);
@@ -303,9 +321,32 @@ public class ModLastStandOverlay extends Gizmo {
             icon.y = y + (height - icon.height()) / 2f;
             PixelScene.align(icon);
 
+            float badgeLeft = icon.x + icon.width() - BADGE_SIZE + 1f;
+            float badgeTop = icon.y + icon.height() - BADGE_SIZE + 1f;
+
+            badgeBorder[0].x = badgeLeft;
+            badgeBorder[0].y = badgeTop;
+            badgeBorder[0].size(BADGE_SIZE, 1f);
+
+            badgeBorder[1].x = badgeLeft;
+            badgeBorder[1].y = badgeTop + BADGE_SIZE - 1f;
+            badgeBorder[1].size(BADGE_SIZE, 1f);
+
+            badgeBorder[2].x = badgeLeft;
+            badgeBorder[2].y = badgeTop;
+            badgeBorder[2].size(1f, BADGE_SIZE);
+
+            badgeBorder[3].x = badgeLeft + BADGE_SIZE - 1f;
+            badgeBorder[3].y = badgeTop;
+            badgeBorder[3].size(1f, BADGE_SIZE);
+
+            heart.x = badgeLeft + (BADGE_SIZE - heart.width()) / 2f;
+            heart.y = badgeTop + (BADGE_SIZE - heart.height()) / 2f;
+            PixelScene.align(heart);
+
             if (count.visible) {
-                count.x = icon.center().x + 8f - count.width();
-                count.y = icon.center().y + 8f - count.baseLine();
+                count.x = icon.x - 1f;
+                count.y = icon.y - 1f;
                 PixelScene.align(count);
             }
         }
