@@ -474,7 +474,7 @@ public class ModAssassinate extends Buff {
     private static class AssassinateTag extends Tag {
 
         private static final int COLOR = 0x6A407F;
-        private static final int TARGETING_BORDER_COLOR = 0xFF929292;
+        private static final int BORDER_COLOR = 0xFF929292;
 
         private static AssassinateTag instance;
         private static AssassinateSelector selector;
@@ -485,15 +485,14 @@ public class ModAssassinate extends Buff {
 
         private final Image icon;
         private final Image crosshair;
-        private final ColorBlock[] targetingBorder = new ColorBlock[4];
+        private final ColorBlock[] border = new ColorBlock[4];
 
         AssassinateTag() {
             super(COLOR);
 
-            for (int i = 0; i < targetingBorder.length; i++) {
-                targetingBorder[i] = new ColorBlock(1, 1, TARGETING_BORDER_COLOR);
-                targetingBorder[i].visible = false;
-                add(targetingBorder[i]);
+            for (int i = 0; i < border.length; i++) {
+                border[i] = new ColorBlock(1, 1, BORDER_COLOR);
+                add(border[i]);
             }
 
             icon = preparationActionIcon();
@@ -640,7 +639,6 @@ public class ModAssassinate extends Buff {
 
             ModRuntimeTagStack.layout();
             refreshCrosshair();
-            refreshTargetingBorder();
 
             super.update();
             givePointerPriority();
@@ -703,28 +701,21 @@ public class ModAssassinate extends Buff {
             float innerWidth = Math.max(1f, width - 2f);
             float innerHeight = Math.max(1f, height - 2f);
 
-            targetingBorder[0].x = left;
-            targetingBorder[0].y = top;
-            targetingBorder[0].size(innerWidth, 1f);
+            border[0].x = left;
+            border[0].y = top;
+            border[0].size(innerWidth, 1f);
 
-            targetingBorder[1].x = left;
-            targetingBorder[1].y = y + height - 2f;
-            targetingBorder[1].size(innerWidth, 1f);
+            border[1].x = left;
+            border[1].y = y + height - 2f;
+            border[1].size(innerWidth, 1f);
 
-            targetingBorder[2].x = left;
-            targetingBorder[2].y = top;
-            targetingBorder[2].size(1f, innerHeight);
+            border[2].x = left;
+            border[2].y = top;
+            border[2].size(1f, innerHeight);
 
-            targetingBorder[3].x = x + width - 2f;
-            targetingBorder[3].y = top;
-            targetingBorder[3].size(1f, innerHeight);
-        }
-
-        private void refreshTargetingBorder() {
-            boolean targeting = selector != null && ownsCellSelector(selector);
-            for (ColorBlock edge : targetingBorder) {
-                edge.visible = targeting;
-            }
+            border[3].x = x + width - 2f;
+            border[3].y = top;
+            border[3].size(1f, innerHeight);
         }
 
         @Override
