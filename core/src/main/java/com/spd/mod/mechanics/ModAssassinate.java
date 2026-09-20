@@ -11,6 +11,7 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap;
+import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
@@ -495,7 +496,9 @@ public class ModAssassinate extends Buff {
         AssassinateTag() {
             super(COLOR);
 
-            icon = Icons.TARGET.get();
+            // Reuse ModAssassinate itself as the single source of truth for
+            // both the PREPARATION frame and its purple tint.
+            icon = new BuffIcon(new ModAssassinate(), true);
             add(icon);
 
             crosshair = Icons.TARGET.get();
