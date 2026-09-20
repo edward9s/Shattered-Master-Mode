@@ -107,12 +107,29 @@ jobs:
             "$DONOR_APK" "$DONOR_JAR" "inject-kit" \
             --repo-root mod
 
-      - name: Upload Build Artifacts
+      - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
-          name: Release-${{ env.EXPECTED_TAG }}
-          path: out/*
+          name: SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Android
+          path: out/SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Android.apk
+          if-no-files-found: error
+
+      - name: Upload Java JAR
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Java
+          path: out/SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Java.jar
+          if-no-files-found: error
+
+      - name: Upload Windows ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Windows
+          path: out/SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Windows.zip
+          if-no-files-found: error
 
       - name: Upload Injection Kit
         uses: actions/upload-artifact@v4
