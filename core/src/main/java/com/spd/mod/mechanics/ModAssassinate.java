@@ -31,8 +31,10 @@ import com.watabou.utils.Callback;
 import com.watabou.utils.PointF;
 import com.watabou.utils.Signal;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,6 +46,7 @@ public class ModAssassinate extends Buff {
 
     private static final String ASSASSIN_ENABLED = "assassin_enabled";
     private static final String MAP_LONG_PRESS_ENABLED = "map_long_press_enabled";
+    private static final int ASSASSIN_PURPLE = 0xB06CFF;
 
     private static LongPressLayer inputLayer;
     private static boolean installPending;
@@ -154,7 +157,7 @@ public class ModAssassinate extends Buff {
 
     @Override
     public void tintIcon(Image icon) {
-        icon.hardlight(assassinEnabled ? 0xB06CFF : 0xAAAAAA);
+        icon.hardlight(assassinEnabled ? ASSASSIN_PURPLE : 0xAAAAAA);
     }
 
     @Override
@@ -495,14 +498,66 @@ public class ModAssassinate extends Buff {
         AssassinateTag() {
             super(COLOR);
 
-            // Reuse ModAssassinate itself as the single source of truth for
-            // both the PREPARATION frame and its purple tint.
-            icon = new BuffIcon(new ModAssassinate(), true);
+            icon = preparationActionIcon();
             add(icon);
 
             crosshair = Icons.TARGET.get();
 
             setSize(SIZE, SIZE);
+        }
+
+        private static Image preparationActionIcon() {
+            // Official Preparation's action button uses HeroIcon.PREPARATION,
+            // not BuffIndicator.PREPARATION. Resolve it reflectively so binary
+            // injection can still fall back cleanly on older SPD-family forks.
+            try {
+                String uiPackage = Tag.class.getPackage().getName();
+                Class<?> heroIconClass = Class.forName(uiPackage + ".HeroIcon");
+                Field preparationField = heroIconClass.getField("PREPARATION");
+                final int preparationIcon = preparationField.getInt(null);
+
+                for (Constructor<?> constructor : heroIconClass.getConstructors()) {
+                    Class<?>[] params = constructor.getParameterTypes();
+                    if (params.length != 1
+                            || !params[0].isInterface()
+                            || !params[0].getName().endsWith("ActionIndicator$Action")) {
+                        continue;
+                    }
+
+                    Object action = Proxy.newProxyInstance(
+                            params[0].getClassLoader(),
+                            new Class<?>[]{params[0]},
+                            (proxy, method, args) -> {
+                                if ("actionIcon".equals(method.getName())) {
+                                    return preparationIcon;
+                                }
+                                Class<?> type = method.getReturnType();
+                                if (type == boolean.class) return false;
+                                if (type == byte.class) return (byte) 0;
+                                if (type == short.class) return (short) 0;
+                                if (type == int.class) return 0;
+                                if (type == long.class) return 0L;
+                                if (type == float.class) return 0f;
+                                if (type == double.class) return 0d;
+                                if (type == char.class) return (char) 0;
+                                return null;
+                            });
+
+                    Object value = constructor.newInstance(action);
+                    if (value instanceof Image) {
+                        Image result = (Image) value;
+                        result.hardlight(ASSASSIN_PURPLE);
+                        return result;
+                    }
+                }
+            } catch (Exception ignored) {
+                // Old or heavily modified forks may lack the action-specific
+                // HeroIcon frame. Keep the feature usable with the buff icon.
+            }
+
+            BuffIcon fallback = new BuffIcon(new ModAssassinate(), true);
+            fallback.hardlight(ASSASSIN_PURPLE);
+            return fallback;
         }
 
         static void ensureInstalled() {
