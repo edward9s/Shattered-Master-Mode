@@ -1,9 +1,12 @@
 import sys
 import re
 
-# 取得傳入的深度數值，未傳入則預設為 26
+if len(sys.argv) > 3:
+    raise SystemExit("usage: patch_depth.py [DEPTH] [SPD_ROOT]")
+
 depth = sys.argv[1] if len(sys.argv) > 1 else "26"
-file_path = "spd_src/core/src/main/java/com/spd/mod/ModGame.java"
+root = sys.argv[2] if len(sys.argv) > 2 else "spd_src"
+file_path = f"{root}/core/src/main/java/com/spd/mod/ModGame.java"
 
 with open(file_path, "r", encoding="utf-8") as f:
     content = f.read()
