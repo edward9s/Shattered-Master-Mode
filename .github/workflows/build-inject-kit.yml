@@ -90,6 +90,7 @@ jobs:
       - name: Upload injection kit
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: ${{ steps.package.outputs.kit_name }}
           path: ${{ steps.package.outputs.kit_dir }}/*
           if-no-files-found: error
