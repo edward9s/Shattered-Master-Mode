@@ -20,7 +20,6 @@ import com.spd.mod.journal.ModRuntimeTagStack;
 import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.input.PointerEvent;
 import com.watabou.noosa.Camera;
-import com.watabou.noosa.ColorBlock;
 import com.watabou.noosa.Game;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
@@ -473,8 +472,7 @@ public class ModAssassinate extends Buff {
      */
     private static class AssassinateTag extends Tag {
 
-        private static final int COLOR = 0x6A407F;
-        private static final int BORDER_COLOR = 0xFF929292;
+        private static final int COLOR = 0x444444;
 
         private static AssassinateTag instance;
         private static AssassinateSelector selector;
@@ -485,15 +483,15 @@ public class ModAssassinate extends Buff {
 
         private final Image icon;
         private final Image crosshair;
-        private final ColorBlock[] border = new ColorBlock[4];
 
         AssassinateTag() {
             super(COLOR);
 
-            for (int i = 0; i < border.length; i++) {
-                border[i] = new ColorBlock(1, 1, BORDER_COLOR);
-                add(border[i]);
-            }
+            // Match Preparation's action-indicator treatment: a neutral dark
+            // background with the action color carried by the icon itself.
+            // Component constructs Tag chrome before Tag(int) assigns RGB, so
+            // re-apply the intended background color after super(...) returns.
+            setColor(COLOR);
 
             icon = preparationActionIcon();
             add(icon);
@@ -677,6 +675,7 @@ public class ModAssassinate extends Buff {
             selector = newSelector;
             GameScene.selectCell(newSelector);
             setAimTarget(preferredTarget());
+            flash();
         }
 
         @Override
@@ -696,26 +695,6 @@ public class ModAssassinate extends Buff {
             icon.y = y + (height - icon.height()) / 2f;
             PixelScene.align(icon);
 
-            float left = x + 1f;
-            float top = y + 1f;
-            float innerWidth = Math.max(1f, width - 2f);
-            float innerHeight = Math.max(1f, height - 2f);
-
-            border[0].x = left;
-            border[0].y = top;
-            border[0].size(innerWidth, 1f);
-
-            border[1].x = left;
-            border[1].y = y + height - 2f;
-            border[1].size(innerWidth, 1f);
-
-            border[2].x = left;
-            border[2].y = top;
-            border[2].size(1f, innerHeight);
-
-            border[3].x = x + width - 2f;
-            border[3].y = top;
-            border[3].size(1f, innerHeight);
         }
 
         @Override
