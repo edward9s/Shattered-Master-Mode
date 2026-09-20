@@ -33,6 +33,8 @@ import com.watabou.utils.Signal;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Permanent Hero buff that exposes Assassinate through an edge Tag and an
@@ -471,9 +473,6 @@ public class ModAssassinate extends Buff {
     private static class AssassinateTag extends Tag {
 
         private static final int COLOR = 0x6A407F;
-        private static final String[] HUD_TAG_FIELDS = {"attack", "loot", "action", "resume"};
-        private static final String[] HUD_TAG_STATE_FIELDS =
-                {"tagAttack", "tagLoot", "tagAction", "tagResume"};
 
         private static AssassinateTag instance;
         private static AssassinateSelector selector;
@@ -654,17 +653,21 @@ public class ModAssassinate extends Buff {
 
             try {
                 ensureHudFields();
-                for (int i = 0; i < HUD_TAG_FIELDS.length; i++) {
-                    if (!hudTagStateFields[i].getBoolean(scene)) {
-                        continue;
-                    }
-
+                for (int i = 0; i < hudTagFields.length; i++) {
                     Object value = hudTagFields[i].get(scene);
                     if (!(value instanceof Tag)) {
                         continue;
                     }
 
                     Tag tag = (Tag) value;
+                    Field stateField = hudTagStateFields[i];
+                    boolean inStack = stateField != null
+                            ? stateField.getBoolean(scene)
+                            : tag.visible && tag.active;
+                    if (!inStack) {
+                        continue;
+                    }
+
                     if (!foundNativeTag) {
                         tagWidth = tag.width();
                         tagLeft = tag.left();
@@ -685,21 +688,45 @@ public class ModAssassinate extends Buff {
             setRect(tagLeft, pos - SIZE, tagWidth, SIZE);
         }
 
-        private static void ensureHudFields() throws Exception {
+        private static void ensureHudFields() {
             if (hudTagFields != null && hudTagStateFields != null) {
                 return;
             }
 
-            Field[] tags = new Field[HUD_TAG_FIELDS.length];
-            Field[] states = new Field[HUD_TAG_STATE_FIELDS.length];
-            for (int i = 0; i < HUD_TAG_FIELDS.length; i++) {
-                tags[i] = GameScene.class.getDeclaredField(HUD_TAG_FIELDS[i]);
-                tags[i].setAccessible(true);
-                states[i] = GameScene.class.getDeclaredField(HUD_TAG_STATE_FIELDS[i]);
-                states[i].setAccessible(true);
+            List<Field> tags = new ArrayList<>();
+            List<Field> states = new ArrayList<>();
+
+            for (Field field : GameScene.class.getDeclaredFields()) {
+                if (!Tag.class.isAssignableFrom(field.getType())) {
+                    continue;
+                }
+
+                field.setAccessible(true);
+                tags.add(field);
+
+                Field state = null;
+                String name = field.getName();
+                if (!name.isEmpty()) {
+                    String stateName = "tag"
+                            + Character.toUpperCase(name.charAt(0))
+                            + name.substring(1);
+                    try {
+                        state = GameScene.class.getDeclaredField(stateName);
+                        if (state.getType() == boolean.class) {
+                            state.setAccessible(true);
+                        } else {
+                            state = null;
+                        }
+                    } catch (NoSuchFieldException ignored) {
+                        // Third-party tags may not expose a parallel tag-state
+                        // field. Their live component visibility is the fallback.
+                    }
+                }
+                states.add(state);
             }
-            hudTagFields = tags;
-            hudTagStateFields = states;
+
+            hudTagFields = tags.toArray(new Field[0]);
+            hudTagStateFields = states.toArray(new Field[0]);
         }
 
         private static float basePosition(Object scene, boolean left) {
