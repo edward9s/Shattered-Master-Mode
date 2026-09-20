@@ -9,6 +9,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Tag;
 import com.spd.mod.mechanics.ModLastStand;
+import com.watabou.noosa.BitmapText;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
@@ -251,14 +252,27 @@ public class ModLastStandOverlay extends Gizmo {
     private static class LastStandTag extends Tag {
 
         private final Image icon;
+        private final BitmapText count;
+        private int lastCount = -1;
 
         LastStandTag() {
             super(LAST_STAND_RED);
 
+            // Component's constructor invokes createChildren() before Tag's
+            // constructor body assigns its RGB fields, so custom Tags must
+            // re-apply their intended color after super(...) returns.
+            setColor(LAST_STAND_RED);
+
             icon = new BuffIcon(new ModLastStand(), true);
             add(icon);
 
+            count = new BitmapText(PixelScene.pixelFont);
+            count.hardlight(0xFFFFFF);
+            count.visible = false;
+            add(count);
+
             setSize(SIZE, SIZE);
+            refreshCount();
         }
 
         @Override
@@ -271,6 +285,7 @@ public class ModLastStandOverlay extends Gizmo {
                 return;
             }
 
+            refreshCount();
             ModRuntimeTagStack.layout();
             super.update();
             givePointerPriorityCompat(this);
@@ -287,6 +302,28 @@ public class ModLastStandOverlay extends Gizmo {
             }
             icon.y = y + (height - icon.height()) / 2f;
             PixelScene.align(icon);
+
+            if (count.visible) {
+                count.x = icon.center().x + 8f - count.width();
+                count.y = icon.center().y + 8f - count.baseLine();
+                PixelScene.align(count);
+            }
+        }
+
+        private void refreshCount() {
+            ModLastStand buff = ModLastStand.find(Dungeon.hero);
+            int stored = buff == null ? 0 : buff.storage().size();
+            if (stored == lastCount) {
+                return;
+            }
+
+            lastCount = stored;
+            count.visible = stored > 0;
+            if (count.visible) {
+                count.text(Integer.toString(stored));
+                count.measure();
+            }
+            layout();
         }
 
         @Override
