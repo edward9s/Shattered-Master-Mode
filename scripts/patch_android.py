@@ -128,6 +128,13 @@ def patch_proguard(file_path, game_package):
         '-keep class com.spd.mod.mechanics.ModBlast$* { *; }',
         '-keep class com.spd.mod.mechanics.ModSight { *; }',
         '-keep class com.spd.mod.mechanics.ModSight$* { *; }',
+        # ModAssassinate resolves the target fork's Preparation action visual
+        # reflectively. Android release builds may otherwise let R8 rename these
+        # symbols and force the tag icon onto its BuffIcon fallback, while the
+        # unminified desktop JAR keeps working.
+        f'-keep class {game_package}.ui.HeroIcon {{ *; }}',
+        f'-keep class {game_package}.ui.ActionIndicator {{ *; }}',
+        f'-keep interface {game_package}.ui.ActionIndicator$Action {{ *; }}',
         f'-keepclassmembers class {game_package}.levels.Terrain {{ public static final int *; }}',
     )
     missing = [rule for rule in rules if rule not in data]
