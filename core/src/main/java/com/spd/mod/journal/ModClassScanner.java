@@ -21,7 +21,7 @@ import java.util.zip.ZipFile;
 public final class ModClassScanner {
 
     private static final String SPD_PACKAGE = "com.shatteredpixel.shatteredpixeldungeon.";
-    private static final String SPD_PATH = "com/shatteredpixel/shatteredpixeldungeon/";
+    private static final String SPD_PATH = SPD_PACKAGE.replace('.', '/');
 
     private static ArrayList<String> cachedClassNames;
 
