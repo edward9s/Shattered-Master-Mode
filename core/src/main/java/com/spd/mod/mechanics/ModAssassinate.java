@@ -762,12 +762,28 @@ public class ModAssassinate extends Buff {
             }
         }
 
+        private static Char.Property objectProperty;
+        private static boolean objectPropertyResolved;
+
+        private static boolean hasObjectProperty(Char target) {
+            if (!objectPropertyResolved) {
+                objectPropertyResolved = true;
+                try {
+                    objectProperty = Enum.valueOf(Char.Property.class, "OBJECT");
+                } catch (IllegalArgumentException ignored) {
+                    // Older SPD-family forks do not define Property.OBJECT.
+                    objectProperty = null;
+                }
+            }
+            return objectProperty != null && Char.hasProp(target, objectProperty);
+        }
+
         private static boolean validAimTarget(Char target) {
             if (target == null
                     || target == Dungeon.hero
                     || !target.isAlive()
                     || target.alignment == Char.Alignment.ALLY
-                    || Char.hasProp(target, Char.Property.OBJECT)
+                    || hasObjectProperty(target)
                     || Dungeon.level == null
                     || target.pos < 0
                     || target.pos >= Dungeon.level.heroFOV.length
