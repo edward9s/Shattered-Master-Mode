@@ -24,7 +24,7 @@ public class ModGame {
      * the SMM version without pulling ModGame's full dependency graph into the
      * injected payload.
      */
-    public static final String VERSION = "0.3.6";
+    public static final String VERSION = "0.3.7";
 
     public static String version() {
         return VERSION;
