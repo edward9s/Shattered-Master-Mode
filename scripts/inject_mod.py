@@ -251,9 +251,9 @@ def patch_char(file_path: Path) -> None:
 
 patch_wndgame(wnd_path)
 
-# All current source-build entry points already invoke this script with WndGame.java.
-# Derive Char.java from that stable package location so source builds receive the
-# same terminal-attack Riposte lifecycle as APK injection.
+# WndGame and Char live under the detected SPD-family package root.
+# Derive Char.java from that root so source builds receive the same
+# terminal-attack Riposte lifecycle as APK injection.
 package_root = wnd_path.parent.parent
 char_path = package_root / 'actors' / 'Char.java'
 if not char_path.is_file():
