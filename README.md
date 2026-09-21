@@ -30,15 +30,16 @@ SMM is an overlay for Shattered Pixel Dungeon rather than a standalone project. 
 git clone https://github.com/edward9s/Shattered-Master-Mode.git mod
 git clone https://github.com/00-Evan/shattered-pixel-dungeon.git spd_src
 
-python mod/scripts/patch_android.py
-python mod/scripts/inject_mod.py spd_src/core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGame.java
+python mod/scripts/rebase_source.py spd_src mod
+python mod/scripts/patch_android.py spd_src
+python mod/scripts/inject_mod.py spd_src
 cp -a mod/core spd_src/
 
 cd spd_src
 ./gradlew android:assembleDebug :desktop:release
 ```
 
-The Android APK is produced under `android/build/outputs/apk/`, and the desktop JAR under `desktop/build/libs/`.
+The source-build tools detect the target SPD-family Java package from the checked-out source tree. `rebase_source.py` rewrites both dotted and JVM-internal package forms in SMM Java sources and fails if stale source-package references remain. The Android APK is produced under `android/build/outputs/apk/`, and the desktop JAR under `desktop/build/libs/`.
 
 ## Binary injection
 
