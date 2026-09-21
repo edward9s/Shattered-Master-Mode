@@ -33,8 +33,18 @@ jobs:
         run: |
           set -euo pipefail
           REPO="00-Evan/shattered-pixel-dungeon"
-          UPSTREAM_TAG=$(gh api repos/$REPO/releases/latest --jq '.tag_name')
+          UPSTREAM_TAG=$(gh api "repos/$REPO/releases/latest" --jq '.tag_name // empty')
+          if [ -z "$UPSTREAM_TAG" ]; then
+            echo "::error::Unable to resolve the latest SPD release tag."
+            exit 1
+          fi
+
           MOD_VER=$(python mod/scripts/extract_version.py mod/core/src/main/java/com/spd/mod/ModGame.java)
+          if [ -z "$MOD_VER" ]; then
+            echo "::error::Unable to resolve the SMM version."
+            exit 1
+          fi
+
           EXPECTED_TAG="SPD-${UPSTREAM_TAG}-m${MOD_VER}"
 
           echo "UPSTREAM_TAG=$UPSTREAM_TAG" >> "$GITHUB_ENV"
