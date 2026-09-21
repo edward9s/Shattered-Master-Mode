@@ -30,6 +30,8 @@ public final class ModRuntimeTagStack {
     private static Field[] nativeTagFields;
     private static Field[] nativeTagStateFields;
     private static Field toolbarField;
+    private static Field alternateToolbarField;
+    private static boolean alternateToolbarResolved;
     private static Field statusField;
     private static Method flipTagsMethod;
     private static Method interfaceSizeMethod;
@@ -199,17 +201,13 @@ public final class ModRuntimeTagStack {
     private static float basePosition(Object scene, boolean left) {
         float pos = PixelScene.uiCamera.height;
 
-        try {
-            if (toolbarField == null) {
-                toolbarField = GameScene.class.getDeclaredField("toolbar");
-                toolbarField.setAccessible(true);
-            }
-            Object toolbar = toolbarField.get(scene);
-            if (toolbar instanceof Component) {
-                pos = ((Component) toolbar).top();
-            }
+        Component toolbar = findToolbar(scene);
+        if (toolbar != null) {
+            pos = toolbar.top();
+        }
 
-            if (left && readInterfaceSize() > 0) {
+        if (left && readInterfaceSize() > 0) {
+            try {
                 if (statusField == null) {
                     statusField = GameScene.class.getDeclaredField("status");
                     statusField.setAccessible(true);
@@ -218,12 +216,66 @@ public final class ModRuntimeTagStack {
                 if (status instanceof Component) {
                     pos = ((Component) status).top();
                 }
+            } catch (Exception ignored) {
+                // Keep the live toolbar position when a fork renames/removes status.
             }
-        } catch (Exception ignored) {
-            // PixelScene's bottom edge remains the generic fallback.
         }
 
         return Math.max(Tag.SIZE, pos);
+    }
+
+    private static Component findToolbar(Object scene) {
+        // Stock SPD keeps its toolbar in GameScene.toolbar. Some forks retain that
+        // field but leave it null while an alternate toolbar (for example toolbarv1)
+        // is active, so a successful field lookup is not enough.
+        try {
+            if (toolbarField == null) {
+                toolbarField = GameScene.class.getDeclaredField("toolbar");
+                toolbarField.setAccessible(true);
+            }
+            Object toolbar = toolbarField.get(scene);
+            if (toolbar instanceof Component) {
+                return (Component) toolbar;
+            }
+        } catch (Exception ignored) {
+            // Fall through to fork toolbar discovery.
+        }
+
+        // Do not link against fork-specific toolbar classes or field names.
+        // Resolve one alternate toolbar field once, then reuse it.
+        if (!alternateToolbarResolved) {
+            alternateToolbarResolved = true;
+            for (Field field : GameScene.class.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())
+                        || field == toolbarField
+                        || !field.getName().toLowerCase().startsWith("toolbar")
+                        || !Component.class.isAssignableFrom(field.getType())) {
+                    continue;
+                }
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(scene);
+                    if (value instanceof Component) {
+                        alternateToolbarField = field;
+                        return (Component) value;
+                    }
+                } catch (Exception ignored) {
+                    // Keep scanning other candidate toolbar fields.
+                }
+            }
+        }
+
+        if (alternateToolbarField != null) {
+            try {
+                Object value = alternateToolbarField.get(scene);
+                if (value instanceof Component) {
+                    return (Component) value;
+                }
+            } catch (Exception ignored) {
+                // Fall through to the screen-edge fallback.
+            }
+        }
+        return null;
     }
 
     private static boolean readFlipTags() {
