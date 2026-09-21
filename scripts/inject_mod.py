@@ -3,8 +3,15 @@ import re
 from pathlib import Path
 
 from _attack_hook_common import select_unique_terminal
+from spd_source import wndgame_path
 
-wnd_path = Path(sys.argv[1])
+if len(sys.argv) != 2:
+    raise SystemExit("usage: inject_mod.py <SPD_ROOT>")
+
+source_root = Path(sys.argv[1])
+if not source_root.is_dir():
+    raise RuntimeError(f"SPD source root not found: {source_root}")
+wnd_path = wndgame_path(source_root)
 
 _ATTACK_METHOD_RE = re.compile(
     r'(?P<head>(?:(?:public|protected|final|synchronized|native|strictfp)\s+)*'
