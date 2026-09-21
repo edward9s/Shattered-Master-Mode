@@ -36,9 +36,11 @@ def detect_game_package(source_root: str | Path) -> str:
         match = _PACKAGE_RE.search(source)
         if match is None:
             raise RuntimeError(f"WndGame.java has no package declaration: {wnd_path}")
-        if match.group(1) != package_name:
+        expected_wnd_package = package_name + ".windows"
+        if match.group(1) != expected_wnd_package:
             raise RuntimeError(
-                f"WndGame.java package/path mismatch: {match.group(1)} != {package_name}"
+                "WndGame.java package/path mismatch: "
+                f"{match.group(1)} != {expected_wnd_package}"
             )
 
         candidates.append((package_name, wnd_path))
