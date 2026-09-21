@@ -5,6 +5,8 @@ from urllib.request import urlopen
 import xml.etree.ElementTree as ET
 from zipfile import ZipFile
 
+from spd_source import detect_game_package
+
 
 PLAY_GAMES_MAVEN = (
     'https://dl.google.com/dl/android/maven2/'
@@ -81,7 +83,7 @@ def patch_play_games_version(build_file, android_build_file):
     )
 
 
-def patch_proguard(file_path):
+def patch_proguard(file_path, game_package):
     with open(file_path, 'r', encoding='utf-8') as f:
         data = f.read()
 
@@ -126,7 +128,7 @@ def patch_proguard(file_path):
         '-keep class com.spd.mod.mechanics.ModBlast$* { *; }',
         '-keep class com.spd.mod.mechanics.ModSight { *; }',
         '-keep class com.spd.mod.mechanics.ModSight$* { *; }',
-        '-keepclassmembers class com.shatteredpixel.shatteredpixeldungeon.levels.Terrain { public static final int *; }',
+        f'-keepclassmembers class {game_package}.levels.Terrain {{ public static final int *; }}',
     )
     missing = [rule for rule in rules if rule not in data]
     if missing:
@@ -164,7 +166,10 @@ if __name__ == '__main__':
     build_file = f'{root}/build.gradle'
     android_build_file = f'{root}/android/build.gradle'
 
+    game_package = detect_game_package(root)
+    print(f'Target SPD-family package: {game_package}')
+
     patch_gradle(build_file)
     patch_play_games_version(build_file, android_build_file)
-    patch_proguard(f'{root}/android/proguard-rules.pro')
+    patch_proguard(f'{root}/android/proguard-rules.pro', game_package)
     patch_manifest(f'{root}/android/src/main/AndroidManifest.xml')
