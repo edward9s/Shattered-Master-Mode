@@ -35,22 +35,45 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           REPO="00-Evan/shattered-pixel-dungeon"
-          UPSTREAM_TAG=$(gh api repos/$REPO/releases/latest --jq '.tag_name')
-          MOD_VER=$(python mod/scripts/extract_version.py mod/core/src/main/java/com/spd/mod/ModGame.java)
-          EXPECTED_TAG="SPD-${UPSTREAM_TAG}-m${MOD_VER}"
-          
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/${{ github.repository }}/releases/tags/$EXPECTED_TAG)
-          
-          if [ "$STATUS" == "200" ]; then
-            if [ "${{ github.event_name }}" == "schedule" ]; then
-              echo "Release $EXPECTED_TAG exists. Skipping scheduled release."
-              echo "skip=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            echo "::error::Release $EXPECTED_TAG already exists. Bump the SMM version or wait for a new SPD release before publishing again."
+          UPSTREAM_TAG=$(gh api "repos/$REPO/releases/latest" --jq '.tag_name // empty')
+          if [ -z "$UPSTREAM_TAG" ]; then
+            echo "::error::Unable to resolve the latest SPD release tag."
             exit 1
           fi
+
+          MOD_VER=$(python mod/scripts/extract_version.py mod/core/src/main/java/com/spd/mod/ModGame.java)
+          if [ -z "$MOD_VER" ]; then
+            echo "::error::Unable to resolve the SMM version."
+            exit 1
+          fi
+
+          EXPECTED_TAG="SPD-${UPSTREAM_TAG}-m${MOD_VER}"
+          
+          STATUS=$(curl -sS -o /tmp/smm-release.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$EXPECTED_TAG")
+
+          case "$STATUS" in
+            200)
+              if [ "${{ github.event_name }}" = "schedule" ]; then
+                echo "Release $EXPECTED_TAG exists. Skipping scheduled release."
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "::error::Release $EXPECTED_TAG already exists. Bump the SMM version or wait for a new SPD release before publishing again."
+              exit 1
+              ;;
+            404)
+              ;;
+            *)
+              echo "::error::Unable to verify release status for $EXPECTED_TAG (GitHub API HTTP $STATUS)."
+              cat /tmp/smm-release.json >&2 || true
+              exit 1
+              ;;
+          esac
 
           echo "Proceeding with release for $EXPECTED_TAG"
           echo "skip=false" >> $GITHUB_OUTPUT
