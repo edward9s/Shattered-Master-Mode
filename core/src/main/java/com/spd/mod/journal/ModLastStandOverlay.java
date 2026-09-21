@@ -270,9 +270,10 @@ public class ModLastStandOverlay extends Gizmo {
             // RGB fields, so re-apply the intended neutral color here.
             setColor(TAG_NEUTRAL);
 
-            // Reuse the exact inventory glyph from SPD's normal toolbar.
-            icon = new Image(Assets.Interfaces.TOOLBAR);
-            icon.frame(160, 0, 16, 16);
+            // Prefer the target fork's semantic backpack icon. Forks such as
+            // MLPD rearrange toolbar.png, so the vanilla (160, 0) frame is not
+            // a stable binary-injection contract.
+            icon = backpackIcon();
             add(icon);
 
             for (int i = 0; i < badgeBorder.length; i++) {
@@ -292,6 +293,36 @@ public class ModLastStandOverlay extends Gizmo {
 
             setSize(SIZE, SIZE);
             refreshCount();
+        }
+
+        private static Image backpackIcon() {
+            String uiPackage = Tag.class.getPackage().getName();
+
+            try {
+                Class<?> iconsClass = Class.forName(uiPackage + ".Icons");
+                Method getMethod = iconsClass.getMethod("get");
+
+                for (String name : new String[]{"BACKPACK_LRG", "BACKPACK"}) {
+                    try {
+                        @SuppressWarnings({"rawtypes", "unchecked"})
+                        Object iconType = Enum.valueOf(
+                                (Class<? extends Enum>) iconsClass.asSubclass(Enum.class),
+                                name);
+                        Object value = getMethod.invoke(iconType);
+                        if (value instanceof Image) {
+                            return (Image) value;
+                        }
+                    } catch (IllegalArgumentException ignored) {
+                        // Older forks may not define one of the semantic icons.
+                    }
+                }
+            } catch (ReflectiveOperationException | LinkageError ignored) {
+                // Keep old SPD-family forks usable even if their Icons API differs.
+            }
+
+            Image fallback = new Image(Assets.Interfaces.TOOLBAR);
+            fallback.frame(160, 0, 16, 16);
+            return fallback;
         }
 
         @Override
