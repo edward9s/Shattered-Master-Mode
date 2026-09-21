@@ -53,7 +53,7 @@ public class ModAssassinate extends Buff {
     private static Field selectorEventField;
 
     private boolean assassinEnabled = true;
-    private boolean mapLongPressEnabled;
+    private boolean mapLongPressEnabled = true;
 
     {
         type = buffType.POSITIVE;
