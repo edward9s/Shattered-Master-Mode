@@ -31,8 +31,9 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import patch_android  # noqa: E402  (與本檔同目錄，僅定義函式)
 from extract_version import extract_version  # noqa: E402
+from rebase_source import rebase_mod_sources  # noqa: E402
+from spd_source import detect_game_package  # noqa: E402
 
-WNDGAME = Path("core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndGame.java")
 MODGAME = Path("core/src/main/java/com/spd/mod/ModGame.java")
 OVERLAY_DIRS = ("core", "android", "desktop", "assets")
 UPSTREAM_REPO = "00-Evan/shattered-pixel-dungeon"
@@ -61,13 +62,18 @@ def run(cmd: list[str], cwd: Path | None = None) -> None:
 
 def resolve_spd(raw_path: str) -> Path:
     spd = Path(os.path.expanduser(raw_path)).resolve()
-    required = ["settings.gradle", "build.gradle", "gradlew", str(WNDGAME)]
+    required = ["settings.gradle", "build.gradle", "gradlew"]
     missing = [name for name in required if not (spd / name).exists()]
     if missing:
         sys.exit(
             f"Error: {spd} 不像是 Shattered Pixel Dungeon 原始碼\n"
             f"       缺少: {', '.join(missing)}"
         )
+    try:
+        package_name = detect_game_package(spd)
+    except RuntimeError as exc:
+        sys.exit(f"Error: {exc}")
+    print(f"Target SPD-family package: {package_name}")
     return spd
 
 
@@ -133,12 +139,15 @@ def patch_sources(spd: Path, depth: int) -> None:
     patch_android.patch_play_games_version(
         str(build_gradle), str(spd / "android" / "build.gradle")
     )
-    patch_android.patch_proguard(str(spd / "android" / "proguard-rules.pro"))
+    game_package = detect_game_package(spd)
+    patch_android.patch_proguard(
+        str(spd / "android" / "proguard-rules.pro"), game_package
+    )
     patch_android.patch_manifest(str(spd / "android/src/main/AndroidManifest.xml"))
     print(f"Patched {spd / 'android/src/main/AndroidManifest.xml'}")
 
     step("注入 mod 選單到 WndGame")
-    run([sys.executable, str(SCRIPT_DIR / "inject_mod.py"), str(spd / WNDGAME)])
+    run([sys.executable, str(SCRIPT_DIR / "inject_mod.py"), str(spd)])
 
     step("合併 mod 原始碼")
     for name in OVERLAY_DIRS:
@@ -146,6 +155,9 @@ def patch_sources(spd: Path, depth: int) -> None:
         if source.is_dir():
             shutil.copytree(source, spd / name, dirs_exist_ok=True)
             print(f"Copied {name}/ -> {spd / name}")
+
+    changed = rebase_mod_sources(spd, game_package)
+    print(f"Rebased {changed} SMM Java source file(s) to {game_package}")
 
     step(f"設定 ModGame.maxDepth() = {depth}")
     modgame = spd / MODGAME
