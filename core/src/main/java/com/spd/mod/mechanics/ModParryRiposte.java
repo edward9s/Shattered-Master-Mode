@@ -321,7 +321,7 @@ public class ModParryRiposte extends ChampionEnemy {
 
     @Override
     public String name() {
-        return "Total Parry / Riposte";
+        return "Parry/Riposte";
     }
 
     @Override
