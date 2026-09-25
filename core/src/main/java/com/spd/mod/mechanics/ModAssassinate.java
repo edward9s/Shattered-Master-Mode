@@ -170,7 +170,8 @@ public class ModAssassinate extends Buff {
     @Override
     public String desc() {
         return "While enabled, the edge target button enters Assassinate targeting. "
-                + "Press it again to use the current crosshair target, or tap a map cell or character directly. "
+                + "Press it again to use the current crosshair target, or cancel targeting if no target is selected. "
+                + "You can also tap a map cell or character directly. "
                 + "Map long-press is optional and disabled by default. "
                 + "Attacks follow SPD's normal surprise-attack and weapon accuracy rules. Tap to configure.";
     }
@@ -664,7 +665,7 @@ public class ModAssassinate extends Buff {
                 if (validAimTarget(aimedTarget)) {
                     GameScene.handleCell(aimedTarget.pos);
                 } else {
-                    setAimTarget(preferredTarget());
+                    cancelSelection();
                 }
                 return;
             }
