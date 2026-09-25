@@ -99,7 +99,13 @@ public class ModLastStandOverlay extends Gizmo {
 
     private void ensureStoreTag(Group scene) {
         if (storeTag != null && storeTag.exists && storeTag.parent == scene) {
-            scene.bringToFront(storeTag);
+            if (!ModRuntimeTagStack.hasOpenWindow()) {
+                scene.bringToFront(storeTag);
+            }
+            return;
+        }
+
+        if (ModRuntimeTagStack.hasOpenWindow()) {
             return;
         }
 
@@ -338,7 +344,9 @@ public class ModLastStandOverlay extends Gizmo {
             refreshCount();
             ModRuntimeTagStack.layout();
             super.update();
-            givePointerPriorityCompat(this);
+            if (!ModRuntimeTagStack.hasOpenWindow()) {
+                givePointerPriorityCompat(this);
+            }
         }
 
         @Override
@@ -441,7 +449,9 @@ public class ModLastStandOverlay extends Gizmo {
             visible = source.visible;
             active = source.active;
             super.update();
-            givePointerPriorityCompat(this);
+            if (!ModRuntimeTagStack.hasOpenWindow()) {
+                givePointerPriorityCompat(this);
+            }
         }
 
         @Override

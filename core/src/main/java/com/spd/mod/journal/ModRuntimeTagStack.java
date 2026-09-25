@@ -36,6 +36,8 @@ public final class ModRuntimeTagStack {
     private static Method flipTagsMethod;
     private static Method interfaceSizeMethod;
     private static Method tagFlipMethod;
+    private static Method showingWindowMethod;
+    private static boolean showingWindowResolved;
 
     private ModRuntimeTagStack() {
     }
@@ -301,6 +303,33 @@ public final class ModRuntimeTagStack {
             return result instanceof Number ? ((Number) result).intValue() : 0;
         } catch (Exception ignored) {
             return 0;
+        }
+    }
+
+    public static boolean hasOpenWindow() {
+        if (!(ShatteredPixelDungeon.scene() instanceof GameScene)) {
+            return false;
+        }
+
+        if (!showingWindowResolved) {
+            showingWindowResolved = true;
+            try {
+                showingWindowMethod = GameScene.class.getDeclaredMethod("showingWindow");
+                showingWindowMethod.setAccessible(true);
+            } catch (ReflectiveOperationException | SecurityException ignored) {
+                showingWindowMethod = null;
+            }
+        }
+
+        if (showingWindowMethod == null) {
+            return false;
+        }
+
+        try {
+            Object result = showingWindowMethod.invoke(null);
+            return result instanceof Boolean && (Boolean) result;
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return false;
         }
     }
 

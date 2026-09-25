@@ -556,7 +556,7 @@ public class ModAssassinate extends Buff {
         }
 
         static void ensureInstalled() {
-            if (!assassinEnabledForHero()) {
+            if (!assassinEnabledForHero() || ModRuntimeTagStack.hasOpenWindow()) {
                 return;
             }
 
@@ -575,7 +575,7 @@ public class ModAssassinate extends Buff {
                 @Override
                 public void call() {
                     installPending = false;
-                    if (!assassinEnabledForHero()) {
+                    if (!assassinEnabledForHero() || ModRuntimeTagStack.hasOpenWindow()) {
                         return;
                     }
 
@@ -639,7 +639,9 @@ public class ModAssassinate extends Buff {
             refreshCrosshair();
 
             super.update();
-            givePointerPriority();
+            if (!ModRuntimeTagStack.hasOpenWindow()) {
+                givePointerPriority();
+            }
         }
 
         @Override
