@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 /**
- * Shared save-file transfer core used by the Tools window.
+ * Shared save-file transfer core used by the Tools window and ModDebug.
  *
  * <p>Android keeps SMM's existing one-click full-snapshot behavior. Desktop
  * uses a native folder chooser and only replaces folders explicitly marked as
