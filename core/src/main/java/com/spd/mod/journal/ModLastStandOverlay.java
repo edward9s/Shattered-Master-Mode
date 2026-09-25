@@ -99,7 +99,6 @@ public class ModLastStandOverlay extends Gizmo {
 
     private void ensureStoreTag(Group scene) {
         if (storeTag != null && storeTag.exists && storeTag.parent == scene) {
-            scene.bringToFront(storeTag);
             return;
         }
 
