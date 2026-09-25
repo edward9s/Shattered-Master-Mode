@@ -71,7 +71,7 @@ public final class ModSaveTransfer {
             try {
                 if (export) {
                     if (exportDesktopSnapshot()) {
-                        postDesktopLog(true, "Save exported!");
+                        System.out.println("SPD_Mod: Save exported!");
                     }
                 } else {
                     importDesktopSnapshot();
@@ -83,28 +83,6 @@ public final class ModSaveTransfer {
                                 + " Crash - "
                                 + e.getMessage());
                 e.printStackTrace();
-                postDesktopLog(
-                        false,
-                        export ? "Export failed!" : "Import failed!");
-            }
-        });
-    }
-
-    private static void postDesktopLog(
-            final boolean positive,
-            final String message) {
-
-        // TinyFD blocks this render-thread runnable while the native dialog is
-        // open. Post the GameLog write again so LWJGL3 executes it in the next
-        // application loop, after GLFW has had a chance to refresh window and
-        // framebuffer state. Creating RenderedText immediately after the dialog
-        // can otherwise produce an invalid font size and FreeType's
-        // "No cap character found in font" exception.
-        Game.runOnRenderThread(() -> {
-            if (positive) {
-                GLog.h(message, new Object[0]);
-            } else {
-                GLog.w(message, new Object[0]);
             }
         });
     }
@@ -245,7 +223,7 @@ public final class ModSaveTransfer {
         }
 
         if (!validDesktopSnapshot(sourceDir)) {
-            postDesktopLog(false, "No save to import!");
+            System.out.println("SPD_Mod: No save to import!");
             return;
         }
 
