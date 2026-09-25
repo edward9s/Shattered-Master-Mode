@@ -17,14 +17,10 @@ import java.util.UUID;
  * Shared save-file transfer core used by the Tools window and ModDebug.
  *
  * <p>Android keeps SMM's existing one-click full-snapshot behavior. Desktop
- * uses a native folder chooser and only replaces folders explicitly marked as
- * SMM exports.</p>
+ * uses a native folder chooser; the selected directory is the complete
+ * snapshot source or destination.</p>
  */
 public final class ModSaveTransfer {
-
-    private static final String DESKTOP_MARKER = ".smm-save-transfer";
-    private static final byte[] DESKTOP_MARKER_CONTENT =
-            "SMM save transfer v1\n".getBytes(StandardCharsets.UTF_8);
 
     private static final String PREF_EXPORT_DIRECTORY =
             "desktop_export_directory";
@@ -194,17 +190,9 @@ public final class ModSaveTransfer {
                     "Selected export directory overlaps the active save directory");
         }
 
-        File[] targetFiles = desktopListFiles(targetDir);
-        File marker = new File(targetDir, DESKTOP_MARKER);
-        if (targetFiles.length > 0 && !marker.isFile()) {
-            throw new IOException(
-                    "Desktop export directory is not empty and is not a previous SMM export");
-        }
-
         Dungeon.saveAll();
         desktopDeleteContents(targetDir);
         desktopCopyRecursively(sourceDir, targetDir, false);
-        writeDesktopMarker(targetDir);
         return true;
     }
 
@@ -222,13 +210,13 @@ public final class ModSaveTransfer {
                     "Selected import directory overlaps the active save directory");
         }
 
-        if (!validDesktopSnapshot(sourceDir)) {
+        if (desktopListFiles(sourceDir).length == 0) {
             System.out.println("SPD_Mod: No save to import!");
             return;
         }
 
         desktopDeleteContents(targetDir);
-        copyDesktopSnapshotContents(sourceDir, targetDir, true);
+        desktopCopyRecursively(sourceDir, targetDir, true);
 
         // Imported settings and saves are now on disk while this process still
         // holds the old state in memory. Exit instead of mixing the two states.
@@ -330,63 +318,6 @@ public final class ModSaveTransfer {
         String identity = UUID.nameUUIDFromBytes(
                 savePath.getBytes(StandardCharsets.UTF_8)).toString();
         return key + "." + identity;
-    }
-
-    private static boolean validDesktopSnapshot(File sourceDir)
-            throws IOException {
-
-        File marker = new File(sourceDir, DESKTOP_MARKER);
-        if (!marker.isFile()) {
-            return false;
-        }
-
-        File[] files = desktopListFiles(sourceDir);
-        for (File file : files) {
-            if (!DESKTOP_MARKER.equals(file.getName())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static void writeDesktopMarker(File directory)
-            throws IOException {
-
-        File marker = new File(directory, DESKTOP_MARKER);
-        try (FileOutputStream output = new FileOutputStream(marker)) {
-            output.write(DESKTOP_MARKER_CONTENT);
-            output.flush();
-            try {
-                output.getFD().sync();
-            } catch (IOException ignored) {
-                // Best effort only. Snapshot data has already been copied.
-            }
-        }
-    }
-
-    private static void copyDesktopSnapshotContents(
-            File sourceDir,
-            File targetDir,
-            boolean syncFiles) throws IOException {
-
-        File[] files = desktopListFiles(sourceDir);
-        if (!targetDir.exists()
-                && !targetDir.mkdirs()
-                && !targetDir.isDirectory()) {
-            throw new IOException(
-                    "Unable to create directory: "
-                            + targetDir.getAbsolutePath());
-        }
-
-        for (File file : files) {
-            if (DESKTOP_MARKER.equals(file.getName())) {
-                continue;
-            }
-            desktopCopyRecursively(
-                    file,
-                    new File(targetDir, file.getName()),
-                    syncFiles);
-        }
     }
 
     private static File[] desktopListFiles(File directory)
