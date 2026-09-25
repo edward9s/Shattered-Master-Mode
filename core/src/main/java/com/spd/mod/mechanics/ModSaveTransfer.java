@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 /**
- * Shared save-file transfer core used by both the Tools window and ModDebug.
+ * Shared save-file transfer core used by the Tools window.
  *
  * <p>Android keeps SMM's existing one-click full-snapshot behavior. Desktop
  * uses a native folder chooser and only replaces folders explicitly marked as
@@ -102,11 +102,31 @@ public final class ModSaveTransfer {
         File sourceDir = (File) context.getClass()
                 .getMethod("getFilesDir")
                 .invoke(context);
-        File targetDir = androidExternalSaveDirectory(context);
+        String packageName = (String) context.getClass()
+                .getMethod("getPackageName")
+                .invoke(context);
+        File targetDir = new File("/sdcard/Download/" + packageName);
 
         System.out.println("SPD_Mod: Source: " + sourceDir.getAbsolutePath());
 
-        replaceSnapshot(sourceDir, targetDir, false);
+        // Export is a complete snapshot. Old external files must not survive.
+        if (targetDir.exists()) {
+            if (!targetDir.isDirectory()) {
+                throw new IOException(
+                        "Export path is not a directory: "
+                                + targetDir.getAbsolutePath());
+            }
+            System.out.println(
+                    "SPD_Mod: Clearing external folder: "
+                            + targetDir.getAbsolutePath());
+            androidDeleteContents(targetDir);
+        } else if (!targetDir.mkdirs() && !targetDir.isDirectory()) {
+            throw new IOException(
+                    "Unable to create export directory: "
+                            + targetDir.getAbsolutePath());
+        }
+
+        androidCopyRecursively(sourceDir, targetDir, false);
 
         System.out.println("SPD_Mod: === EXPORT FINISHED ===");
         GLog.h("Save exported!", new Object[0]);
@@ -120,14 +140,21 @@ public final class ModSaveTransfer {
             return;
         }
 
-        File sourceDir = androidExternalSaveDirectory(context);
+        String packageName = (String) context.getClass()
+                .getMethod("getPackageName")
+                .invoke(context);
+        File sourceDir = new File("/sdcard/Download/" + packageName);
         File targetDir = (File) context.getClass()
                 .getMethod("getFilesDir")
                 .invoke(context);
 
         // Critical invariant: validate a real, non-empty external snapshot
         // before deleting any live app files.
-        if (!hasAnyContent(sourceDir)) {
+        File[] sourceFiles = sourceDir.listFiles();
+        if (!sourceDir.exists()
+                || !sourceDir.isDirectory()
+                || sourceFiles == null
+                || sourceFiles.length == 0) {
             System.out.println(
                     "SPD_Mod: Import aborted - no valid save at "
                             + sourceDir.getAbsolutePath());
@@ -135,11 +162,14 @@ public final class ModSaveTransfer {
             return;
         }
 
+        // Keep filesDir itself, but remove all previous contents.
         System.out.println(
                 "SPD_Mod: Clearing local save folder: "
                         + targetDir.getAbsolutePath());
-        deleteContents(targetDir);
-        copyRecursively(sourceDir, targetDir, true);
+        androidDeleteContents(targetDir);
+
+        // Best-effort fsync each imported file before the process is killed.
+        androidCopyRecursively(sourceDir, targetDir, true);
 
         System.out.println("SPD_Mod: === IMPORT DONE, KILLING ===");
         Class<?> processClass = Class.forName("android.os.Process");
@@ -165,7 +195,7 @@ public final class ModSaveTransfer {
                     "Selected export directory overlaps the active save directory");
         }
 
-        File[] targetFiles = listFiles(targetDir);
+        File[] targetFiles = desktopListFiles(targetDir);
         File marker = new File(targetDir, DESKTOP_MARKER);
         if (targetFiles.length > 0 && !marker.isFile()) {
             throw new IOException(
@@ -173,8 +203,8 @@ public final class ModSaveTransfer {
         }
 
         Dungeon.saveAll();
-        deleteContents(targetDir);
-        copyRecursively(sourceDir, targetDir, false);
+        desktopDeleteContents(targetDir);
+        desktopCopyRecursively(sourceDir, targetDir, false);
         writeDesktopMarker(targetDir);
 
         GLog.h("Save exported!", new Object[0]);
@@ -199,7 +229,7 @@ public final class ModSaveTransfer {
             return;
         }
 
-        deleteContents(targetDir);
+        desktopDeleteContents(targetDir);
         copyDesktopSnapshotContents(sourceDir, targetDir, true);
 
         // Imported settings and saves are now on disk while this process still
@@ -312,7 +342,7 @@ public final class ModSaveTransfer {
             return false;
         }
 
-        File[] files = listFiles(sourceDir);
+        File[] files = desktopListFiles(sourceDir);
         for (File file : files) {
             if (!DESKTOP_MARKER.equals(file.getName())) {
                 return true;
@@ -341,7 +371,7 @@ public final class ModSaveTransfer {
             File targetDir,
             boolean syncFiles) throws IOException {
 
-        File[] files = listFiles(sourceDir);
+        File[] files = desktopListFiles(sourceDir);
         if (!targetDir.exists()
                 && !targetDir.mkdirs()
                 && !targetDir.isDirectory()) {
@@ -354,44 +384,252 @@ public final class ModSaveTransfer {
             if (DESKTOP_MARKER.equals(file.getName())) {
                 continue;
             }
-            copyRecursively(
+            desktopCopyRecursively(
                     file,
                     new File(targetDir, file.getName()),
                     syncFiles);
         }
     }
 
-    private static void replaceSnapshot(
-            File sourceDir,
-            File targetDir,
-            boolean syncFiles) throws IOException {
+    private static File[] desktopListFiles(File directory)
+            throws IOException {
 
-        if (targetDir.exists()) {
-            if (!targetDir.isDirectory()) {
-                throw new IOException(
-                        "Export path is not a directory: "
-                                + targetDir.getAbsolutePath());
-            }
-            System.out.println(
-                    "SPD_Mod: Clearing external folder: "
-                            + targetDir.getAbsolutePath());
-            deleteContents(targetDir);
-        } else if (!targetDir.mkdirs() && !targetDir.isDirectory()) {
-            throw new IOException(
-                    "Unable to create export directory: "
-                            + targetDir.getAbsolutePath());
+        if (directory == null
+                || !directory.exists()
+                || !directory.isDirectory()) {
+            return new File[0];
         }
 
-        copyRecursively(sourceDir, targetDir, syncFiles);
+        File[] files = directory.listFiles();
+        if (files == null) {
+            throw new IOException(
+                    "Unable to list directory: "
+                            + directory.getAbsolutePath());
+        }
+        return files;
     }
 
-    private static File androidExternalSaveDirectory(Object context)
-            throws Exception {
+    private static boolean directoriesOverlap(File first, File second)
+            throws IOException {
 
-        String packageName = (String) context.getClass()
-                .getMethod("getPackageName")
-                .invoke(context);
-        return new File("/sdcard/Download/" + packageName);
+        File firstCanonical = first.getCanonicalFile();
+        File secondCanonical = second.getCanonicalFile();
+        return containsDirectory(firstCanonical, secondCanonical)
+                || containsDirectory(secondCanonical, firstCanonical);
+    }
+
+    private static boolean containsDirectory(File parent, File child) {
+        File current = child;
+        while (current != null) {
+            if (parent.equals(current)) {
+                return true;
+            }
+            current = current.getParentFile();
+        }
+        return false;
+    }
+
+    private static void desktopDeleteContents(File directory)
+            throws IOException {
+
+        if (directory == null
+                || !directory.exists()
+                || !directory.isDirectory()) {
+            return;
+        }
+
+        File[] files = desktopListFiles(directory);
+        for (File file : files) {
+            desktopDeleteRecursively(file);
+        }
+    }
+
+    private static void desktopDeleteRecursively(File file)
+            throws IOException {
+
+        if (file == null || !file.exists()) {
+            return;
+        }
+
+        if (file.isDirectory()) {
+            File[] children = desktopListFiles(file);
+            for (File child : children) {
+                desktopDeleteRecursively(child);
+            }
+        }
+
+        if (!file.delete() && file.exists()) {
+            throw new IOException(
+                    "Unable to delete: " + file.getAbsolutePath());
+        }
+    }
+
+    private static void desktopCopyRecursively(
+            File source,
+            File target,
+            boolean syncFiles) throws IOException {
+
+        if (!source.exists()) {
+            throw new IOException(
+                    "Copy source disappeared: "
+                            + source.getAbsolutePath());
+        }
+
+        if (source.isDirectory()) {
+            if (target.exists()
+                    && target.isFile()
+                    && !target.delete()) {
+                throw new IOException(
+                        "Unable to replace file with directory: "
+                                + target.getAbsolutePath());
+            }
+            if (!target.exists()
+                    && !target.mkdirs()
+                    && !target.isDirectory()) {
+                throw new IOException(
+                        "Unable to create directory: "
+                                + target.getAbsolutePath());
+            }
+
+            File[] files = desktopListFiles(source);
+            for (File file : files) {
+                desktopCopyRecursively(
+                        file,
+                        new File(target, file.getName()),
+                        syncFiles);
+            }
+            return;
+        }
+
+        copyFile(source, target, syncFiles, 8192);
+    }
+
+    private static void androidDeleteContents(File directory) {
+        if (directory == null
+                || !directory.exists()
+                || !directory.isDirectory()) {
+            return;
+        }
+
+        File[] files = directory.listFiles();
+        if (files == null) {
+            return;
+        }
+
+        for (File file : files) {
+            androidDeleteRecursively(file);
+        }
+    }
+
+    private static void androidDeleteRecursively(File file) {
+        if (file == null || !file.exists()) {
+            return;
+        }
+
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    androidDeleteRecursively(child);
+                }
+            }
+        }
+
+        boolean deleted = file.delete();
+        System.out.println(
+                "SPD_Mod: "
+                        + (deleted ? "[DEL OK] " : "[DEL FAIL] ")
+                        + file.getAbsolutePath());
+    }
+
+    private static void androidCopyRecursively(
+            File source,
+            File target,
+            boolean syncFiles) throws IOException {
+
+        if (!source.exists()) {
+            return;
+        }
+
+        if (source.isDirectory()) {
+            if (target.exists() && target.isFile()) {
+                if (!target.delete()) {
+                    throw new IOException(
+                            "Unable to replace file with directory: "
+                                    + target.getAbsolutePath());
+                }
+            }
+            if (!target.exists()
+                    && !target.mkdirs()
+                    && !target.isDirectory()) {
+                throw new IOException(
+                        "Unable to create directory: "
+                                + target.getAbsolutePath());
+            }
+
+            File[] files = source.listFiles();
+            if (files == null) {
+                return;
+            }
+
+            for (File file : files) {
+                System.out.println(
+                        "SPD_Mod: "
+                                + (file.isDirectory() ? "[DIR]  " : "[FILE] ")
+                                + file.getName());
+                androidCopyRecursively(
+                        file,
+                        new File(target, file.getName()),
+                        syncFiles);
+            }
+            return;
+        }
+
+        if (!syncFiles) {
+            System.out.println(
+                    "SPD_Mod: Exp: "
+                            + source.getName()
+                            + " > "
+                            + target.getAbsolutePath());
+        }
+
+        copyFile(source, target, syncFiles, 1024);
+    }
+
+    private static void copyFile(
+            File source,
+            File target,
+            boolean syncFiles,
+            int bufferSize) throws IOException {
+
+        File parent = target.getParentFile();
+        if (parent != null
+                && !parent.exists()
+                && !parent.mkdirs()
+                && !parent.isDirectory()) {
+            throw new IOException(
+                    "Unable to create directory: "
+                            + parent.getAbsolutePath());
+        }
+
+        try (FileInputStream input = new FileInputStream(source);
+             FileOutputStream output = new FileOutputStream(target)) {
+
+            byte[] buffer = new byte[bufferSize];
+            int length;
+            while ((length = input.read(buffer)) != -1) {
+                output.write(buffer, 0, length);
+            }
+
+            output.flush();
+            if (syncFiles) {
+                try {
+                    output.getFD().sync();
+                } catch (Exception ignored) {
+                    // Existing import behavior treats fsync as best effort.
+                }
+            }
+        }
     }
 
     private static Object androidContext() throws Exception {
@@ -408,8 +646,7 @@ public final class ModSaveTransfer {
             return application;
         } catch (ClassNotFoundException notAndroid) {
             throw new UnsupportedOperationException(
-                    "Android context is unavailable",
-                    notAndroid);
+                    "save/load are Android-only");
         }
     }
 
@@ -465,161 +702,5 @@ public final class ModSaveTransfer {
                 "Grant All files access, return to the game, then try again.",
                 new Object[0]);
         return false;
-    }
-
-    private static boolean hasAnyContent(File directory)
-            throws IOException {
-
-        return listFiles(directory).length > 0;
-    }
-
-    private static File[] listFiles(File directory)
-            throws IOException {
-
-        if (directory == null
-                || !directory.exists()
-                || !directory.isDirectory()) {
-            return new File[0];
-        }
-
-        File[] files = directory.listFiles();
-        if (files == null) {
-            throw new IOException(
-                    "Unable to list directory: "
-                            + directory.getAbsolutePath());
-        }
-        return files;
-    }
-
-    private static boolean directoriesOverlap(File first, File second)
-            throws IOException {
-
-        File firstCanonical = first.getCanonicalFile();
-        File secondCanonical = second.getCanonicalFile();
-        return containsDirectory(firstCanonical, secondCanonical)
-                || containsDirectory(secondCanonical, firstCanonical);
-    }
-
-    private static boolean containsDirectory(File parent, File child) {
-        File current = child;
-        while (current != null) {
-            if (parent.equals(current)) {
-                return true;
-            }
-            current = current.getParentFile();
-        }
-        return false;
-    }
-
-    private static void deleteContents(File directory) throws IOException {
-        if (directory == null
-                || !directory.exists()
-                || !directory.isDirectory()) {
-            return;
-        }
-
-        File[] files = listFiles(directory);
-        for (File file : files) {
-            deleteRecursively(file);
-        }
-    }
-
-    private static void deleteRecursively(File file) throws IOException {
-        if (file == null || !file.exists()) {
-            return;
-        }
-
-        if (file.isDirectory()) {
-            File[] children = listFiles(file);
-            for (File child : children) {
-                deleteRecursively(child);
-            }
-        }
-
-        if (!file.delete() && file.exists()) {
-            throw new IOException(
-                    "Unable to delete: " + file.getAbsolutePath());
-        }
-
-        System.out.println("SPD_Mod: [DEL OK] " + file.getAbsolutePath());
-    }
-
-    private static void copyRecursively(
-            File source,
-            File target,
-            boolean syncFiles) throws IOException {
-
-        if (!source.exists()) {
-            throw new IOException(
-                    "Copy source disappeared: "
-                            + source.getAbsolutePath());
-        }
-
-        if (source.isDirectory()) {
-            if (target.exists()
-                    && target.isFile()
-                    && !target.delete()) {
-                throw new IOException(
-                        "Unable to replace file with directory: "
-                                + target.getAbsolutePath());
-            }
-            if (!target.exists()
-                    && !target.mkdirs()
-                    && !target.isDirectory()) {
-                throw new IOException(
-                        "Unable to create directory: "
-                                + target.getAbsolutePath());
-            }
-
-            File[] files = listFiles(source);
-            for (File file : files) {
-                System.out.println(
-                        "SPD_Mod: "
-                                + (file.isDirectory() ? "[DIR]  " : "[FILE] ")
-                                + file.getName());
-                copyRecursively(
-                        file,
-                        new File(target, file.getName()),
-                        syncFiles);
-            }
-            return;
-        }
-
-        File parent = target.getParentFile();
-        if (parent != null
-                && !parent.exists()
-                && !parent.mkdirs()
-                && !parent.isDirectory()) {
-            throw new IOException(
-                    "Unable to create directory: "
-                            + parent.getAbsolutePath());
-        }
-
-        if (!syncFiles) {
-            System.out.println(
-                    "SPD_Mod: Exp: "
-                            + source.getName()
-                            + " > "
-                            + target.getAbsolutePath());
-        }
-
-        try (FileInputStream input = new FileInputStream(source);
-             FileOutputStream output = new FileOutputStream(target)) {
-
-            byte[] buffer = new byte[8192];
-            int length;
-            while ((length = input.read(buffer)) != -1) {
-                output.write(buffer, 0, length);
-            }
-
-            output.flush();
-            if (syncFiles) {
-                try {
-                    output.getFD().sync();
-                } catch (IOException ignored) {
-                    // Existing import behavior treats fsync as best effort.
-                }
-            }
-        }
     }
 }
