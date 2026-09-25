@@ -70,7 +70,9 @@ public final class ModSaveTransfer {
         Game.runOnRenderThread(() -> {
             try {
                 if (export) {
-                    exportDesktopSnapshot();
+                    if (exportDesktopSnapshot()) {
+                        postDesktopLog(true, "Save exported!");
+                    }
                 } else {
                     importDesktopSnapshot();
                 }
@@ -81,9 +83,28 @@ public final class ModSaveTransfer {
                                 + " Crash - "
                                 + e.getMessage());
                 e.printStackTrace();
-                GLog.w(
-                        export ? "Export failed!" : "Import failed!",
-                        new Object[0]);
+                postDesktopLog(
+                        false,
+                        export ? "Export failed!" : "Import failed!");
+            }
+        });
+    }
+
+    private static void postDesktopLog(
+            final boolean positive,
+            final String message) {
+
+        // TinyFD blocks this render-thread runnable while the native dialog is
+        // open. Post the GameLog write again so LWJGL3 executes it in the next
+        // application loop, after GLFW has had a chance to refresh window and
+        // framebuffer state. Creating RenderedText immediately after the dialog
+        // can otherwise produce an invalid font size and FreeType's
+        // "No cap character found in font" exception.
+        Game.runOnRenderThread(() -> {
+            if (positive) {
+                GLog.h(message, new Object[0]);
+            } else {
+                GLog.w(message, new Object[0]);
             }
         });
     }
@@ -181,13 +202,13 @@ public final class ModSaveTransfer {
                 .invoke(null, pid);
     }
 
-    private static void exportDesktopSnapshot() throws Exception {
+    private static boolean exportDesktopSnapshot() throws Exception {
         File sourceDir = desktopSaveDirectory();
         File targetDir = chooseDesktopDirectory(
                 "Export Save",
                 PREF_EXPORT_DIRECTORY);
         if (targetDir == null) {
-            return;
+            return false;
         }
 
         if (directoriesOverlap(sourceDir, targetDir)) {
@@ -206,8 +227,7 @@ public final class ModSaveTransfer {
         desktopDeleteContents(targetDir);
         desktopCopyRecursively(sourceDir, targetDir, false);
         writeDesktopMarker(targetDir);
-
-        GLog.h("Save exported!", new Object[0]);
+        return true;
     }
 
     private static void importDesktopSnapshot() throws Exception {
@@ -225,7 +245,7 @@ public final class ModSaveTransfer {
         }
 
         if (!validDesktopSnapshot(sourceDir)) {
-            GLog.w("No save to import!", new Object[0]);
+            postDesktopLog(false, "No save to import!");
             return;
         }
 
