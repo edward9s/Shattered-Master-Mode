@@ -190,6 +190,13 @@ public final class ModSaveTransfer {
                     "Selected export directory overlaps the active save directory");
         }
 
+        if (desktopListFiles(targetDir).length > 0
+                && !looksLikeSpdSaveDirectory(targetDir)) {
+            throw new IOException(
+                    "Selected export directory does not look like SPD save data: "
+                            + targetDir.getAbsolutePath());
+        }
+
         Dungeon.saveAll();
         desktopDeleteContents(targetDir);
         desktopCopyRecursively(sourceDir, targetDir, false);
@@ -336,6 +343,31 @@ public final class ModSaveTransfer {
                             + directory.getAbsolutePath());
         }
         return files;
+    }
+
+    private static boolean looksLikeSpdSaveDirectory(File directory)
+            throws IOException {
+
+        // settings.xml is intentionally not sufficient by itself: many libGDX
+        // applications use that generic name. These are SPD-specific save
+        // artifacts that are stable across Shattered-derived forks.
+        if (new File(directory, "rankings.dat").isFile()
+                || new File(directory, "badges.dat").isFile()
+                || new File(directory, "journal.dat").isFile()) {
+            return true;
+        }
+
+        for (File file : desktopListFiles(directory)) {
+            if (!file.isDirectory()
+                    || !file.getName().matches("game\\d+")) {
+                continue;
+            }
+            if (new File(file, "game.dat").isFile()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static boolean directoriesOverlap(File first, File second)
