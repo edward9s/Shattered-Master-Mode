@@ -805,7 +805,6 @@ public class ModAssassinate extends Buff {
             }
 
             instance.removeCrosshair();
-            aimedTarget = target;
             if (validAimTarget(target)) {
                 target.sprite.parent.addToFront(instance.crosshair);
                 instance.positionCrosshair();
