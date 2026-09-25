@@ -7,6 +7,7 @@
 - Designed for in-game sandbox testing, rapid editing, and easily creating meme images.
 - **Preserves Vanilla Mechanics:** SMM does not replace or rewrite vanilla gameplay mechanics. Vanilla behavior remains unchanged unless an SMM feature is explicitly enabled.
 - **Minimal Integration:** SMM uses existing vanilla extension points whenever possible. The only gameplay-level invasive hook is `Char.attack()`, used by Riposte; no additional gameplay hooks should be added.
+- **Save transfer:** Tools can export/import full save snapshots with one-click Android storage or a native Desktop folder chooser; Desktop remembers the last export/import locations separately.
 
 ## Known Limitations & Warnings
 
