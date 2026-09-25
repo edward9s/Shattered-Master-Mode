@@ -6,6 +6,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndTitledMessage;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
+import com.watabou.utils.DeviceCompat;
 
 import com.spd.mod.ModGame;
 import com.spd.mod.ModUpdates;
@@ -73,7 +74,7 @@ public class ModToolsWindow extends WndTitledMessage {
 
         y += btnHeight + margin;
 
-        if (ModGame.isAndroid()) {
+        if (ModGame.isAndroid() || DeviceCompat.isDesktop()) {
             BtnExportSave btnExport = new BtnExportSave();
             btnExport.setSize(halfWidth, btnHeight);
             btnExport.setPos(x, y);
