@@ -127,6 +127,7 @@ public class ModLastStand extends Buff {
         if (target instanceof Hero && target == Dungeon.hero) {
             Hero hero = (Hero) target;
             storage.reclaimPending(hero);
+            ModLegacyCompat.centerNextWindowOnInventoryPane();
             GameScene.show(new WndModLoot(storage, name(), WndModLoot.Mode.USE));
         }
     }

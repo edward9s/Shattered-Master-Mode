@@ -119,6 +119,20 @@ public final class ModLegacyCompat {
         return true;
     }
 
+    public static void centerNextWindowOnInventoryPane() {
+        try {
+            Class<?> gameScene = Class.forName(
+                    "com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene");
+            Method method = gameScene.getMethod("centerNextWndOnInvPane");
+            if (Modifier.isStatic(method.getModifiers())
+                    && method.getReturnType() == Void.TYPE) {
+                method.invoke(null);
+            }
+        } catch (ReflectiveOperationException | LinkageError | SecurityException ignored) {
+            // Older targets do not expose desktop InventoryPane window positioning.
+        }
+    }
+
     public static Item grabOne(PinCushion pin) {
         if (pin == null) {
             return null;
