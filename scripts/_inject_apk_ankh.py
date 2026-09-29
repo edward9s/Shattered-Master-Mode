@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mode adapter for the small ModAnkh + Store/Loot/Console APK payload."""
+"""Mode adapter for the small ModAnkh tools + Last Stand + Instant Kill APK payload."""
 from __future__ import annotations
 
 import re
