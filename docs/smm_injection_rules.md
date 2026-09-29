@@ -53,7 +53,7 @@ JAR injection does not use this APK signing key.
 - Reject unresolved or ambiguous ABI dependencies instead of forcing the build.
 - Do not copy arbitrary donor-only or obfuscated classes to hide compatibility errors.
 - Keep `--ankh-only` narrow. It exists to provide ModAnkh, ModLastStand, ModInstantKill, and the Store / Loot / Debug Console tools on older forks.
-- Full injection may use the existing SMM menu and Riposte hooks; minimal injection must not install unrelated full-SMM hooks.
+- Full injection may use the existing SMM menu, the Riposte `Char.attack()` hook, and the Force Hit `Char.hit()` hook; minimal injection must not install these full-SMM hooks.
 - A Debug Console command can expose bugs already present in the target game. Do not patch unrelated target gameplay bugs merely to make a command appear successful.
 
 ## Current naming
