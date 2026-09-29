@@ -53,7 +53,7 @@ JAR 注入不使用這把 APK 簽章金鑰。
 - ABI dependency 無法可靠解析時直接停止，不猜測、不硬塞。
 - 不複製任意 donor-only 或混淆 class 來掩蓋 compatibility error。
 - `--ankh-only` 必須保持精簡；用途就是讓老 fork 能使用 ModAnkh、ModLastStand、ModInstantKill，以及 Store / Loot / Debug Console 工具。
-- 完整注入可以使用既有 SMM 選單與 Riposte hook；最小注入不得安裝無關的 full-SMM hook。
+- 完整注入可以使用既有 SMM 選單、Riposte `Char.attack()` hook 與 Force Hit `Char.hit()` hook；最小注入不得安裝這些 full-SMM hook。
 - Debug Console 指令可能觸發 target 本身既有的 bug；不要為了讓指令表面成功而順便修改無關的 target 遊戲邏輯。
 
 ## 目前命名
