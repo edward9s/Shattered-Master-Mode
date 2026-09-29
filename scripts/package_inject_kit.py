@@ -48,7 +48,7 @@ def populate_kit(
         "Full SMM:\n"
         "  python inject_apk.py TARGET.apk\n"
         "  python inject_jar.py TARGET.jar\n\n"
-        "Minimal (ModAnkh tools only):\n"
+        "Minimal (ModAnkh tools + combat helpers):\n"
         "  python inject_apk.py TARGET.apk --ankh-only\n"
         "  python inject_jar.py TARGET.jar --ankh-only\n\n"
         "Includes Last Stand, Instant Kill, Store, Loot, and Debug Console support.\n"
