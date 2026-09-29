@@ -149,5 +149,28 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertIn("cycle", capability.detail)
 
 
+    def test_force_hit_hook_is_added_to_static_hit(self):
+        proto = f"({self.char}{self.char}FZ)Z"
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public static hit{proto}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        patched = mod.patch_char_hit(text, self.char)
+        hook = (
+            "Lcom/spd/mod/mechanics/ModForceHit;->forceHitCheck("
+            + self.char + self.char + ")Z"
+        )
+        _, _, block = mod.injector.method_block(patched, "hit", proto)
+        self.assertEqual(1, block.count(hook))
+        self.assertLess(block.index(hook), block.index("const/4 v0, 0x0"))
+        self.assertIn("return v0", block)
+
+
+
 if __name__ == "__main__":
     unittest.main()
