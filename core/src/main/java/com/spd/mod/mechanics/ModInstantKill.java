@@ -154,7 +154,7 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public String desc() {
-        return "Successful physical attacks kill their target while enabled. Tap to configure.";
+        return "Successful physical attacks kill their target while enabled.";
     }
 
     @Override
