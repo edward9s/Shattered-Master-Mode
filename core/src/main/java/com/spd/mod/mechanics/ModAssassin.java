@@ -17,18 +17,25 @@ import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.watabou.utils.Callback;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 
 public class ModAssassin {
+
+    private static final HashMap<Class<?>, Method> CAN_ATTACK_METHODS = new HashMap<>();
+    private static final HashSet<Class<?>> NO_CAN_ATTACK_METHOD = new HashSet<>();
 
     public static void cast(Hero hero) {
         GameScene.selectCell(new Selector(hero));
     }
 
     /**
-     * Core Assassinate execution is Char-generic. The player-facing
-     * ModAssassinate buff remains Hero-only because its targeting UI is owned by
-     * Dungeon.hero; non-Hero callers must supply their own activation policy.
+     * Core Assassinate execution is Char-generic. The player-facing targeting UI
+     * is still owned by Dungeon.hero; non-Hero callers must supply their own
+     * activation policy.
      */
     public static void perform(Char attacker, Char target) {
         if (attacker == null
@@ -53,7 +60,7 @@ public class ModAssassin {
         }
 
         // 以「實際落點」複驗攻擊範圍。bestPos 在搜尋時已驗證過。
-        if (!attacker.canAttack(target)) {
+        if (!canAttackFromCurrentPosition(attacker, target)) {
             GLog.w("Target is out of reach", new Object[0]);
             return;
         }
@@ -109,7 +116,8 @@ public class ModAssassin {
 
     /**
      * 沿「目標 -> 攻擊者」路徑掃描所有可站立節點，回傳最靠攻擊者一端、
-     * 且仍可攻擊目標的落點。攻擊可行性完全委託 attacker.canAttack()。
+     * 且仍可攻擊目標的落點。攻擊可行性委託角色自己的 canAttack(Char)；
+     * Char 基類本身沒有這個 API，因此非 Hero 由相容層解析。
      */
     private static int findBestPos(Char attacker, Char target) {
         ArrayList<Integer> path = findSmartPath(attacker, target.pos, attacker.pos);
@@ -141,7 +149,7 @@ public class ModAssassin {
 
                 boolean attackable;
                 try {
-                    attackable = attacker.canAttack(target);
+                    attackable = canAttackFromCurrentPosition(attacker, target);
                 } finally {
                     if (doorSimulated) {
                         level.solid[node] = originalSolid;
@@ -157,6 +165,64 @@ public class ModAssassin {
         }
 
         return bestPos;
+    }
+
+    /**
+     * Hero exposes canAttack(Char) publicly, while Mob keeps the same semantic
+     * method protected and Char does not define it at all. Preserve Hero's direct
+     * ABI and resolve non-Hero implementations once per concrete class.
+     *
+     * A Char subclass with no canAttack(Char) contract falls back to ordinary
+     * adjacent melee reach; reflection failures after a method was found are
+     * treated as incompatible runtime state rather than silently ignored.
+     */
+    private static boolean canAttackFromCurrentPosition(Char attacker, Char target) {
+        if (attacker instanceof Hero) {
+            return ((Hero) attacker).canAttack(target);
+        }
+
+        Method method = resolveCanAttackMethod(attacker.getClass());
+        if (method == null) {
+            return Dungeon.level != null
+                    && Dungeon.level.adjacent(attacker.pos, target.pos);
+        }
+
+        try {
+            return (Boolean) method.invoke(attacker, target);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(
+                    "Unable to invoke canAttack(Char) for " + attacker.getClass().getName(), e);
+        }
+    }
+
+    private static synchronized Method resolveCanAttackMethod(Class<?> type) {
+        Method cached = CAN_ATTACK_METHODS.get(type);
+        if (cached != null) {
+            return cached;
+        }
+        if (NO_CAN_ATTACK_METHOD.contains(type)) {
+            return null;
+        }
+
+        for (Class<?> current = type; current != null && Char.class.isAssignableFrom(current);
+                current = current.getSuperclass()) {
+            try {
+                Method method = current.getDeclaredMethod("canAttack", Char.class);
+                if (method.getReturnType() != Boolean.TYPE
+                        || Modifier.isStatic(method.getModifiers())) {
+                    throw new IllegalStateException(
+                            "Invalid canAttack(Char) shape on " + current.getName());
+                }
+                method.setAccessible(true);
+                CAN_ATTACK_METHODS.put(type, method);
+                return method;
+            } catch (NoSuchMethodException ignored) {
+                // Keep walking toward Char. Char itself intentionally has no method.
+            }
+        }
+
+        NO_CAN_ATTACK_METHOD.add(type);
+        return null;
     }
 
     /**
