@@ -24,7 +24,7 @@ public class ModGridAssassinBuff extends ModGridEntry {
             return false;
         }
 
-        ModCharSelector.startHeroOnly(ModAssassinate.class);
+        ModCharSelector.start(ModAssassinate.class);
         return true;
     }
 }

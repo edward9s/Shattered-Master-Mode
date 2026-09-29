@@ -36,8 +36,11 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 
 /**
- * Permanent Hero buff that exposes Assassinate through an edge Tag and an
- * optional map long-press gesture.
+ * Permanent Char buff carrying Assassinate configuration.
+ *
+ * When attached to Dungeon.hero, it also exposes Assassinate through an edge
+ * Tag and an optional map long-press gesture. Non-Hero bearers own only their
+ * buff state and never install or remove the player's runtime UI.
  */
 public class ModAssassinate extends Buff {
 
@@ -82,11 +85,13 @@ public class ModAssassinate extends Buff {
 
     public void toggleAssassin() {
         assassinEnabled = !assassinEnabled;
-        if (assassinEnabled) {
-            refreshRuntimeUi();
-        } else {
-            AssassinateTag.disable();
-            removeInputLayer();
+        if (ownsPlayerUi()) {
+            if (assassinEnabled) {
+                refreshRuntimeUi();
+            } else {
+                AssassinateTag.disable();
+                removeInputLayer();
+            }
         }
         BuffIndicator.refreshHero();
         ModTotalInfoOverlay.refreshIndicators();
@@ -94,6 +99,9 @@ public class ModAssassinate extends Buff {
 
     public void toggleMapLongPress() {
         mapLongPressEnabled = !mapLongPressEnabled;
+        if (!ownsPlayerUi()) {
+            return;
+        }
         if (assassinEnabled && mapLongPressEnabled) {
             ensureInputLayer();
         } else {
@@ -101,9 +109,13 @@ public class ModAssassinate extends Buff {
         }
     }
 
+    private boolean ownsPlayerUi() {
+        return target != null && target == Dungeon.hero;
+    }
+
     private void refreshRuntimeUi() {
         ModTotalInfoOverlay.ensureInstalled();
-        if (!assassinEnabled) {
+        if (!ownsPlayerUi() || !assassinEnabled) {
             return;
         }
 
@@ -115,9 +127,6 @@ public class ModAssassinate extends Buff {
 
     @Override
     public boolean attachTo(Char target) {
-        if (!(target instanceof Hero)) {
-            return false;
-        }
         if (!super.attachTo(target)) {
             return false;
         }
@@ -141,10 +150,14 @@ public class ModAssassinate extends Buff {
 
     @Override
     public void detach() {
+        boolean ownedPlayerUi = ownsPlayerUi();
         super.detach();
-        AssassinateTag.disable();
-        removeInputLayer();
+        if (ownedPlayerUi) {
+            AssassinateTag.disable();
+            removeInputLayer();
+        }
         BuffIndicator.refreshHero();
+        ModTotalInfoOverlay.refreshIndicators();
     }
 
     @Override
@@ -169,11 +182,11 @@ public class ModAssassinate extends Buff {
 
     @Override
     public String desc() {
-        return "While enabled, the edge target button enters Assassinate targeting. "
-                + "Press it again to use the current crosshair target, or cancel targeting if no target is selected. "
-                + "You can also tap a map cell or character directly. "
-                + "Map long-press is optional and disabled by default. "
-                + "Attacks follow SPD's normal surprise-attack and weapon accuracy rules. Tap to configure.";
+        return "Enables Assassinate for this character. When attached to the player Hero, "
+                + "the edge target button enters Assassinate targeting; press it again to use the current "
+                + "crosshair target, or cancel targeting if no target is selected. Map long-press is optional "
+                + "and disabled by default. Attacks follow SPD's normal surprise-attack and weapon accuracy rules. "
+                + "Tap to configure.";
     }
 
     private static boolean assassinEnabledForHero() {

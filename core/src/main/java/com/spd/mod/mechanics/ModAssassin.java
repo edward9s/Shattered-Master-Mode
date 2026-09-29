@@ -25,13 +25,22 @@ public class ModAssassin {
         GameScene.selectCell(new Selector(hero));
     }
 
-    public static void perform(Hero hero, Char target) {
-        if (target == null || target == hero || !target.isAlive()) {
+    /**
+     * Core Assassinate execution is Char-generic. The player-facing
+     * ModAssassinate buff remains Hero-only because its targeting UI is owned by
+     * Dungeon.hero; non-Hero callers must supply their own activation policy.
+     */
+    public static void perform(Char attacker, Char target) {
+        if (attacker == null
+                || target == null
+                || target == attacker
+                || !attacker.isAlive()
+                || !target.isAlive()) {
             GLog.w("No valid target", new Object[0]);
             return;
         }
 
-        int bestPos = findBestPos(hero, target);
+        int bestPos = findBestPos(attacker, target);
 
         if (bestPos == -1) {
             GLog.w("No valid attack position", new Object[0]);
@@ -39,52 +48,40 @@ public class ModAssassin {
         }
 
         // 傳送失敗直接中止，絕不在位置未確認的情況下發動攻擊
-        if (!ModFlash.perform(hero, bestPos)) {
+        if (!ModFlash.perform(attacker, bestPos)) {
             return;
         }
 
-        // 以「實際落點」複驗攻擊範圍。bestPos 在搜尋時已驗證過，
-        // 此檢查在現行流程中恆成立；保留它是為了保證
-        // 「傳送了卻沒攻擊、也沒有任何訊息」這種狀況在本分支永遠不可能發生。
-        if (!hero.canAttack(target)) {
+        // 以「實際落點」複驗攻擊範圍。bestPos 在搜尋時已驗證過。
+        if (!attacker.canAttack(target)) {
             GLog.w("Target is out of reach", new Object[0]);
             return;
         }
 
         Wound.hit(target);
 
-        int originalInvisible = hero.invisible;
-        boolean forceHit = ModForceHit.find(hero) != null;
-        boolean bypassInfiniteEvasion = forceHit
-                && !target.isInvulnerable(hero.getClass())
-                && ModCombatCompat.hasInfiniteEvasionAgainst(target, hero);
+        int originalInvisible = attacker.invisible;
         boolean hit;
 
         try {
             // Assassinate creates the same hit context as an invisible attack, then
-            // lets SPD's native canSurpriseAttack() decide whether that grants
-            // infinite accuracy. Overweight weapons and weapon-specific exclusions
-            // such as Flail therefore keep their normal accuracy rules.
-            hero.invisible = Math.max(1, originalInvisible);
-
-            // Force Hit is a separate Mod buff. Only it may override an engine-level
-            // INFINITE_EVASION target; Assassinate itself no longer guarantees a hit.
-            hit = bypassInfiniteEvasion
-                    ? ModCombatCompat.forceHeroHit(hero, target, 1f, 0f)
-                    : hero.attack(target, 1f, 0f, 1f);
+            // lets the target Char implementation decide whether surprise accuracy
+            // applies. Force Hit is resolved centrally by the injected Char.hit hook.
+            attacker.invisible = Math.max(1, originalInvisible);
+            hit = attacker.attack(target, 1f, 0f, 1f);
         } finally {
-            hero.invisible = originalInvisible;
+            attacker.invisible = originalInvisible;
         }
 
         if (!hit && target.isAlive()) {
-            // Assassinate owns movement and hit resolution only. A separate combat
-            // buff may decide that an engine-blocked attack has its own effect;
-            // Assassinate does not inspect that buff's switches or death behavior.
-            hit = ModInstantKill.resolveBlockedAttack(hero, target);
+            // Instant Kill owns its engine-blocked-attack policy independently.
+            hit = ModInstantKill.resolveBlockedAttack(attacker, target);
         }
 
-        // 比照 Hero.onAttackComplete() 的官方原版邏輯：近戰命中時觸發角鬥士連擊與決鬥者連擊計數
-        if (hit) {
+        // Hero has class-specific onAttackComplete bookkeeping that this synchronous,
+        // turn-free attack intentionally bypasses. Preserve only those Hero semantics.
+        if (hit && attacker instanceof Hero) {
+            Hero hero = (Hero) attacker;
             if (hero.subClass == HeroSubClass.GLADIATOR) {
                 Buff.affect(hero, Combo.class).hit(target);
             }
@@ -93,19 +90,16 @@ public class ModAssassin {
             }
         }
 
-        CharSprite sprite = hero.sprite;
+        CharSprite sprite = attacker.sprite;
         int targetPos = target.pos;
         if (sprite != null) {
-            // The damage above is already resolved synchronously. This animation is
-            // visual-only. Supplying a callback prevents CharSprite.onComplete() from
-            // calling Hero.onAttackComplete(), which on forks such as MLPD performs
-            // normal-attack side effects including Invisibility.dispel() and
-            // spend(attackDelay()). Leaving the callback null makes Assassinate cost
-            // a real turn on those forks.
+            // Damage is already resolved synchronously. A no-op callback keeps this
+            // animation visual-only and prevents Hero.onAttackComplete() from charging
+            // a normal attack turn on forks where CharSprite does that automatically.
             sprite.attack(targetPos, new Callback() {
                 @Override
                 public void call() {
-                    // Intentionally no-op: Assassinate must stay in the same actor tick.
+                    // Assassinate intentionally stays in the same actor tick.
                 }
             });
         }
@@ -114,39 +108,29 @@ public class ModAssassin {
     }
 
     /**
-     * 沿「敵人 -> 英雄」路徑掃描所有可站立節點，回傳路徑上離英雄最近端、
-     * 且仍可攻擊到敵人的落點 (最遠可攻擊點)。
-     * 攻擊可行性完全委託 hero.canAttack：一般武器受 solid 阻擋、
-     * 索敵附魔可隔牆隔門，皆由引擎原生 canReach 判定，mod 不另設規則。
+     * 沿「目標 -> 攻擊者」路徑掃描所有可站立節點，回傳最靠攻擊者一端、
+     * 且仍可攻擊目標的落點。攻擊可行性完全委託 attacker.canAttack()。
      */
-    private static int findBestPos(Hero hero, Char target) {
-        ArrayList<Integer> path = findSmartPath(hero, target.pos, hero.pos);
+    private static int findBestPos(Char attacker, Char target) {
+        ArrayList<Integer> path = findSmartPath(attacker, target.pos, attacker.pos);
 
         int bestPos = -1;
-        int originalPos = hero.pos;
+        int originalPos = attacker.pos;
         Level level = Dungeon.level;
 
-        // try/finally 保證 hero.pos 無論如何都會還原，
-        // 避免 canAttack 內部拋出例外時英雄殘留在暫代位置
+        // try/finally 保證暫時模擬位置一定還原。
         try {
             for (Integer node : path) {
-
-                // 路徑由 findSmartPath 產生時已排除不可通行與被佔據的格子，
-                // 這裡的複檢是最後防線；一旦違反即中斷，不跳格
                 Char occupant = Actor.findChar(node);
-                boolean isFree = (occupant == null || occupant == hero);
+                boolean isFree = occupant == null || occupant == attacker;
                 if (!level.passable[node] || !isFree) {
                     break;
                 }
 
-                hero.pos = node;
+                attacker.pos = node;
 
-                // 門格模擬：英雄實際落地時 occupyCell 會開門 (DOOR -> OPEN_DOOR，
-                // 不再是 solid)，但此刻模擬時門還關著。canReach 的距離圖以
-                // solid 為阻擋，會誤判「站在門口」無法用長距武器攻擊，
-                // 導致落點永遠越過門而不停在門口。
-                // 故測試門格時暫時視為已開門；只模擬英雄要站的這一格，
-                // 路徑上其他關著的門仍是 solid，維持武器不可穿透門板的規則。
+                // 模擬角色實際站上門格後門已打開，避免 canAttack() 因目前
+                // solid 狀態錯判門格上的合法攻擊位置。
                 boolean doorSimulated = false;
                 boolean originalSolid = false;
                 if (level.map[node] == Terrain.DOOR) {
@@ -157,7 +141,7 @@ public class ModAssassin {
 
                 boolean attackable;
                 try {
-                    attackable = hero.canAttack(target);
+                    attackable = attacker.canAttack(target);
                 } finally {
                     if (doorSimulated) {
                         level.solid[node] = originalSolid;
@@ -167,31 +151,22 @@ public class ModAssassin {
                 if (attackable) {
                     bestPos = node;
                 }
-                // 不在第一次 canAttack 失敗時終止。
-                // 「索敵」附魔的武器由 canReach 以純距離判定、可隔牆隔門攻擊，
-                // 而路徑是繞牆走的，距敵人的幾何距離沿路徑並非單調遞增——
-                // 可能先超出射程、繞過牆後又回到射程內。
-                // 一般武器同理：canReach 的距離圖走的是非 solid 地形 (含陷阱、
-                // 裂隙上方)，路徑後段的節點仍可能合法地搆到敵人。
-                // 故掃描整條路徑，bestPos 為最後一個可攻擊節點，
-                // 即路徑上離英雄最近端的最遠可攻擊點。
-                // 效能無虞：距離超出射程的節點在 canReach 第一行就被廉價排除。
             }
         } finally {
-            hero.pos = originalPos;
+            attacker.pos = originalPos;
         }
 
         return bestPos;
     }
 
     /**
-     * BFS 尋路：從敵人 (startPos) 往英雄 (heroPos) 探索。
-     * - 其他角色所在格視為阻擋，路徑會繞過站在中間的角色，而非中斷放棄
-     * - 英雄不可達時，取已探索範圍中幾何距離英雄最近者為終點 (半截路徑)
-     * - 路徑回推為確定性演算法：同深度候選一律取最靠英雄的格子，
-     *   同一盤面永遠得到同一條路徑，消除舊版依探索順序而變的不穩定行為
+     * BFS 尋路：從目標 (startPos) 往攻擊者 (attackerPos) 探索。
+     * - 其他角色所在格視為阻擋
+     * - 攻擊者不可達時，取已探索範圍中幾何距離攻擊者最近者
+     * - 同深度候選固定取最靠攻擊者者，維持結果可重現
      */
-    private static ArrayList<Integer> findSmartPath(Hero hero, int startPos, int heroPos) {
+    private static ArrayList<Integer> findSmartPath(
+            Char attacker, int startPos, int attackerPos) {
         Level level = Dungeon.level;
         int length = level.length();
         int w = level.width();
@@ -206,29 +181,26 @@ public class ModAssassin {
         queue.add(startPos);
         depth[startPos] = 0;
 
-        // 防呆機制：限制最大探索步數，防止極度開闊地形造成效能問題
         int maxExplore = 512;
         int head = 0;
 
         while (head < queue.size() && maxExplore > 0) {
             int current = queue.get(head++);
 
-            if (current == heroPos) {
-                break; // 順利抵達英雄，提早結束
+            if (current == attackerPos) {
+                break;
             }
 
             for (int offset : offsets) {
                 int neighbor = current + offset;
 
                 if (neighbor < 0 || neighbor >= length) continue;
-                // 幾何距離必須恰為 1，防止 index 運算在地圖左右邊界繞回
                 if (level.distance(current, neighbor) != 1) continue;
-                if (depth[neighbor] != -1) continue; // 已探索
+                if (depth[neighbor] != -1) continue;
                 if (!level.passable[neighbor]) continue;
 
-                // 被其他角色佔據的格子視為阻擋 (英雄自身除外)
                 Char occupant = Actor.findChar(neighbor);
-                if (occupant != null && occupant != hero) continue;
+                if (occupant != null && occupant != attacker) continue;
 
                 depth[neighbor] = depth[current] + 1;
                 queue.add(neighbor);
@@ -236,60 +208,57 @@ public class ModAssassin {
             maxExplore--;
         }
 
-        // 決定終點：英雄可達就用英雄位置；否則取已探索中
-        // 幾何距離英雄最近者 (平手取深度較淺者，完全確定性)
         int goal;
-        if (depth[heroPos] > 0) {
-            goal = heroPos;
+        if (depth[attackerPos] > 0) {
+            goal = attackerPos;
         } else {
             goal = startPos;
             int bestDist = Integer.MAX_VALUE;
             int bestDepth = Integer.MAX_VALUE;
-            for (int c : queue) {
-                if (c == startPos) continue;
-                int d = level.distance(c, heroPos);
-                if (d < bestDist || (d == bestDist && depth[c] < bestDepth)) {
-                    bestDist = d;
-                    bestDepth = depth[c];
-                    goal = c;
+            for (int cell : queue) {
+                if (cell == startPos) continue;
+                int distance = level.distance(cell, attackerPos);
+                if (distance < bestDist
+                        || (distance == bestDist && depth[cell] < bestDepth)) {
+                    bestDist = distance;
+                    bestDepth = depth[cell];
+                    goal = cell;
                 }
             }
         }
 
         ArrayList<Integer> path = new ArrayList<>();
         if (goal == startPos) {
-            return path; // 敵人被完全包圍，無路可走
+            return path;
         }
 
-        // 從終點沿深度遞減回推。同深度有多個候選時，
-        // 一律選幾何上最靠英雄的格子，確保路徑貼英雄側且結果可重現
-        int curr = goal;
-        while (depth[curr] > 0) {
-            path.add(0, curr); // 往前插入，最後陣列方向是 敵人 -> 英雄
+        int current = goal;
+        while (depth[current] > 0) {
+            path.add(0, current);
 
-            if (depth[curr] == 1) {
-                break; // 再往回就是敵人本格，不列入
+            if (depth[current] == 1) {
+                break;
             }
 
             int next = -1;
             int nextDist = Integer.MAX_VALUE;
             for (int offset : offsets) {
-                int neighbor = curr + offset;
+                int neighbor = current + offset;
                 if (neighbor < 0 || neighbor >= length) continue;
-                if (level.distance(curr, neighbor) != 1) continue;
-                if (depth[neighbor] != depth[curr] - 1) continue;
+                if (level.distance(current, neighbor) != 1) continue;
+                if (depth[neighbor] != depth[current] - 1) continue;
 
-                int d = level.distance(neighbor, heroPos);
-                if (d < nextDist) {
-                    nextDist = d;
+                int distance = level.distance(neighbor, attackerPos);
+                if (distance < nextDist) {
+                    nextDist = distance;
                     next = neighbor;
                 }
             }
 
             if (next == -1) {
-                break; // BFS 性質保證必有 depth-1 鄰居，此為防禦性檢查
+                break;
             }
-            curr = next;
+            current = next;
         }
 
         return path;
@@ -318,12 +287,12 @@ public class ModAssassin {
 
             Char target = Actor.findChar(cell);
 
-            if (target == null || target == this.hero) {
-                // 空地閃現分支：依設計不檢查牆壁或障礙物，
-                // 任何合法地圖點位皆可閃現；落點合理性只有暗殺分支才考慮
-                ModFlash.perform(this.hero, cell);
+            if (target == null || target == hero) {
+                // Player UI remains Hero-owned. Empty cells use the existing Flash
+                // behavior; Assassinate itself delegates to the Char-generic core.
+                ModFlash.perform(hero, cell);
             } else {
-                ModAssassin.perform(this.hero, target);
+                ModAssassin.perform(hero, target);
             }
         }
 

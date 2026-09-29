@@ -1,39 +1,16 @@
 package com.spd.mod.mechanics;
 
-import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
-import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
-import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Combo;
-import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
-import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
-import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
-import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.ModTotalInfoOverlay;
-import com.watabou.noosa.Gizmo;
-import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
-import com.watabou.utils.Callback;
 
-import java.lang.reflect.Field;
-import java.util.HashSet;
-
-/** Permanent Hero buff with a configurable forced-hit effect. */
-public class ModForceHit extends ChampionEnemy {
+/** Permanent Char buff with a configurable forced-hit effect. */
+public class ModForceHit extends Buff {
 
     private static final String FORCE_HIT_ENABLED = "force_hit_enabled";
-
-    private static Field currentActorField;
-    private static AccuracyObserver accuracyObserver;
-    private static boolean observerInstallPending;
-
-    private static Char observedAttackTarget;
-    private static boolean observedAttackWasInvulnerable;
-    private static boolean observedAttackLanded;
 
     private boolean forceHitEnabled = true;
 
@@ -41,9 +18,6 @@ public class ModForceHit extends ChampionEnemy {
         type = buffType.POSITIVE;
         announced = true;
         revivePersists = true;
-        // ChampionEnemy is used only for its attacker accuracy factor and
-        // successful-hit damage-factor hook.
-        color = 0xFFFFFF;
     }
 
     /** Returns the attached buff regardless of whether its effect is enabled. */
@@ -64,13 +38,12 @@ public class ModForceHit extends ChampionEnemy {
     }
 
     /**
-     * Injected Char.hit calls this before defender.defenseSkill(). Returning true
-     * means the hit roll itself is resolved immediately, which avoids side effects
-     * from defensive hit-check methods such as GreatCrab's block message/sound.
-     * Invulnerability remains an engine-level hard stop and is never bypassed.
+     * Char.hit calls this before any native defense calculation. Returning true
+     * resolves the hit immediately. Invulnerability remains an engine-level hard
+     * stop and is never bypassed.
      */
     public static boolean forceHitCheck(Char attacker, Char defender) {
-        return attacker instanceof Hero
+        return attacker != null
                 && defender != null
                 && attacker != defender
                 && attacker.isAlive()
@@ -85,56 +58,38 @@ public class ModForceHit extends ChampionEnemy {
 
     public void toggleForceHit() {
         forceHitEnabled = !forceHitEnabled;
-        if (forceHitEnabled) {
-            ensureAccuracyObserver();
-        } else {
-            clearObservedAttack();
-        }
         BuffIndicator.refreshHero();
         ModTotalInfoOverlay.refreshIndicators();
     }
 
     @Override
     public boolean attachTo(Char target) {
-        if (!(target instanceof Hero)) {
-            return false;
-        }
         if (!super.attachTo(target)) {
             return false;
         }
         ModTotalInfoOverlay.ensureInstalled();
-        if (forceHitEnabled) {
-            ensureAccuracyObserver();
-        }
         return true;
     }
 
     @Override
     public void fx(boolean on) {
-        // Do not inherit ChampionEnemy's aura or actor tint.
         if (on) {
             ModTotalInfoOverlay.ensureInstalled();
-            if (forceHitEnabled) {
-                ensureAccuracyObserver();
-            }
         }
     }
 
     @Override
     public boolean act() {
         ModTotalInfoOverlay.ensureInstalled();
-        if (forceHitEnabled) {
-            ensureAccuracyObserver();
-        }
         spend(TICK);
         return true;
     }
 
     @Override
     public void detach() {
-        clearObservedAttack();
         super.detach();
         BuffIndicator.refreshHero();
+        ModTotalInfoOverlay.refreshIndicators();
     }
 
     @Override
@@ -159,150 +114,8 @@ public class ModForceHit extends ChampionEnemy {
 
     @Override
     public String desc() {
-        return "Forces Hero hit checks to succeed whenever the target can be hit. "
+        return "Forces this character's hit checks to succeed whenever the target can be hit. "
                 + "Invulnerability is not bypassed. Tap to configure.";
-    }
-
-    @Override
-    public float evasionAndAccuracyFactor() {
-        if (!forceHitEnabled || target == null) {
-            return 1f;
-        }
-        Actor current = currentActor();
-        return current == target ? Float.MAX_VALUE : 1f;
-    }
-
-    /**
-     * Char.attack reaches ChampionEnemy.meleeDamageFactor() only after its native
-     * hit roll has succeeded. Record that fact without probing defender.defenseSkill(),
-     * because some defenders (notably GreatCrab) attach gameplay/UI side effects to
-     * defenseSkill() calls.
-     */
-    @Override
-    public float meleeDamageFactor() {
-        if (forceHitEnabled && observedAttackTarget != null) {
-            observedAttackLanded = true;
-        }
-        return 1f;
-    }
-
-    private static Actor currentActor() {
-        try {
-            if (currentActorField == null) {
-                currentActorField = Actor.class.getDeclaredField("current");
-                currentActorField.setAccessible(true);
-            }
-            return (Actor) currentActorField.get(null);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    static void ensureAccuracyObserver() {
-        if (!(ShatteredPixelDungeon.scene() instanceof GameScene)) {
-            return;
-        }
-        if (accuracyObserver != null
-                && accuracyObserver.exists
-                && accuracyObserver.parent == ShatteredPixelDungeon.scene()) {
-            return;
-        }
-        if (observerInstallPending) {
-            return;
-        }
-        observerInstallPending = true;
-
-        ShatteredPixelDungeon.runOnRenderThread(new Callback() {
-            @Override
-            public void call() {
-                observerInstallPending = false;
-                if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
-                        || Dungeon.hero == null
-                        || find(Dungeon.hero) == null) {
-                    return;
-                }
-
-                Group scene = (Group) ShatteredPixelDungeon.scene();
-                if (accuracyObserver == null
-                        || !accuracyObserver.exists
-                        || accuracyObserver.parent != scene) {
-                    accuracyObserver = new AccuracyObserver();
-                    scene.addToFront(accuracyObserver);
-                }
-            }
-        });
-    }
-
-    private static void observeHeroAttack(Hero hero) {
-        Char currentTarget = ModCombatCompat.heroAttackTarget(hero);
-
-        if (currentTarget != null) {
-            if (currentTarget != hero && currentTarget.isAlive()) {
-                if (observedAttackTarget != currentTarget) {
-                    observedAttackTarget = currentTarget;
-                    observedAttackWasInvulnerable = currentTarget.isInvulnerable(hero.getClass());
-                    observedAttackLanded = false;
-                }
-            } else {
-                clearObservedAttack();
-            }
-            return;
-        }
-
-        Char attackedTarget = observedAttackTarget;
-        boolean wasInvulnerable = observedAttackWasInvulnerable;
-        boolean landed = observedAttackLanded;
-        clearObservedAttack();
-
-        if (find(hero) == null
-                || attackedTarget == null
-                || !hero.isAlive()
-                || !attackedTarget.isAlive()
-                || landed
-                || wasInvulnerable
-                || attackedTarget.isInvulnerable(hero.getClass())) {
-            return;
-        }
-
-        // Finite evasion is already defeated by evasionAndAccuracyFactor(). If the
-        // native attack still failed to enter its successful-hit pipeline, replay
-        // only that pipeline. Crucially, never pre-query defenseSkill() here: it is
-        // not a pure getter in every SPD mob implementation.
-        if (ModCombatCompat.forceHeroHit(hero, attackedTarget, 1f, 0f)) {
-            if (hero.subClass == HeroSubClass.GLADIATOR) {
-                Buff.affect(hero, Combo.class).hit(attackedTarget);
-            }
-            if (hero.heroClass == HeroClass.DUELIST) {
-                ModCombatCompat.addDuelistComboHit(hero, attackedTarget);
-            }
-        }
-    }
-
-    private static void clearObservedAttack() {
-        observedAttackTarget = null;
-        observedAttackWasInvulnerable = false;
-        observedAttackLanded = false;
-    }
-
-    private static class AccuracyObserver extends Gizmo {
-        @Override
-        public void update() {
-            super.update();
-
-            if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
-                    || parent != ShatteredPixelDungeon.scene()
-                    || Dungeon.hero == null
-                    || find(Dungeon.hero) == null) {
-                clearObservedAttack();
-                killAndErase();
-                if (accuracyObserver == this) {
-                    accuracyObserver = null;
-                }
-                return;
-            }
-
-            observeHeroAttack(Dungeon.hero);
-        }
     }
 
     @Override
@@ -317,16 +130,5 @@ public class ModForceHit extends ChampionEnemy {
         // Saves from before the checkbox existed preserve the old always-ON behavior.
         forceHitEnabled = !bundle.contains(FORCE_HIT_ENABLED)
                 || bundle.getBoolean(FORCE_HIT_ENABLED);
-        clearObservedAttack();
-    }
-
-    @Override
-    public HashSet<Class> immunities() {
-        return new HashSet<>();
-    }
-
-    @Override
-    public HashSet<Class> resistances() {
-        return new HashSet<>();
     }
 }

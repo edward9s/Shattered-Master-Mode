@@ -8,241 +8,13 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
-/** Small runtime adapters for fork/minifier-sensitive combat members. */
+/** Runtime adapters for fork/minifier-sensitive Hero combat bookkeeping. */
 final class ModCombatCompat {
-
-    private static Method heroAttackTargetMethod;
-    private static Field heroAttackTargetField;
-    private static boolean heroAttackTargetResolved;
-    private static boolean heroAttackTargetNeedsActionGate;
-
-    private static Field heroAttackActionField;
-    private static boolean heroAttackActionResolved;
-
-    private static Field hitMissIconField;
-    private static boolean hitMissIconResolved;
 
     private static Class<? extends Buff> duelistComboTrackerClass;
     private static boolean duelistComboTrackerResolved;
 
     private ModCombatCompat() {
-    }
-
-    /**
-     * Returns Hero's current attack target without linking the payload to one
-     * particular Hero accessor/field name. Current SPD exposes attackTarget();
-     * older/minified forks may expose only the underlying Char field.
-     */
-    static Char heroAttackTarget(Hero hero) {
-        if (hero == null) {
-            return null;
-        }
-
-        try {
-            resolveHeroAttackTarget(hero.getClass());
-            if (heroAttackTargetMethod != null) {
-                Object value = heroAttackTargetMethod.invoke(hero);
-                return value instanceof Char ? (Char) value : null;
-            }
-            if (heroAttackTargetField != null) {
-                Object value = heroAttackTargetField.get(hero);
-                if (!(value instanceof Char)) {
-                    return null;
-                }
-                Char attackTarget = (Char) value;
-                if (heroAttackTargetNeedsActionGate
-                        && !fallbackAttackActionMatches(hero, attackTarget)) {
-                    return null;
-                }
-                return attackTarget;
-            }
-        } catch (Exception ignored) {
-            // Attack observation is an optional compatibility path.
-        }
-        return null;
-    }
-
-    private static void resolveHeroAttackTarget(Class<?> heroClass) {
-        if (heroAttackTargetResolved) {
-            return;
-        }
-        heroAttackTargetResolved = true;
-
-        for (Method method : heroClass.getDeclaredMethods()) {
-            if (Modifier.isStatic(method.getModifiers())
-                    || method.getParameterTypes().length != 0
-                    || !Char.class.isAssignableFrom(method.getReturnType())) {
-                continue;
-            }
-            if ("attackTarget".equals(method.getName())) {
-                method.setAccessible(true);
-                heroAttackTargetMethod = method;
-                return;
-            }
-        }
-
-        Field candidate = null;
-        for (Field field : heroClass.getDeclaredFields()) {
-            if (Modifier.isStatic(field.getModifiers())
-                    || !Char.class.isAssignableFrom(field.getType())) {
-                continue;
-            }
-            if ("attackTarget".equals(field.getName())) {
-                field.setAccessible(true);
-                heroAttackTargetField = field;
-                return;
-            }
-            if (candidate != null) {
-                candidate = null;
-                break;
-            }
-            candidate = field;
-        }
-        if (candidate != null) {
-            candidate.setAccessible(true);
-            heroAttackTargetField = candidate;
-            heroAttackTargetNeedsActionGate = true;
-        }
-    }
-
-    /**
-     * Some older forks keep the last attacked Char in a persistent Hero.enemy
-     * field even after the attack is complete. When the target adapter had to
-     * fall back to a structurally unique Char field, gate that value on the
-     * fork's current HeroAction so stale enemy state is not mistaken for an
-     * in-progress attack forever.
-     */
-    private static boolean fallbackAttackActionMatches(Hero hero, Char attackTarget) {
-        try {
-            resolveHeroAttackAction(hero.getClass());
-            if (heroAttackActionField == null) {
-                // No compatible action state exists on this fork. Preserve the
-                // previous structural fallback instead of disabling it outright.
-                return true;
-            }
-
-            Object action = heroAttackActionField.get(hero);
-            if (action == null || !"Attack".equals(action.getClass().getSimpleName())) {
-                return false;
-            }
-
-            Field actionTarget = null;
-            for (Field field : action.getClass().getDeclaredFields()) {
-                if (Modifier.isStatic(field.getModifiers())
-                        || !Char.class.isAssignableFrom(field.getType())) {
-                    continue;
-                }
-                if (actionTarget != null) {
-                    return false;
-                }
-                actionTarget = field;
-            }
-
-            if (actionTarget == null) {
-                // The semantic Attack class is sufficient to establish that an
-                // attack is live even on a fork that does not expose its target.
-                return true;
-            }
-            actionTarget.setAccessible(true);
-            return actionTarget.get(action) == attackTarget;
-        } catch (Exception ignored) {
-            // If an action field exists but its runtime shape cannot be proven,
-            // do not treat a persistent enemy reference as a live attack.
-            return false;
-        }
-    }
-
-    private static void resolveHeroAttackAction(Class<?> heroClass) {
-        if (heroAttackActionResolved) {
-            return;
-        }
-        heroAttackActionResolved = true;
-
-        for (Class<?> type = heroClass; type != null; type = type.getSuperclass()) {
-            for (Field field : type.getDeclaredFields()) {
-                if (Modifier.isStatic(field.getModifiers())) {
-                    continue;
-                }
-                if ("curAction".equals(field.getName())) {
-                    field.setAccessible(true);
-                    heroAttackActionField = field;
-                    return;
-                }
-            }
-        }
-    }
-
-    static boolean hasInfiniteEvasionAgainst(Char defender, Char attacker) {
-        return defender != null
-                && attacker != null
-                && defender.defenseSkill(attacker) >= Char.INFINITE_EVASION;
-    }
-
-    /**
-     * Performs the native physical hit roll that Char.attack would have made if
-     * invulnerability had not short-circuited it. This preserves ordinary miss
-     * chance for Instant Kill when Infinite Accuracy is disabled.
-     */
-    static boolean rollNormalHeroHit(Hero hero, Char enemy) {
-        if (hero == null || enemy == null || !hero.isAlive() || !enemy.isAlive()) {
-            return false;
-        }
-
-        boolean hit = Char.hit(hero, enemy, 1f, false);
-        clearHitMissIcon();
-        return hit;
-    }
-
-    /**
-     * Char.hit stores a reason icon for the enclosing Char.attack call. Our
-     * standalone compatibility roll has no enclosing native attack branch, so
-     * clear that transient cache to prevent it leaking into the next attack.
-     */
-    private static void clearHitMissIcon() {
-        try {
-            if (!hitMissIconResolved) {
-                hitMissIconResolved = true;
-                hitMissIconField = Char.class.getDeclaredField("hitMissIcon");
-                hitMissIconField.setAccessible(true);
-            }
-            if (hitMissIconField != null) {
-                hitMissIconField.setInt(null, -1);
-            }
-        } catch (Exception ignored) {
-            // Cosmetic cleanup only; never let it affect combat.
-        }
-    }
-
-    /**
-     * Replays only the successful-hit side of Char.attack after the native hit
-     * roll has been rejected by engine-level infinite evasion. This deliberately
-     * lives entirely in SMM code: vanilla Char/ Hero/ enemy classes are not patched.
-     *
-     * The fallback preserves the core public combat pipeline (damage roll,
-     * defenseProc, DR, attackProc and damage). It is intentionally used only for
-     * the special INFINITE_EVASION case, never as a replacement for normal combat.
-     */
-    static boolean forceHeroHit(Hero hero, Char enemy, float dmgMulti, float dmgBonus) {
-        if (hero == null || enemy == null || !hero.isAlive() || !enemy.isAlive()) {
-            return false;
-        }
-
-        int dr = enemy.drRoll();
-        float dmg = hero.damageRoll() * dmgMulti + dmgBonus;
-        int effectiveDamage = enemy.defenseProc(hero, Math.round(dmg));
-
-        if (effectiveDamage >= 0) {
-            effectiveDamage = Math.max(effectiveDamage - dr, 0);
-            effectiveDamage = hero.attackProc(enemy, effectiveDamage);
-        }
-
-        // defenseProc may intentionally return a negative sentinel to suppress
-        // on-hit behavior; in that case the forced hit is still consumed but no
-        // damage call is made.
-        if (effectiveDamage >= 0 && enemy.isAlive()) {
-            enemy.damage(effectiveDamage, hero);
-        }
-        return true;
     }
 
     @SuppressWarnings("unchecked")
@@ -296,8 +68,7 @@ final class ModCombatCompat {
             // Older/minified targets can inline the old no-argument addHit()
             // implementation. Only reproduce that old state update when the
             // tracker shape is unambiguous: one instance int counter and one
-            // instance float timer. More complex tracker layouts are left to
-            // the inject-time ABI profile rather than guessed here.
+            // instance float timer.
             Field hits = null;
             Field time = null;
             for (Field field : tracker.getClass().getDeclaredFields()) {
@@ -327,11 +98,6 @@ final class ModCombatCompat {
         } catch (Exception ignored) {
             // Combo tracking is auxiliary to the attack itself.
         }
-    }
-
-    /** Delegates shared death compatibility to the narrow helper used by minimal payloads. */
-    static boolean kill(Char target, Object cause) {
-        return ModDeathCompat.kill(target, cause);
     }
 
     private static Method findComboAddHitMethod(Class<?> trackerClass) {

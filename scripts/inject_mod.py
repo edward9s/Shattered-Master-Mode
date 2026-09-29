@@ -18,6 +18,10 @@ _ATTACK_METHOD_RE = re.compile(
     r'boolean\s+attack\s*\((?P<params>[^)]*)\)\s*\{)'
 )
 _SELF_ATTACK_RE = re.compile(r'(?<![\w.])(?:this\s*\.\s*)?attack\s*\(')
+_HIT_METHOD_RE = re.compile(
+    r'(?P<head>(?:(?:public|protected|private|final|static|synchronized|native|strictfp)\s+)*'
+    r'boolean\s+hit\s*\((?P<params>[^)]*)\)\s*\{)'
+)
 
 
 def _mask_non_code(text: str) -> str:
@@ -174,6 +178,65 @@ def _terminal_attack_method(content: str) -> tuple[str, int, int]:
     return defender, open_brace, close_brace
 
 
+def _char_hit_method(content: str) -> tuple[str, str, int]:
+    """Find static Char.hit(Char, Char, float, boolean) and its parameter names."""
+    masked = _mask_non_code(content)
+    matches = []
+
+    for match in _HIT_METHOD_RE.finditer(masked):
+        if not re.search(r'\bstatic\b', match.group('head')):
+            continue
+
+        params = content[match.start('params'):match.end('params')]
+        parts = [part.strip() for part in params.split(',')]
+        if len(parts) != 4:
+            continue
+
+        parsed = []
+        valid = True
+        for part in parts:
+            tokens = [token for token in re.split(r'\s+', part) if token and token != 'final']
+            if len(tokens) < 2:
+                valid = False
+                break
+            parsed.append((tokens[-2], tokens[-1]))
+
+        if not valid:
+            continue
+
+        types = [typ for typ, _ in parsed]
+        if types != ['Char', 'Char', 'float', 'boolean']:
+            continue
+
+        open_brace = match.end('head') - 1
+        matches.append((parsed[0][1], parsed[1][1], open_brace))
+
+    if len(matches) != 1:
+        raise RuntimeError(
+            'Expected exactly one static Char.hit(Char, Char, float, boolean), '
+            f'found {len(matches)}'
+        )
+    return matches[0]
+
+
+def patch_char_hit(file_path: Path) -> None:
+    content = file_path.read_text(encoding='utf-8')
+    marker = '// MASTER_MODE_FORCE_HIT'
+
+    if marker in content:
+        print(f"Force Hit hook already injected into {file_path}")
+        return
+
+    attacker, defender, open_brace = _char_hit_method(content)
+    injected = (
+        "\n\t\t// MASTER_MODE_FORCE_HIT\n"
+        f"\t\tif (com.spd.mod.mechanics.ModForceHit.forceHitCheck({attacker}, {defender})) return true;\n"
+    )
+    content = content[:open_brace + 1] + injected + content[open_brace + 1:]
+    file_path.write_text(content, encoding='utf-8')
+    print(f"Force Hit hook injected successfully into {file_path}")
+
+
 def patch_wndgame(file_path: Path) -> None:
     content = file_path.read_text(encoding='utf-8')
     marker = '// MASTER_MODE_MENU'
@@ -259,3 +322,4 @@ char_path = package_root / 'actors' / 'Char.java'
 if not char_path.is_file():
     raise RuntimeError(f"Char.java not found beside WndGame package root: {char_path}")
 patch_char(char_path)
+patch_char_hit(char_path)

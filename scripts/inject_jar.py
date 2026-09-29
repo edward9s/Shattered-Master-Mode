@@ -204,8 +204,11 @@ public class SmmCharAttackPatcher {
     static final int API = Opcodes.ASM8;
     static final String CHAR = "__CHAR__";
     static final String MOD_PARRY_RIPOSTE = "com/spd/mod/mechanics/ModParryRiposte";
+    static final String MOD_FORCE_HIT = "com/spd/mod/mechanics/ModForceHit";
     static final String ATTACK_DESC = "(L" + CHAR + ";FFF)Z";
+    static final String HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
+    static final String FORCE_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
 
     static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
         try (JarFile jar = new JarFile(jarPath.toFile())) {
@@ -240,13 +243,38 @@ public class SmmCharAttackPatcher {
                     "SMM donor ModParryRiposte lacks public static onIncomingAttack(Char, Char)");
         }
         System.out.println("ModParryRiposte incoming-attack hook API: OK");
+
+        bytes = readJarEntry(payloadJar, MOD_FORCE_HIT + ".class");
+        final int[] forceHooks = {0};
+        final int[] validForceHooks = {0};
+        new ClassReader(bytes).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if ("forceHitCheck".equals(name) && FORCE_HIT_DESC.equals(desc)) {
+                    forceHooks[0]++;
+                    if ((access & Opcodes.ACC_PUBLIC) != 0
+                            && (access & Opcodes.ACC_STATIC) != 0) {
+                        validForceHooks[0]++;
+                    }
+                }
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        if (forceHooks[0] != 1 || validForceHooks[0] != 1) {
+            throw new IllegalStateException(
+                    "SMM donor ModForceHit lacks public static forceHitCheck(Char, Char)");
+        }
+        System.out.println("ModForceHit hit-check hook API: OK");
     }
 
     static byte[] patch(byte[] original) {
         ClassReader reader = new ClassReader(original);
         ClassWriter writer = new ClassWriter(0);
         final int[] attackMethods = {0};
+        final int[] hitMethods = {0};
         final boolean[] alreadyInjected = {false};
+        final boolean[] alreadyForceHitInjected = {false};
 
         ClassVisitor visitor = new ClassVisitor(API, writer) {
             @Override
@@ -262,42 +290,85 @@ public class SmmCharAttackPatcher {
             public MethodVisitor visitMethod(int access, String name, String desc,
                                              String signature, String[] exceptions) {
                 MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
-                if (!"attack".equals(name)
-                        || !ATTACK_DESC.equals(desc)
-                        || (access & Opcodes.ACC_STATIC) != 0) {
-                    return base;
-                }
-                attackMethods[0]++;
-                return new MethodVisitor(API, base) {
-                    @Override
-                    public void visitCode() {
-                        super.visitCode();
-                        super.visitVarInsn(Opcodes.ALOAD, 0);
-                        super.visitVarInsn(Opcodes.ALOAD, 1);
-                        super.visitMethodInsn(
-                                Opcodes.INVOKESTATIC,
-                                MOD_PARRY_RIPOSTE,
-                                "onIncomingAttack",
-                                INCOMING_DESC,
-                                false);
-                    }
-
-                    @Override
-                    public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                String methodDesc, boolean isInterface) {
-                        if (MOD_PARRY_RIPOSTE.equals(owner)
-                                && "onIncomingAttack".equals(methodName)
-                                && INCOMING_DESC.equals(methodDesc)) {
-                            alreadyInjected[0] = true;
+                if ("attack".equals(name)
+                        && ATTACK_DESC.equals(desc)
+                        && (access & Opcodes.ACC_STATIC) == 0) {
+                    attackMethods[0]++;
+                    return new MethodVisitor(API, base) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitVarInsn(Opcodes.ALOAD, 1);
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_PARRY_RIPOSTE,
+                                    "onIncomingAttack",
+                                    INCOMING_DESC,
+                                    false);
                         }
-                        super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
-                    }
 
-                    @Override
-                    public void visitMaxs(int maxStack, int maxLocals) {
-                        super.visitMaxs(maxStack + 2, maxLocals);
-                    }
-                };
+                        @Override
+                        public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                    String methodDesc, boolean isInterface) {
+                            if (MOD_PARRY_RIPOSTE.equals(owner)
+                                    && "onIncomingAttack".equals(methodName)
+                                    && INCOMING_DESC.equals(methodDesc)) {
+                                alreadyInjected[0] = true;
+                            }
+                            super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(maxStack + 2, maxLocals);
+                        }
+                    };
+                }
+
+                if ("hit".equals(name)
+                        && HIT_DESC.equals(desc)
+                        && (access & Opcodes.ACC_STATIC) != 0) {
+                    hitMethods[0]++;
+                    return new MethodVisitor(API, base) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            Label nativeHit = new Label();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitVarInsn(Opcodes.ALOAD, 1);
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_FORCE_HIT,
+                                    "forceHitCheck",
+                                    FORCE_HIT_DESC,
+                                    false);
+                            super.visitJumpInsn(Opcodes.IFEQ, nativeHit);
+                            super.visitInsn(Opcodes.ICONST_1);
+                            super.visitInsn(Opcodes.IRETURN);
+                            super.visitLabel(nativeHit);
+                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                        }
+
+                        @Override
+                        public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                    String methodDesc, boolean isInterface) {
+                            if (MOD_FORCE_HIT.equals(owner)
+                                    && "forceHitCheck".equals(methodName)
+                                    && FORCE_HIT_DESC.equals(methodDesc)) {
+                                alreadyForceHitInjected[0] = true;
+                            }
+                            super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(maxStack + 2, maxLocals);
+                        }
+                    };
+                }
+
+                return base;
             }
         };
         reader.accept(visitor, 0);
@@ -305,11 +376,19 @@ public class SmmCharAttackPatcher {
         if (alreadyInjected[0]) {
             throw new IllegalStateException("Char.attack already contains SMM incoming-attack hook");
         }
+        if (alreadyForceHitInjected[0]) {
+            throw new IllegalStateException("Char.hit already contains SMM Force Hit hook");
+        }
         if (attackMethods[0] != 1) {
             throw new IllegalStateException(
                     "Expected one Char.attack(Char,float,float,float), found " + attackMethods[0]);
         }
+        if (hitMethods[0] != 1) {
+            throw new IllegalStateException(
+                    "Expected one Char.hit(Char,Char,float,boolean), found " + hitMethods[0]);
+        }
         System.out.println("Char.attack incoming-attack patch: OK");
+        System.out.println("Char.hit Force Hit pre-defense patch: OK");
         return writer.toByteArray();
     }
 
