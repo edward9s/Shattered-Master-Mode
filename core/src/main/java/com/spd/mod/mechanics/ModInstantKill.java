@@ -153,6 +153,13 @@ public class ModInstantKill extends ChampionEnemy {
     }
 
     @Override
+    public String toString() {
+        // Legacy SPD-family Char.add() and WndInfoBuff use Buff.toString()
+        // instead of name() for announcement text and the info-window title.
+        return name();
+    }
+
+    @Override
     public String desc() {
         return "Successful physical attacks kill their target while enabled.";
     }
