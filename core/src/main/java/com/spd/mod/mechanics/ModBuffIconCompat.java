@@ -29,6 +29,44 @@ public final class ModBuffIconCompat {
         return value;
     }
 
+    /**
+     * Resolve the first icon field that actually exists on the target fork.
+     * This is for semantic icons introduced late in SPD history: modern targets
+     * keep their intended icon, while older targets fall back to a real field
+     * from their own BuffIndicator instead of guessing an atlas slot.
+     *
+     * If release shrinking removed every candidate field name, use the known
+     * fallback for the last (most conservative) candidate.
+     */
+    public static synchronized int getFirst(String... fieldNames) {
+        if (fieldNames == null || fieldNames.length == 0) {
+            return knownFallback("NONE");
+        }
+
+        StringBuilder keyBuilder = new StringBuilder("first:");
+        for (String fieldName : fieldNames) {
+            keyBuilder.append(fieldName).append('|');
+        }
+        String key = keyBuilder.toString();
+
+        Integer cached = CACHE.get(key);
+        if (cached != null) {
+            return cached;
+        }
+
+        for (String fieldName : fieldNames) {
+            int value = read(fieldName);
+            if (value != Integer.MIN_VALUE) {
+                CACHE.put(key, value);
+                return value;
+            }
+        }
+
+        int value = knownFallback(fieldNames[fieldNames.length - 1]);
+        CACHE.put(key, value);
+        return value;
+    }
+
     private static int read(String fieldName) {
         try {
             Field field = BuffIndicator.class.getField(fieldName);
@@ -60,9 +98,7 @@ public final class ModBuffIconCompat {
             case "AMULET":
                 return 21;
             case "DUEL_CLEAVE":
-                // Older buff atlases predate Duelist slots entirely. MARK is
-                // a stable low-slot combat icon and remains visible there.
-                return 27;
+                return 60;
             case "DUEL_GUARD":
                 return 61;
             case "NONE":
