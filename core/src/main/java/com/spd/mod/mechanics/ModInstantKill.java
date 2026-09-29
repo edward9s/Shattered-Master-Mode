@@ -134,7 +134,11 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public int icon() {
-        return ModBuffIconCompat.get("DUEL_CLEAVE");
+        return ModBuffIconCompat.getFirst(
+                "DUEL_CLEAVE",
+                "PREPARATION",
+                "MARK",
+                "HEART");
     }
 
     @Override
