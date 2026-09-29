@@ -36,7 +36,7 @@ public final class ModSaveTransfer {
             return;
         }
 
-        if (!DeviceCompat.isAndroid()) {
+        if (!isAndroidRuntime()) {
             throw new UnsupportedOperationException(
                     "save export is not supported on this platform");
         }
@@ -50,12 +50,29 @@ public final class ModSaveTransfer {
             return;
         }
 
-        if (!DeviceCompat.isAndroid()) {
+        if (!isAndroidRuntime()) {
             throw new UnsupportedOperationException(
                     "save import is not supported on this platform");
         }
 
         importAndroidSnapshot();
+    }
+
+    /**
+     * DeviceCompat.isAndroid() is absent from older SPD-family APIs. Keep the
+     * stable isDesktop() fast path, then identify Android by a runtime class
+     * that exists on every Android release without linking it into bytecode.
+     */
+    private static boolean isAndroidRuntime() {
+        if (DeviceCompat.isDesktop()) {
+            return false;
+        }
+        try {
+            Class.forName("android.os.Build", false, ModSaveTransfer.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError ignored) {
+            return false;
+        }
     }
 
     private static void runDesktopTransferLater(final boolean export) {
