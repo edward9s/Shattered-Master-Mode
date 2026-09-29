@@ -6,7 +6,7 @@
 
 - Designed for in-game sandbox testing, rapid editing, and easily creating meme images.
 - **Preserves Vanilla Mechanics:** SMM does not replace or rewrite vanilla gameplay mechanics. Vanilla behavior remains unchanged unless an SMM feature is explicitly enabled.
-- **Minimal Integration:** SMM uses existing vanilla extension points whenever possible. The only gameplay-level invasive hook is `Char.attack()`, used by Riposte; no additional gameplay hooks should be added.
+- **Minimal Integration:** SMM uses existing vanilla extension points whenever possible. Full SMM currently installs two gameplay-level hooks: `Char.attack()` for Riposte and `Char.hit()` for Force Hit. Minimal `--ankh-only` injection does not install either full-SMM hook.
 - **Save transfer:** Tools can export/import full save snapshots with one-click Android storage or a native Desktop folder chooser; Desktop remembers the last export/import locations separately.
 
 ## Known Limitations & Warnings
@@ -66,7 +66,7 @@ python inject_apk.py TARGET.apk --ankh-only
 python inject_jar.py TARGET.jar --ankh-only
 ```
 
-`--ankh-only` injects **ModAnkh**, **ModLastStand**, and their Store / Loot / Debug Console dependencies. It does not install the full SMM menu or unrelated combat features.
+`--ankh-only` injects **ModAnkh**, **ModLastStand**, **ModInstantKill**, and their Store / Loot / Debug Console dependencies. It does not install the full SMM menu or unrelated combat features such as Assassinate, Force Hit, or Riposte.
 
 Default outputs are `TARGET-SMM-Ankh.apk` and `TARGET-SMM-Ankh.jar`. Use `--out` to choose another path.
 
