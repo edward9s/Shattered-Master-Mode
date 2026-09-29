@@ -51,7 +51,7 @@ def populate_kit(
         "Minimal (ModAnkh tools only):\n"
         "  python inject_apk.py TARGET.apk --ankh-only\n"
         "  python inject_jar.py TARGET.jar --ankh-only\n\n"
-        "Includes Store, Loot, and Debug Console support.\n"
+        "Includes Last Stand, Instant Kill, Store, Loot, and Debug Console support.\n"
         "Optional: --out OUTPUT\n"
         "Keep all kit files together.\n\n"
         "APK signing key:\n"
