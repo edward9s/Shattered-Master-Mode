@@ -442,6 +442,8 @@ ANKH_REQUIRED_ROOTS = {
     "com/spd/mod/mechanics/ModDebug$Console.class",
     "com/spd/mod/mechanics/ModLegacyCompat.class",
     "com/spd/mod/mechanics/ModItemCompat.class",
+    "com/spd/mod/mechanics/ModLastStand.class",
+    "com/spd/mod/mechanics/ModInstantKill.class",
 }
 
 _ACTION_MESSAGE_BUNDLE_RE = re.compile(
@@ -560,7 +562,8 @@ def build_ankh_payload(
         )
 
     injector.log(
-        f"ModAnkh dependency closure: {len(closure)} class(es) (Store + Loot + Console)"
+        f"ModAnkh dependency closure: {len(closure)} class(es) "
+        "(Store + Loot + Console + Last Stand + Instant Kill)"
     )
     return {
         name: injector.rebase_class_bytes(donor.read(name), target_game_root)
@@ -813,7 +816,8 @@ def run_ankh_only(
     injector.log(f"SHA-256: {injector.sha256(output)}")
     injector.log(
         f"Injected: ModAnkh only "
-        f"(Store + Loot + Console; {len(payload)} dependency classes)"
+        f"(Store + Loot + Console + Last Stand + Instant Kill; "
+        f"{len(payload)} dependency classes)"
     )
     return 0
 
@@ -834,7 +838,7 @@ def print_help() -> None:
         "Inject SMM into an SPD-derived desktop JAR using smm-inject-donor.jar beside this script.\n\n"
         "modes:\n"
         "  default       inject the full supported SMM payload\n"
-        "  --ankh-only   inject ModAnkh + Store + Loot + Console only\n\n"
+        "  --ankh-only   inject ModAnkh + Last Stand + Instant Kill + Store + Loot + Console\n\n"
         "options:\n"
         "  --out PATH    output JAR (default: <target>-SMM.jar or <target>-SMM-Ankh.jar)\n"
         "  --keep-work   keep temporary work files\n"
@@ -881,7 +885,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     injector.log(
         "Injection mode: "
         + (
-            "ModAnkh only (Store + Loot + Console)"
+            "ModAnkh only (Store + Loot + Console + Last Stand + Instant Kill)"
             if parsed.ankh_only else "full SMM"
         )
     )
