@@ -24,9 +24,11 @@ python inject_jar.py TARGET.jar --ankh-only
 
 - `ModAnkh`
 - `ModLastStand`
+- `ModInstantKill`
 - Store / Loot / Debug Console 所需相依
 
-不安裝完整 SMM 選單，也不加入其他無關戰鬥功能。
+`ModInstantKill` 可透過 Debug Console 的 `affect ModInstantKill` 套用到任意角色。
+最小注入不安裝完整 SMM 選單，也不加入 Assassinate、Force Hit、Riposte 等完整 SMM 戰鬥／UI 功能。
 
 ## Injection Kit
 
@@ -50,7 +52,7 @@ JAR 注入不使用這把 APK 簽章金鑰。
 - Fork package name 不同時，重新對應 SPD package reference。
 - ABI dependency 無法可靠解析時直接停止，不猜測、不硬塞。
 - 不複製任意 donor-only 或混淆 class 來掩蓋 compatibility error。
-- `--ankh-only` 必須保持精簡；用途就是讓老 fork 能使用 ModAnkh、ModLastStand，以及 Store / Loot / Debug Console 工具。
+- `--ankh-only` 必須保持精簡；用途就是讓老 fork 能使用 ModAnkh、ModLastStand、ModInstantKill，以及 Store / Loot / Debug Console 工具。
 - 完整注入可以使用既有 SMM 選單與 Riposte hook；最小注入不得安裝無關的 full-SMM hook。
 - Debug Console 指令可能觸發 target 本身既有的 bug；不要為了讓指令表面成功而順便修改無關的 target 遊戲邏輯。
 

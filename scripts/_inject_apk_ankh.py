@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mode adapter for the small ModAnkh + Store/Loot/Console APK payload."""
+"""Mode adapter for the small ModAnkh tools + Last Stand + Instant Kill APK payload."""
 from __future__ import annotations
 
 import re
@@ -17,6 +17,7 @@ _ACTION_MESSAGES = (
     (b"com.spd.mod.items.modankh.ac_unbless", b"Unbless"),
 )
 _LAST_STAND = "Lcom/spd/mod/mechanics/ModLastStand;"
+_INSTANT_KILL = "Lcom/spd/mod/mechanics/ModInstantKill;"
 _LAST_STAND_OVERLAY = "Lcom/spd/mod/journal/ModLastStandOverlay;"
 _LAST_STAND_OVERLAY_INNER_PREFIX = "Lcom/spd/mod/journal/ModLastStandOverlay$"
 
@@ -443,6 +444,15 @@ def configure(public_module) -> None:
                 + ", ".join(sorted(unresolved))
             )
 
+        required_roots = {_LAST_STAND, _INSTANT_KILL}
+        missing_roots = sorted(required_roots.difference(closure))
+        if missing_roots:
+            raise injector.InjectError(
+                "SMM donor is too old for --ankh-only injection; rebuild the "
+                "Injection Kit. Missing minimal payload root(s): "
+                + ", ".join(missing_roots)
+            )
+
         # The legacy class-to-interface adapter depends on the current donor's
         # runtime compatibility helper. Reject a stale donor only for targets
         # that actually need that legacy path; modern ankh-only targets stay
@@ -462,6 +472,7 @@ def configure(public_module) -> None:
                     full_prefix + "mechanics/ModDebug;",
                     full_prefix + "mechanics/ModLegacyCompat;",
                     full_prefix + "mechanics/ModLastStand;",
+                    full_prefix + "mechanics/ModInstantKill;",
                 }
                 missing_roots = sorted(required_roots.difference(closure))
                 if missing_roots:
@@ -510,7 +521,7 @@ def configure(public_module) -> None:
         }
         injector.log(
             f"ModAnkh dependency closure: {len(payload)} class(es) "
-            "(Store + Loot + Console + Last Stand)"
+            "(Store + Loot + Console + Last Stand + Instant Kill)"
         )
         return payload, relocations
 
