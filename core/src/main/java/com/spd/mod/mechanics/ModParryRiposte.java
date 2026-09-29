@@ -479,25 +479,10 @@ public class ModParryRiposte extends ChampionEnemy {
                 && riposter.isAlive()
                 && attacker.isAlive()) {
             // Intentionally no canAttack/range check. Total Riposte answers the
-            // incoming attack regardless of distance or Parry state.
-            boolean hit;
+            // incoming attack regardless of distance or Parry state. Force Hit is
+            // resolved centrally by the injected Char.hit hook for every Char.
+            boolean hit = riposter.attack(attacker, 1f, 0f, 1f);
             Hero hero = riposter instanceof Hero ? (Hero) riposter : null;
-
-            if (hero != null) {
-                boolean forceHit = ModForceHit.find(hero) != null;
-                boolean bypassInfiniteEvasion = forceHit
-                        && !attacker.isInvulnerable(hero.getClass())
-                        && ModCombatCompat.hasInfiniteEvasionAgainst(attacker, hero);
-
-                // Riposte is a normal hit check. Force Hit is the only Mod feature
-                // that upgrades it to guaranteed accuracy.
-                hit = bypassInfiniteEvasion
-                        ? ModCombatCompat.forceHeroHit(hero, attacker, 1f, 0f)
-                        : hero.attack(attacker, 1f, 0f,
-                                forceHit ? Char.INFINITE_ACCURACY : 1f);
-            } else {
-                hit = riposter.attack(attacker, 1f, 0f, 1f);
-            }
 
             // Direct Char.attack() calls bypass Hero.onAttackComplete(), so mirror
             // the hit counters that normal hero attacks update there.
