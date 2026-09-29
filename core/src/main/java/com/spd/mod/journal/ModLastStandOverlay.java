@@ -343,6 +343,17 @@ public class ModLastStandOverlay extends Gizmo {
 
             refreshCount();
             ModRuntimeTagStack.layout();
+
+            boolean available = Dungeon.hero != null && Dungeon.hero.ready;
+            active = available;
+            float contentAlpha = available ? 1f : 0.4f;
+            icon.alpha(contentAlpha);
+            heart.alpha(contentAlpha);
+            count.alpha(contentAlpha);
+            for (ColorBlock border : badgeBorder) {
+                border.alpha(contentAlpha);
+            }
+
             super.update();
             if (!ModRuntimeTagStack.hasOpenWindow()) {
                 givePointerPriorityCompat(this);
@@ -409,6 +420,10 @@ public class ModLastStandOverlay extends Gizmo {
 
         @Override
         protected void onClick() {
+            if (Dungeon.hero == null || !Dungeon.hero.ready) {
+                return;
+            }
+
             super.onClick();
             ModLastStand buff = ModLastStand.find(Dungeon.hero);
             if (buff != null) {
