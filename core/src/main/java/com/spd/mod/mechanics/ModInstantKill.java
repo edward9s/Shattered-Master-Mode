@@ -85,7 +85,7 @@ public class ModInstantKill extends ChampionEnemy {
     public void detach() {
         super.detach();
         BuffIndicator.refreshHero();
-        ModTotalInfoOverlay.refreshIndicators();
+        refreshOptionalUi();
     }
 
     private static void ensureOptionalUi() {
