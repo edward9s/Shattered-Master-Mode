@@ -386,7 +386,9 @@ save
 load
 ```
 
-Android 上，`save` 會把 app save files 匯出到 `Download/<package>`；`load` 匯回後重新啟動 app。實際 storage／permission 行為會受 Android 版本與 target package 影響。
+Android 上，`save` 會把完整 app 存檔快照匯出到 `Download/<package>`；`load` 會用該快照取代本機 app 存檔後重新啟動 app。實際 storage／permission 行為會受 Android 版本與 target package 影響。
+
+Desktop 上兩個指令都會開啟原生資料夾選擇器。`save` 會先保存目前遊戲，再以完整存檔快照取代選定資料夾內容；若匯出目標不是空資料夾，必須先能辨識為 SPD 存檔資料。`load` 接受非空的選定資料夾，以其內容取代目前 Desktop 存檔目錄，完成後直接結束程序，避免把匯入後的磁碟狀態與舊的記憶體狀態混用。匯出與匯入會分別記住上次選擇的位置；若選到目前使用中的存檔目錄或與其重疊的目錄則直接拒絕。
 
 ## 重要限制
 
