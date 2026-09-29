@@ -199,7 +199,7 @@ public class ModInstantKill extends ChampionEnemy {
         }
 
         Wound.hit(defender);
-        if (!ModCombatCompat.kill(defender, target)) {
+        if (!ModDeathCompat.kill(defender, target)) {
             return false;
         }
         if (defender.sprite != null) {
