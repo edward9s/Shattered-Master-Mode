@@ -345,7 +345,6 @@ public class ModLastStandOverlay extends Gizmo {
             ModRuntimeTagStack.layout();
 
             boolean available = Dungeon.hero != null && Dungeon.hero.ready;
-            active = available;
             float contentAlpha = available ? 1f : 0.4f;
             icon.alpha(contentAlpha);
             heart.alpha(contentAlpha);
