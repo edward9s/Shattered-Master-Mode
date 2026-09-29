@@ -24,7 +24,7 @@ public class ModGridForceHit extends ModGridEntry {
             return false;
         }
 
-        ModCharSelector.startHeroOnly(ModForceHit.class);
+        ModCharSelector.start(ModForceHit.class);
         return true;
     }
 }
