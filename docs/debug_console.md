@@ -386,7 +386,9 @@ save
 load
 ```
 
-On Android, `save` exports app save files to `Download/<package>` and `load` imports them back before restarting the app. Storage behavior and permissions vary by Android version and target package.
+On Android, `save` exports the complete app save snapshot to `Download/<package>` and `load` replaces the local app save files from that snapshot before restarting the app. Storage behavior and permissions vary by Android version and target package.
+
+On Desktop, both commands open a native folder chooser. `save` flushes the current run and replaces the selected folder with the complete active save snapshot; a non-empty export folder is accepted only when it already looks like SPD save data. `load` accepts a non-empty selected folder, replaces the active Desktop save directory, and then exits the process so imported disk state is not mixed with stale in-memory state. Export and import chooser locations are remembered separately, and selecting the active save directory or an overlapping directory is rejected.
 
 ## Important limitations
 
