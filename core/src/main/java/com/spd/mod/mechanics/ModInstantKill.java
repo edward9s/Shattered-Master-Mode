@@ -3,7 +3,6 @@ package com.spd.mod.mechanics;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Preparation;
-import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
@@ -14,7 +13,7 @@ import com.watabou.utils.Bundle;
 
 import java.util.HashSet;
 
-/** Permanent Hero combat buff with a configurable Instant Kill effect. */
+/** Permanent Char combat buff with a configurable Instant Kill effect. */
 public class ModInstantKill extends ChampionEnemy {
 
     private static final String INSTANT_KILL = "instant_kill";
@@ -25,8 +24,9 @@ public class ModInstantKill extends ChampionEnemy {
         type = buffType.POSITIVE;
         announced = true;
         revivePersists = true;
-        // ChampionEnemy is required because Char.attackProc() dispatches only to
-        // ChampionEnemy buffs. This buff otherwise has no champion side effects.
+        // Char.attackProc() already dispatches ChampionEnemy buffs for every Char.
+        // Reuse that stable combat hook instead of adding another attack injection.
+        // This buff otherwise has no champion side effects.
         color = 0xFFFFFF;
     }
 
@@ -53,9 +53,6 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public boolean attachTo(Char target) {
-        if (!(target instanceof Hero)) {
-            return false;
-        }
         if (!super.attachTo(target)) {
             return false;
         }
@@ -82,6 +79,7 @@ public class ModInstantKill extends ChampionEnemy {
     public void detach() {
         super.detach();
         BuffIndicator.refreshHero();
+        ModTotalInfoOverlay.refreshIndicators();
     }
 
     @Override
@@ -106,55 +104,56 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public String desc() {
-        return "Successful Hero attacks kill their target while enabled. Tap to configure.";
+        return "Successful physical attacks kill their target while enabled. Tap to configure.";
     }
 
     @Override
-    public void onAttackProc(Char enemy) {
+    public void onAttackProc(Char defender) {
         if (instantKill
-                && target instanceof Hero
-                && enemy != null
-                && enemy != target
-                && enemy.isAlive()) {
-            executeInstantKill(enemy);
+                && target != null
+                && target.isAlive()
+                && defender != null
+                && defender != target
+                && defender.isAlive()) {
+            executeInstantKill(defender);
         }
     }
 
     /**
-     * Resolves a Mod attack that was blocked by target invulnerability. Instant
-     * Kill keeps ownership of this policy; Force Hit never bypasses
-     * invulnerability by itself.
+     * Resolves an attack that was blocked by target invulnerability. Instant Kill
+     * owns this policy; Force Hit never bypasses invulnerability by itself.
      */
-    static boolean resolveBlockedAttack(Hero hero, Char enemy) {
-        ModInstantKill buff = find(hero);
+    static boolean resolveBlockedAttack(Char attacker, Char defender) {
+        ModInstantKill buff = find(attacker);
         if (buff == null
                 || !buff.instantKill
-                || buff.target != hero
-                || hero == null
-                || enemy == null
-                || enemy == hero
-                || !hero.isAlive()
-                || !enemy.isAlive()
-                || !enemy.isInvulnerable(hero.getClass())) {
+                || buff.target != attacker
+                || attacker == null
+                || defender == null
+                || defender == attacker
+                || !attacker.isAlive()
+                || !defender.isAlive()
+                || !defender.isInvulnerable(attacker.getClass())) {
             return false;
         }
-        return buff.executeInstantKill(enemy);
+        return buff.executeInstantKill(defender);
     }
 
-    private boolean executeInstantKill(Char enemy) {
-        if (!(target instanceof Hero)
-                || enemy == null
-                || enemy == target
-                || !enemy.isAlive()) {
+    private boolean executeInstantKill(Char defender) {
+        if (target == null
+                || !target.isAlive()
+                || defender == null
+                || defender == target
+                || !defender.isAlive()) {
             return false;
         }
 
-        Wound.hit(enemy);
-        if (!ModCombatCompat.kill(enemy, target)) {
+        Wound.hit(defender);
+        if (!ModCombatCompat.kill(defender, target)) {
             return false;
         }
-        if (enemy.sprite != null) {
-            enemy.sprite.showStatus(
+        if (defender.sprite != null) {
+            defender.sprite.showStatus(
                     CharSprite.NEGATIVE,
                     Messages.get(Preparation.class, "assassinated"));
         }
