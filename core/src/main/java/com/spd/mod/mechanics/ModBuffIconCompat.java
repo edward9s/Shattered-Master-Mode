@@ -60,7 +60,9 @@ public final class ModBuffIconCompat {
             case "AMULET":
                 return 21;
             case "DUEL_CLEAVE":
-                return 60;
+                // Older buff atlases predate Duelist slots entirely. MARK is
+                // a stable low-slot combat icon and remains visible there.
+                return 27;
             case "DUEL_GUARD":
                 return 61;
             case "NONE":
