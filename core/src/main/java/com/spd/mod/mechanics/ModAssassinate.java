@@ -641,7 +641,6 @@ public class ModAssassinate extends Buff {
 
             Hero hero = Dungeon.hero;
             boolean available = hero != null && hero.ready;
-            active = available;
             icon.alpha(available ? 1f : 0.4f);
 
             super.update();
