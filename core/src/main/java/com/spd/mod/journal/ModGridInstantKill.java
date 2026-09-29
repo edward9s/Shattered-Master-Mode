@@ -24,7 +24,7 @@ public class ModGridInstantKill extends ModGridEntry {
             return false;
         }
 
-        ModCharSelector.startHeroOnly(ModInstantKill.class);
+        ModCharSelector.start(ModInstantKill.class);
         return true;
     }
 }
