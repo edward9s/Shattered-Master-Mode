@@ -679,7 +679,7 @@ def _smali_local_register_count(block: str, proto: str, is_static: bool) -> int:
     return int(registers_match.group(1)) - params
 
 
-def _probe_force_hit_hook(
+def _probe_hit_hook(
     target_index: dict[str, injector.SmaliClass],
     game_prefix: str,
 ) -> AbiCapability:
@@ -687,34 +687,46 @@ def _probe_force_hit_hook(
     char_class = target_index.get(char_descriptor)
     if char_class is None:
         return AbiCapability(
-            "char.forceHitHook",
+            "char.hitHook",
             ABI_UNSUPPORTED,
             "Char class is missing",
         )
 
-    exact_proto = f"({char_descriptor}{char_descriptor}FZ)Z"
-    exact_flags = char_class.methods.get(("hit", exact_proto))
-    if exact_flags is not None and "static" in exact_flags:
+    direct_candidates = (
+        (
+            f"({char_descriptor}{char_descriptor}FZ)Z",
+            "modern Char.hit(Char,Char,float,boolean)",
+        ),
+        (
+            f"({char_descriptor}{char_descriptor}Z)Z",
+            "legacy Char.hit(Char,Char,boolean)",
+        ),
+    )
+    for direct_proto, label in direct_candidates:
+        flags = char_class.methods.get(("hit", direct_proto))
+        if flags is None or "static" not in flags:
+            continue
         try:
             _hit_start, _hit_end, hit_block = injector.method_block(
-                char_class.text, "hit", exact_proto
+                char_class.text, "hit", direct_proto
             )
         except injector.InjectError:
-            hit_block = ""
-        if _smali_local_register_count(hit_block, exact_proto, True) >= 1:
-            return AbiCapability(
-                "char.forceHitHook",
-                ABI_DIRECT,
-                "accessible exact Char.hit(Char,Char,float,boolean) is available",
-                data={"method": "hit", "proto": exact_proto},
-            )
+            continue
+        if _smali_local_register_count(hit_block, direct_proto, True) < 1:
+            continue
+        return AbiCapability(
+            "char.hitHook",
+            ABI_DIRECT,
+            f"accessible {label} is available",
+            data={"method": "hit", "proto": direct_proto},
+        )
 
     terminal_proto, terminal_detail = _terminal_char_attack_proto(
         char_class, char_descriptor
     )
     if terminal_proto is None:
         return AbiCapability(
-            "char.forceHitHook",
+            "char.hitHook",
             ABI_UNSUPPORTED,
             "cannot identify terminal Char.attack: " + terminal_detail,
         )
@@ -793,22 +805,16 @@ def _probe_force_hit_hook(
             f"{name}{proto}" for name, proto in candidates
         ) or "none"
         return AbiCapability(
-            "char.forceHitHook",
+            "char.hitHook",
             ABI_UNSUPPORTED,
             "expected exactly one structural hit-check method called by terminal "
             f"Char.attack{terminal_proto}, found {len(candidates)}: {found}",
         )
 
     method_name, method_proto = candidates[0]
-    exact_proto = f"({char_descriptor}{char_descriptor}FZ)Z"
-    strategy = (
-        ABI_DIRECT
-        if method_name == "hit" and method_proto == exact_proto
-        else ABI_STRUCTURAL
-    )
     return AbiCapability(
-        "char.forceHitHook",
-        strategy,
+        "char.hitHook",
+        ABI_STRUCTURAL,
         "unique structural hit-check "
         f"{method_name}{method_proto} selected from terminal "
         f"Char.attack{terminal_proto}",
@@ -823,7 +829,7 @@ ABI_PROBES: tuple[
     _probe_wndgame_menu_hook,
     _probe_duelist_combo,
     _probe_char_attack_hook,
-    _probe_force_hit_hook,
+    _probe_hit_hook,
 )
 
 
@@ -1070,6 +1076,8 @@ def patch_char_instant_kill(
     text: str,
     char_descriptor: str,
     proto: str | None = None,
+    hit_method: str | None = None,
+    hit_proto: str | None = None,
 ) -> str:
     if proto is None:
         char_class = injector.SmaliClass.from_text(Path("Char.smali"), text)
@@ -1077,6 +1085,18 @@ def patch_char_instant_kill(
         if proto is None:
             raise injector.InjectError(
                 "Unable to identify terminal Char.attack overload: " + detail
+            )
+
+    if hit_method is None or hit_proto is None:
+        game_prefix = char_descriptor[:-len("actors/Char;")]
+        char_class = injector.SmaliClass.from_text(Path("Char.smali"), text)
+        hit_capability = _probe_hit_hook({char_descriptor: char_class}, game_prefix)
+        hit_method = hit_capability.data.get("method")
+        hit_proto = hit_capability.data.get("proto")
+        if not hit_capability.compatible or not hit_method or not hit_proto:
+            raise injector.InjectError(
+                "No compatible selected hit-check is available for Instant Kill: "
+                + hit_capability.detail
             )
 
     start, end, block = injector.method_block(text, "attack", proto)
@@ -1091,10 +1111,9 @@ def patch_char_instant_kill(
 
     hit_desc = (
         re.escape(char_descriptor)
-        + r"->hit\("
-        + re.escape(char_descriptor)
-        + re.escape(char_descriptor)
-        + r"FZ\)Z"
+        + r"->"
+        + re.escape(hit_method)
+        + re.escape(hit_proto)
     )
     invoke_re = re.compile(
         r"^\s*invoke-static(?:/range)?\s+\{[^}]+\},\s*"
@@ -1156,8 +1175,8 @@ def patch_char_instant_kill(
 
     if len(candidates) != 1:
         raise injector.InjectError(
-            "Expected exactly one successful Char.hit branch in terminal Char.attack, "
-            f"found {len(candidates)}"
+            "Expected exactly one successful selected hit-check branch in terminal "
+            f"Char.attack, found {len(candidates)}"
         )
 
     reg, opcode, target_label, branch_index = candidates[0]
@@ -1359,18 +1378,29 @@ def compile_smali_with_char_hook(
     if not proto:
         raise injector.InjectError("Target Char.attack ABI profile did not preserve its descriptor")
 
+    hit_capability = _current_abi_profile.get("char.hitHook")
+    hit_method = hit_capability.data.get("method")
+    hit_proto = hit_capability.data.get("proto")
+    if not hit_method or not hit_proto:
+        raise injector.InjectError(
+            "Target hit-check ABI profile did not preserve its hook"
+        )
+
     char_descriptor, original_char = _pending_char_overlay
     patched_char = original_char
     instant_kill_predefense = True
     try:
         patched_char = patch_char_instant_kill(
-            patched_char, char_descriptor, proto
+            patched_char,
+            char_descriptor,
+            proto,
+            hit_method,
+            hit_proto,
         )
     except injector.InjectError as exc:
         message = str(exc)
         if not message.startswith(
-            "Expected exactly one successful Char.hit branch "
-            "in terminal Char.attack"
+            "Expected exactly one successful selected hit-check branch "
         ):
             raise
         instant_kill_predefense = False
@@ -1383,18 +1413,11 @@ def compile_smali_with_char_hook(
     # so every terminal-attack return remains covered.
     patched_char = patch_char_attack(patched_char, char_descriptor, proto)
 
-    force_capability = _current_abi_profile.get("char.forceHitHook")
-    force_method = force_capability.data.get("method")
-    force_proto = force_capability.data.get("proto")
-    if not force_method or not force_proto:
-        raise injector.InjectError(
-            "Target Force Hit ABI profile did not preserve its hook"
-        )
     patched_char = patch_char_hit(
         patched_char,
         char_descriptor,
-        force_method,
-        force_proto,
+        hit_method,
+        hit_proto,
     )
     char_output = directory / Path(char_descriptor[1:-1] + ".smali")
     if char_output.exists():
@@ -1412,7 +1435,7 @@ def compile_smali_with_char_hook(
     injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
     injector.log(
         "Force Hit pre-defense hook "
-        f"{force_method}{force_proto} ({force_capability.strategy}): OK"
+        f"{hit_method}{hit_proto} ({hit_capability.strategy}): OK"
     )
 
     write_action_name_overlay(directory)
