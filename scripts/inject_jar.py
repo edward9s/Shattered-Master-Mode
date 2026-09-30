@@ -1755,6 +1755,14 @@ public class SmmAnkhCharAttackPatcher {
                 if (isStructuralHit(desc, access)) {
                     hitCandidates.add(name + "\n" + desc);
                 }
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+
+        new ClassReader(original).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
                 return new MethodVisitor(API) {
                     @Override
                     public void visitMethodInsn(int opcode, String owner, String methodName,
