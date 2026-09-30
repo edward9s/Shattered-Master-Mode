@@ -242,6 +242,91 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertLess(block.index("\n:hit_success\n"), block.index("->defenseProc("))
         self.assertIn(":smm_instant_kill_native\n    const/4 v0, 0x1", block)
 
+    def test_force_hit_structurally_finds_renamed_hit_with_extra_parameter(self):
+        attack_proto = f"({self.char}FFF)Z"
+        hit_proto = f"({self.char}{self.char}FZI)Z"
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public attack{attack_proto}\n"
+            "    .locals 2\n"
+            "    const/4 v1, 0x0\n"
+            f"    invoke-static {{p0, p1, p4, v1, v1}}, {self.char}->rollHit{hit_proto}\n"
+            "    move-result v0\n"
+            "    if-eqz v0, :miss\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ":miss\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+            f".method public static rollHit{hit_proto}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        capability = mod._probe_force_hit_hook(
+            {self.char: self.cls(text)}, self.game
+        )
+        self.assertEqual(mod.ABI_STRUCTURAL, capability.strategy)
+        self.assertEqual("rollHit", capability.data.get("method"))
+        self.assertEqual(hit_proto, capability.data.get("proto"))
+
+        patched = mod.patch_char_hit(
+            text,
+            self.char,
+            capability.data["method"],
+            capability.data["proto"],
+        )
+        hook = (
+            "Lcom/spd/mod/mechanics/ModForceHit;->forceHitCheck("
+            + self.char + self.char + ")Z"
+        )
+        _, _, block = mod.injector.method_block(
+            patched, "rollHit", hit_proto
+        )
+        self.assertEqual(1, block.count(hook))
+        self.assertLess(block.index(hook), block.index("const/4 v0, 0x0"))
+
+    def test_force_hit_structural_probe_rejects_ambiguous_hit_checks(self):
+        attack_proto = f"({self.char}FFF)Z"
+        hit_proto = f"({self.char}{self.char}FZ)Z"
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public attack{attack_proto}\n"
+            "    .locals 2\n"
+            "    const/4 v1, 0x0\n"
+            f"    invoke-static {{p0, p1, p4, v1}}, {self.char}->hitA{hit_proto}\n"
+            "    move-result v0\n"
+            "    if-eqz v0, :miss\n"
+            f"    invoke-static {{p0, p1, p4, v1}}, {self.char}->hitB{hit_proto}\n"
+            "    move-result v0\n"
+            "    if-eqz v0, :miss\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ":miss\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+            f".method public static hitA{hit_proto}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+            f".method public static hitB{hit_proto}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        capability = mod._probe_force_hit_hook(
+            {self.char: self.cls(text)}, self.game
+        )
+        self.assertEqual(mod.ABI_UNSUPPORTED, capability.strategy)
+        self.assertIn("found 2", capability.detail)
+
     def test_force_hit_hook_is_added_to_static_hit(self):
         proto = f"({self.char}{self.char}FZ)Z"
         text = (
