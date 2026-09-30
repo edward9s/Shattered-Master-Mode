@@ -185,8 +185,10 @@ class AbiProfile:
     def log(self) -> None:
         injector.step("Target ABI profile")
         for capability in self.capabilities.values():
+            optional = " [optional]" if not capability.required else ""
             injector.log(
-                f"  {capability.key}: {capability.strategy} - {capability.detail}"
+                f"  {capability.key}: {capability.strategy}{optional} - "
+                f"{capability.detail}"
             )
         counts: dict[str, int] = {}
         for capability in self.capabilities.values():
@@ -815,7 +817,10 @@ def detect_target_abi(
 ) -> AbiProfile:
     profile = AbiProfile()
     for probe in ABI_PROBES:
-        profile.add(probe(target_index, game_prefix))
+        capability = probe(target_index, game_prefix)
+        if capability.key == "char.forceHitHook":
+            capability.required = False
+        profile.add(capability)
     return profile
 
 
@@ -1359,18 +1364,24 @@ def compile_smali_with_char_hook(
     patched_char = patch_char_attack(patched_char, char_descriptor, proto)
 
     force_capability = _current_abi_profile.get("char.forceHitHook")
+    force_enabled = force_capability.compatible
     force_method = force_capability.data.get("method")
     force_proto = force_capability.data.get("proto")
-    if not force_method or not force_proto:
-        raise injector.InjectError(
-            "Target Force Hit ABI profile did not preserve its structural hook"
+    if force_enabled:
+        if not force_method or not force_proto:
+            raise injector.InjectError(
+                "Compatible Force Hit ABI profile did not preserve its structural hook"
+            )
+        patched_char = patch_char_hit(
+            patched_char,
+            char_descriptor,
+            force_method,
+            force_proto,
         )
-    patched_char = patch_char_hit(
-        patched_char,
-        char_descriptor,
-        force_method,
-        force_proto,
-    )
+    else:
+        injector.log(
+            "Optional Force Hit skipped: " + force_capability.detail
+        )
     char_output = directory / Path(char_descriptor[1:-1] + ".smali")
     if char_output.exists():
         raise injector.InjectError(
@@ -1385,10 +1396,11 @@ def compile_smali_with_char_hook(
             "Char.attack Instant Kill pre-defense hook: fallback-only"
         )
     injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
-    injector.log(
-        "Force Hit pre-defense hook "
-        f"{force_method}{force_proto} ({force_capability.strategy}): OK"
-    )
+    if force_enabled:
+        injector.log(
+            "Force Hit pre-defense hook "
+            f"{force_method}{force_proto} ({force_capability.strategy}): OK"
+        )
 
     write_action_name_overlay(directory)
     write_last_stand_click_patch(directory)
