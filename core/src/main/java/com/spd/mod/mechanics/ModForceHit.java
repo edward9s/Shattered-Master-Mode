@@ -3,14 +3,21 @@ package com.spd.mod.mechanics;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
-import com.spd.mod.journal.ModTotalInfoOverlay;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
+
+import java.lang.reflect.Method;
 
 /** Permanent Char buff with a configurable forced-hit effect. */
 public class ModForceHit extends Buff {
 
     private static final String FORCE_HIT_ENABLED = "force_hit_enabled";
+    private static final String OPTIONAL_UI_PACKAGE = "com.spd.mod.journal.";
+    private static final String OPTIONAL_UI_SIMPLE_NAME = "ModTotalInfoOverlay";
+
+    private static boolean optionalUiResolved;
+    private static Method ensureOptionalUiMethod;
+    private static Method refreshOptionalUiMethod;
 
     private boolean forceHitEnabled = true;
 
@@ -59,7 +66,7 @@ public class ModForceHit extends Buff {
     public void toggleForceHit() {
         forceHitEnabled = !forceHitEnabled;
         BuffIndicator.refreshHero();
-        ModTotalInfoOverlay.refreshIndicators();
+        refreshOptionalUi();
     }
 
     @Override
@@ -67,20 +74,20 @@ public class ModForceHit extends Buff {
         if (!super.attachTo(target)) {
             return false;
         }
-        ModTotalInfoOverlay.ensureInstalled();
+        ensureOptionalUi();
         return true;
     }
 
     @Override
     public void fx(boolean on) {
         if (on) {
-            ModTotalInfoOverlay.ensureInstalled();
+            ensureOptionalUi();
         }
     }
 
     @Override
     public boolean act() {
-        ModTotalInfoOverlay.ensureInstalled();
+        ensureOptionalUi();
         spend(TICK);
         return true;
     }
@@ -89,12 +96,59 @@ public class ModForceHit extends Buff {
     public void detach() {
         super.detach();
         BuffIndicator.refreshHero();
-        ModTotalInfoOverlay.refreshIndicators();
+        refreshOptionalUi();
+    }
+
+    private static void ensureOptionalUi() {
+        invokeOptionalUi(false);
+    }
+
+    private static void refreshOptionalUi() {
+        invokeOptionalUi(true);
+    }
+
+    private static void invokeOptionalUi(boolean refresh) {
+        resolveOptionalUi();
+        Method method = refresh ? refreshOptionalUiMethod : ensureOptionalUiMethod;
+        if (method == null) {
+            return;
+        }
+        try {
+            method.invoke(null);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Unable to invoke optional Force Hit UI integration", e);
+        }
+    }
+
+    private static synchronized void resolveOptionalUi() {
+        if (optionalUiResolved) {
+            return;
+        }
+
+        String className = new StringBuilder(OPTIONAL_UI_PACKAGE)
+                .append(OPTIONAL_UI_SIMPLE_NAME)
+                .toString();
+        try {
+            Class<?> uiClass = Class.forName(
+                    className,
+                    false,
+                    ModForceHit.class.getClassLoader());
+            ensureOptionalUiMethod = uiClass.getMethod("ensureInstalled");
+            refreshOptionalUiMethod = uiClass.getMethod("refreshIndicators");
+        } catch (ClassNotFoundException ignored) {
+            // Expected in --ankh-only: Force Hit works without full-SMM UI.
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Incompatible optional Force Hit UI integration", e);
+        }
+        optionalUiResolved = true;
     }
 
     @Override
     public int icon() {
-        return ModBuffIconCompat.get("INVERT_MARK");
+        return ModBuffIconCompat.getFirst(
+                "INVERT_MARK",
+                "MARK",
+                "HEART");
     }
 
     @Override
@@ -113,9 +167,14 @@ public class ModForceHit extends Buff {
     }
 
     @Override
+    public String toString() {
+        return name();
+    }
+
+    @Override
     public String desc() {
         return "Forces this character's hit checks to succeed whenever the target can be hit. "
-                + "Invulnerability is not bypassed. Tap to configure.";
+                + "Invulnerability is not bypassed.";
     }
 
     @Override

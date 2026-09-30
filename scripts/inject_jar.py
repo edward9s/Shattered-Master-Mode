@@ -609,6 +609,7 @@ ANKH_REQUIRED_ROOTS = {
     "com/spd/mod/mechanics/ModItemCompat.class",
     "com/spd/mod/mechanics/ModLastStand.class",
     "com/spd/mod/mechanics/ModInstantKill.class",
+    "com/spd/mod/mechanics/ModForceHit.class",
 }
 
 _ACTION_MESSAGE_BUNDLE_RE = re.compile(
@@ -728,7 +729,7 @@ def build_ankh_payload(
 
     injector.log(
         f"ModAnkh dependency closure: {len(closure)} class(es) "
-        "(Store + Loot + Console + Last Stand + Instant Kill)"
+        "(Store + Loot + Console + Last Stand + Instant Kill + Force Hit)"
     )
     return {
         name: injector.rebase_class_bytes(donor.read(name), target_game_root)
@@ -854,9 +855,11 @@ public class SmmAnkhCharAttackPatcher {
     static final int API = Opcodes.ASM8;
     static final String CHAR = "__CHAR__";
     static final String MOD_INSTANT_KILL = "com/spd/mod/mechanics/ModInstantKill";
+    static final String MOD_FORCE_HIT = "com/spd/mod/mechanics/ModForceHit";
     static final String ATTACK_DESC = "(L" + CHAR + ";FFF)Z";
     static final String HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String INSTANT_KILL_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
+    static final String FORCE_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
 
     static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
         try (JarFile jar = new JarFile(jarPath.toFile())) {
@@ -870,36 +873,62 @@ public class SmmAnkhCharAttackPatcher {
 
     static void validateHook(Path payloadJar) throws IOException {
         byte[] bytes = readJarEntry(payloadJar, MOD_INSTANT_KILL + ".class");
-        final int[] hooks = {0};
-        final int[] validHooks = {0};
+        final int[] instantHooks = {0};
+        final int[] validInstantHooks = {0};
         new ClassReader(bytes).accept(new ClassVisitor(API) {
             @Override
             public MethodVisitor visitMethod(int access, String name, String desc,
                                              String signature, String[] exceptions) {
                 if ("resolveSuccessfulAttack".equals(name)
                         && INSTANT_KILL_DESC.equals(desc)) {
-                    hooks[0]++;
+                    instantHooks[0]++;
                     if ((access & Opcodes.ACC_PUBLIC) != 0
                             && (access & Opcodes.ACC_STATIC) != 0) {
-                        validHooks[0]++;
+                        validInstantHooks[0]++;
                     }
                 }
                 return null;
             }
         }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
-        if (hooks[0] != 1 || validHooks[0] != 1) {
+        if (instantHooks[0] != 1 || validInstantHooks[0] != 1) {
             throw new IllegalStateException(
                     "SMM donor ModInstantKill lacks public static resolveSuccessfulAttack(Char, Char)");
         }
+
+        bytes = readJarEntry(payloadJar, MOD_FORCE_HIT + ".class");
+        final int[] forceHooks = {0};
+        final int[] validForceHooks = {0};
+        new ClassReader(bytes).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if ("forceHitCheck".equals(name) && FORCE_HIT_DESC.equals(desc)) {
+                    forceHooks[0]++;
+                    if ((access & Opcodes.ACC_PUBLIC) != 0
+                            && (access & Opcodes.ACC_STATIC) != 0) {
+                        validForceHooks[0]++;
+                    }
+                }
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        if (forceHooks[0] != 1 || validForceHooks[0] != 1) {
+            throw new IllegalStateException(
+                    "SMM donor ModForceHit lacks public static forceHitCheck(Char, Char)");
+        }
+
         System.out.println("ModInstantKill successful-hit hook API: OK");
+        System.out.println("ModForceHit hit-check hook API: OK");
     }
 
     static byte[] patch(byte[] original) {
         ClassReader reader = new ClassReader(original);
         ClassWriter writer = new ClassWriter(0);
         final int[] attackMethods = {0};
+        final int[] hitMethods = {0};
         final int[] anchors = {0};
-        final boolean[] alreadyInjected = {false};
+        final boolean[] alreadyInstantInjected = {false};
+        final boolean[] alreadyForceInjected = {false};
 
         ClassVisitor visitor = new ClassVisitor(API, writer) {
             @Override
@@ -915,86 +944,136 @@ public class SmmAnkhCharAttackPatcher {
             public MethodVisitor visitMethod(int access, String name, String desc,
                                              String signature, String[] exceptions) {
                 MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
-                if (!"attack".equals(name)
-                        || !ATTACK_DESC.equals(desc)
-                        || (access & Opcodes.ACC_STATIC) != 0) {
-                    return base;
-                }
 
-                attackMethods[0]++;
-                return new MethodVisitor(API, base) {
-                    private boolean awaitingHitBranch;
+                if ("attack".equals(name)
+                        && ATTACK_DESC.equals(desc)
+                        && (access & Opcodes.ACC_STATIC) == 0) {
+                    attackMethods[0]++;
+                    return new MethodVisitor(API, base) {
+                        private boolean awaitingHitBranch;
 
-                    @Override
-                    public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                String methodDesc, boolean isInterface) {
-                        if (MOD_INSTANT_KILL.equals(owner)
-                                && "resolveSuccessfulAttack".equals(methodName)
-                                && INSTANT_KILL_DESC.equals(methodDesc)) {
-                            alreadyInjected[0] = true;
+                        @Override
+                        public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                    String methodDesc, boolean isInterface) {
+                            if (MOD_INSTANT_KILL.equals(owner)
+                                    && "resolveSuccessfulAttack".equals(methodName)
+                                    && INSTANT_KILL_DESC.equals(methodDesc)) {
+                                alreadyInstantInjected[0] = true;
+                            }
+
+                            super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+
+                            if (opcode == Opcodes.INVOKESTATIC
+                                    && CHAR.equals(owner)
+                                    && "hit".equals(methodName)
+                                    && HIT_DESC.equals(methodDesc)) {
+                                if (awaitingHitBranch) {
+                                    throw new IllegalStateException(
+                                            "Char.attack contains consecutive unresolved hit checks");
+                                }
+                                awaitingHitBranch = true;
+                            }
                         }
 
-                        super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+                        @Override
+                        public void visitJumpInsn(int opcode, Label label) {
+                            super.visitJumpInsn(opcode, label);
+                            if (!awaitingHitBranch) return;
+                            if (opcode != Opcodes.IFEQ) {
+                                throw new IllegalStateException(
+                                        "Char.attack hit result is not followed by IFEQ success branch");
+                            }
 
-                        if (opcode == Opcodes.INVOKESTATIC
-                                && CHAR.equals(owner)
-                                && "hit".equals(methodName)
-                                && HIT_DESC.equals(methodDesc)) {
+                            awaitingHitBranch = false;
+                            anchors[0]++;
+
+                            Label nativeAttack = new Label();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitVarInsn(Opcodes.ALOAD, 1);
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_INSTANT_KILL,
+                                    "resolveSuccessfulAttack",
+                                    INSTANT_KILL_DESC,
+                                    false);
+                            super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
+                            super.visitInsn(Opcodes.ICONST_1);
+                            super.visitInsn(Opcodes.IRETURN);
+                            super.visitLabel(nativeAttack);
+                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
                             if (awaitingHitBranch) {
                                 throw new IllegalStateException(
-                                        "Char.attack contains consecutive unresolved hit checks");
+                                        "Char.attack hit result has no branch");
                             }
-                            awaitingHitBranch = true;
+                            super.visitMaxs(maxStack + 2, maxLocals);
                         }
-                    }
+                    };
+                }
 
-                    @Override
-                    public void visitJumpInsn(int opcode, Label label) {
-                        super.visitJumpInsn(opcode, label);
-                        if (!awaitingHitBranch) return;
-                        if (opcode != Opcodes.IFEQ) {
-                            throw new IllegalStateException(
-                                    "Char.attack hit result is not followed by IFEQ success branch");
+                if ("hit".equals(name)
+                        && HIT_DESC.equals(desc)
+                        && (access & Opcodes.ACC_STATIC) != 0) {
+                    hitMethods[0]++;
+                    return new MethodVisitor(API, base) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            Label nativeHit = new Label();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitVarInsn(Opcodes.ALOAD, 1);
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_FORCE_HIT,
+                                    "forceHitCheck",
+                                    FORCE_HIT_DESC,
+                                    false);
+                            super.visitJumpInsn(Opcodes.IFEQ, nativeHit);
+                            super.visitInsn(Opcodes.ICONST_1);
+                            super.visitInsn(Opcodes.IRETURN);
+                            super.visitLabel(nativeHit);
+                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
                         }
 
-                        awaitingHitBranch = false;
-                        anchors[0]++;
-
-                        Label nativeAttack = new Label();
-                        super.visitVarInsn(Opcodes.ALOAD, 0);
-                        super.visitVarInsn(Opcodes.ALOAD, 1);
-                        super.visitMethodInsn(
-                                Opcodes.INVOKESTATIC,
-                                MOD_INSTANT_KILL,
-                                "resolveSuccessfulAttack",
-                                INSTANT_KILL_DESC,
-                                false);
-                        super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
-                        super.visitInsn(Opcodes.ICONST_1);
-                        super.visitInsn(Opcodes.IRETURN);
-                        super.visitLabel(nativeAttack);
-                        super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                    }
-
-                    @Override
-                    public void visitMaxs(int maxStack, int maxLocals) {
-                        if (awaitingHitBranch) {
-                            throw new IllegalStateException(
-                                    "Char.attack hit result has no branch");
+                        @Override
+                        public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                    String methodDesc, boolean isInterface) {
+                            if (MOD_FORCE_HIT.equals(owner)
+                                    && "forceHitCheck".equals(methodName)
+                                    && FORCE_HIT_DESC.equals(methodDesc)) {
+                                alreadyForceInjected[0] = true;
+                            }
+                            super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
                         }
-                        super.visitMaxs(maxStack + 2, maxLocals);
-                    }
-                };
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(maxStack + 2, maxLocals);
+                        }
+                    };
+                }
+
+                return base;
             }
         };
         reader.accept(visitor, 0);
 
-        if (alreadyInjected[0]) {
+        if (alreadyInstantInjected[0]) {
             throw new IllegalStateException("Char.attack already contains SMM Instant Kill hook");
+        }
+        if (alreadyForceInjected[0]) {
+            throw new IllegalStateException("Char.hit already contains SMM Force Hit hook");
         }
         if (attackMethods[0] != 1) {
             throw new IllegalStateException(
                     "Expected one Char.attack(Char,float,float,float), found " + attackMethods[0]);
+        }
+        if (hitMethods[0] != 1) {
+            throw new IllegalStateException(
+                    "Expected one Char.hit(Char,Char,float,boolean), found " + hitMethods[0]);
         }
         if (anchors[0] != 1) {
             throw new IllegalStateException(
@@ -1002,6 +1081,7 @@ public class SmmAnkhCharAttackPatcher {
         }
 
         System.out.println("Char.attack Instant Kill pre-defense patch: OK");
+        System.out.println("Char.hit Force Hit pre-defense patch: OK");
         return writer.toByteArray();
     }
 
@@ -1208,7 +1288,7 @@ def run_ankh_only(
     injector.log(f"SHA-256: {injector.sha256(output)}")
     injector.log(
         f"Injected: ModAnkh only "
-        f"(Store + Loot + Console + Last Stand + Instant Kill; "
+        f"(Store + Loot + Console + Last Stand + Instant Kill + Force Hit; "
         f"{len(payload)} dependency classes)"
     )
     return 0
@@ -1230,7 +1310,7 @@ def print_help() -> None:
         "Inject SMM into an SPD-derived desktop JAR using smm-inject-donor.jar beside this script.\n\n"
         "modes:\n"
         "  default       inject the full supported SMM payload\n"
-        "  --ankh-only   inject ModAnkh + Last Stand + Instant Kill + Store + Loot + Console\n\n"
+        "  --ankh-only   inject ModAnkh + Last Stand + Instant Kill + Force Hit + Store + Loot + Console\n\n"
         "options:\n"
         "  --out PATH    output JAR (default: <target>-SMM.jar or <target>-SMM-Ankh.jar)\n"
         "  --keep-work   keep temporary work files\n"
@@ -1277,7 +1357,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     injector.log(
         "Injection mode: "
         + (
-            "ModAnkh only (Store + Loot + Console + Last Stand + Instant Kill)"
+            "ModAnkh only (Store + Loot + Console + Last Stand + Instant Kill + Force Hit)"
             if parsed.ankh_only else "full SMM"
         )
     )
