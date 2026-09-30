@@ -209,6 +209,8 @@ public class SmmCharAttackPatcher {
     static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
     static final String FORCE_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
     static final String INSTANT_KILL_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
+    static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
+    static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
 
     static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
         try (JarFile jar = new JarFile(jarPath.toFile())) {
@@ -356,6 +358,12 @@ public class SmmCharAttackPatcher {
         }
         plan.terminalAttackDesc = terminals.iterator().next();
 
+        String modernDirect = "hit\n" + MODERN_HIT_DESC;
+        String legacyDirect = "hit\n" + LEGACY_HIT_DESC;
+        String directHit = structuralHits.contains(modernDirect)
+                ? modernDirect
+                : (structuralHits.contains(legacyDirect) ? legacyDirect : null);
+
         LinkedHashMap<String, ArrayList<Integer>> candidateBranches = new LinkedHashMap<>();
         new ClassReader(original).accept(new ClassVisitor(API) {
             @Override
@@ -380,7 +388,8 @@ public class SmmCharAttackPatcher {
                         String key = methodName + "\n" + methodDesc;
                         if (opcode == Opcodes.INVOKESTATIC
                                 && CHAR.equals(owner)
-                                && structuralHits.contains(key)) {
+                                && structuralHits.contains(key)
+                                && (directHit == null || directHit.equals(key))) {
                             pending = key;
                         }
                     }
@@ -407,18 +416,24 @@ public class SmmCharAttackPatcher {
             }
         }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
 
-        if (candidateBranches.size() != 1) {
-            throw new IllegalStateException(
-                    "Expected one structural hit-check in terminal Char.attack"
-                            + plan.terminalAttackDesc + ", found " + candidateBranches.size());
+        String candidate;
+        if (directHit != null) {
+            candidate = directHit;
+        } else {
+            if (candidateBranches.size() != 1) {
+                throw new IllegalStateException(
+                        "Expected one structural hit-check in terminal Char.attack"
+                                + plan.terminalAttackDesc + ", found " + candidateBranches.size());
+            }
+            candidate = candidateBranches.keySet().iterator().next();
         }
 
-        String candidate = candidateBranches.keySet().iterator().next();
         int split = candidate.indexOf('\n');
         plan.forceMethod = candidate.substring(0, split);
         plan.forceDesc = candidate.substring(split + 1);
 
         ArrayList<Integer> branches = candidateBranches.get(candidate);
+        if (branches == null) branches = new ArrayList<>();
         plan.instantPreDefense = branches.size() == 1 && branches.get(0) == Opcodes.IFEQ;
         if (plan.instantPreDefense) {
             plan.instantDetail = "unique successful hit fallthrough";
@@ -430,8 +445,9 @@ public class SmmCharAttackPatcher {
         System.out.println(
                 "Terminal Char.attack selected: " + plan.terminalAttackDesc);
         System.out.println(
-                "Force Hit structural hit-check selected: "
-                        + plan.forceMethod + plan.forceDesc);
+                "Shared hit-check selected: "
+                        + plan.forceMethod + plan.forceDesc
+                        + (directHit != null ? " (direct)" : " (structural)"));
         return plan;
     }
 
@@ -653,7 +669,7 @@ public class SmmCharAttackPatcher {
         System.out.println(
                 "Char.attack incoming-attack patch: OK (" + plan.terminalAttackDesc + ")");
         System.out.println(
-                "Force Hit structural pre-defense patch: OK ("
+                "Force Hit pre-defense patch: OK ("
                         + plan.forceMethod + plan.forceDesc + ")");
         return writer.toByteArray();
     }
