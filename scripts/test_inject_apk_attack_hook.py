@@ -259,12 +259,72 @@ class TerminalAttackHookTest(unittest.TestCase):
             "    return v0\n"
             ".end method\n"
         )
-        capability = mod._probe_force_hit_hook(
+        capability = mod._probe_hit_hook(
             {self.char: self.cls(text)}, self.game
         )
         self.assertEqual(mod.ABI_DIRECT, capability.strategy)
         self.assertEqual("hit", capability.data.get("method"))
         self.assertEqual(hit_proto, capability.data.get("proto"))
+
+    def test_ark_legacy_hit_is_direct_for_force_and_instant_kill(self):
+        attack_proto = f"({self.char})Z"
+        hit_proto = f"({self.char}{self.char}Z)Z"
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public attack{attack_proto}\n"
+            "    .locals 2\n"
+            "    const/4 v1, 0x0\n"
+            f"    invoke-static {{p0, p1, v1}}, {self.char}->hit{hit_proto}\n"
+            "    move-result v0\n"
+            "    if-eqz v0, :miss\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ":miss\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+            f".method public static hit{hit_proto}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        capability = mod._probe_hit_hook(
+            {self.char: self.cls(text)}, self.game
+        )
+        self.assertEqual(mod.ABI_DIRECT, capability.strategy)
+        self.assertEqual("hit", capability.data.get("method"))
+        self.assertEqual(hit_proto, capability.data.get("proto"))
+
+        instant = mod.patch_char_instant_kill(
+            text,
+            self.char,
+            attack_proto,
+            capability.data["method"],
+            capability.data["proto"],
+        )
+        instant_hook = (
+            "Lcom/spd/mod/mechanics/ModInstantKill;->resolveSuccessfulAttack("
+            + self.char + self.char + ")Z"
+        )
+        _, _, attack = mod.injector.method_block(
+            instant, "attack", attack_proto
+        )
+        self.assertEqual(1, attack.count(instant_hook))
+
+        forced = mod.patch_char_hit(
+            instant,
+            self.char,
+            capability.data["method"],
+            capability.data["proto"],
+        )
+        force_hook = (
+            "Lcom/spd/mod/mechanics/ModForceHit;->forceHitCheck("
+            + self.char + self.char + ")Z"
+        )
+        _, _, hit = mod.injector.method_block(forced, "hit", hit_proto)
+        self.assertEqual(1, hit.count(force_hook))
 
     def test_force_hit_structurally_finds_renamed_hit_with_extra_parameter(self):
         attack_proto = f"({self.char}FFF)Z"
@@ -290,7 +350,7 @@ class TerminalAttackHookTest(unittest.TestCase):
             "    return v0\n"
             ".end method\n"
         )
-        capability = mod._probe_force_hit_hook(
+        capability = mod._probe_hit_hook(
             {self.char: self.cls(text)}, self.game
         )
         self.assertEqual(mod.ABI_STRUCTURAL, capability.strategy)
@@ -345,7 +405,7 @@ class TerminalAttackHookTest(unittest.TestCase):
             "    return v0\n"
             ".end method\n"
         )
-        capability = mod._probe_force_hit_hook(
+        capability = mod._probe_hit_hook(
             {self.char: self.cls(text)}, self.game
         )
         self.assertEqual(mod.ABI_UNSUPPORTED, capability.strategy)
