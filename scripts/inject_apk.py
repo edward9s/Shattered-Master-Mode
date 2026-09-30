@@ -1026,9 +1026,32 @@ def compile_smali_with_char_hook(
         raise injector.InjectError("Target Char.attack ABI profile did not preserve its descriptor")
 
     char_descriptor, original_char = _pending_char_overlay
-    patched_char = patch_char_instant_kill(original_char, char_descriptor, proto)
-    # Add Riposte completion hooks after Instant Kill so the new early return
-    # is covered by the same terminal-attack lifecycle.
+    patched_char = original_char
+    instant_kill_predefense = True
+    try:
+        patched_char = patch_char_instant_kill(
+            patched_char, char_descriptor, proto
+        )
+    except injector.InjectError as exc:
+        message = str(exc)
+        if not (
+            message.startswith(
+                "Expected exactly one successful Char.hit branch "
+                "in terminal Char.attack"
+            )
+            or message.startswith(
+                "Char.hit success target label is not uniquely identifiable"
+            )
+        ):
+            raise
+        instant_kill_predefense = False
+        injector.log(
+            "Char.attack Instant Kill pre-defense hook unavailable; "
+            "using ModInstantKill attackProc fallback: " + message
+        )
+
+    # Add Riposte completion hooks after the optional Instant Kill early return
+    # so every terminal-attack return remains covered.
     patched_char = patch_char_attack(patched_char, char_descriptor, proto)
     patched_char = patch_char_hit(patched_char, char_descriptor)
     char_output = directory / Path(char_descriptor[1:-1] + ".smali")
@@ -1038,7 +1061,12 @@ def compile_smali_with_char_hook(
         )
     char_output.parent.mkdir(parents=True, exist_ok=True)
     char_output.write_text(patched_char, encoding="utf-8")
-    injector.log(f"Char.attack Instant Kill pre-defense hook ({proto}): OK")
+    if instant_kill_predefense:
+        injector.log(f"Char.attack Instant Kill pre-defense hook ({proto}): OK")
+    else:
+        injector.log(
+            "Char.attack Instant Kill pre-defense hook: fallback-only"
+        )
     injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
     injector.log("Char.hit Force Hit pre-defense hook: OK")
 
