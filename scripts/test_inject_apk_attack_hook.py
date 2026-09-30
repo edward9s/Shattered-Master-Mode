@@ -225,9 +225,21 @@ class TerminalAttackHookTest(unittest.TestCase):
         )
         _, _, block = mod.injector.method_block(patched, "attack", terminal)
         self.assertEqual(1, block.count(hook))
-        self.assertLess(block.index("if-nez v0, :hit_success"), block.index(hook))
-        self.assertLess(block.index(":hit_success"), block.index(hook))
-        self.assertLess(block.index(hook), block.index("->defenseProc("))
+        self.assertNotIn("if-nez v0, :hit_success", block)
+        self.assertLess(
+            block.index("if-eqz v0, :smm_instant_kill_miss"),
+            block.index(hook),
+        )
+        self.assertLess(block.index(hook), block.index("goto :hit_success"))
+        self.assertLess(
+            block.index(":smm_instant_kill_miss"),
+            block.index("const/4 v0, 0x0"),
+        )
+        self.assertLess(
+            block.index("const/4 v0, 0x0"),
+            block.index("\n:hit_success\n"),
+        )
+        self.assertLess(block.index("\n:hit_success\n"), block.index("->defenseProc("))
         self.assertIn(":smm_instant_kill_native\n    const/4 v0, 0x1", block)
 
     def test_force_hit_hook_is_added_to_static_hit(self):
