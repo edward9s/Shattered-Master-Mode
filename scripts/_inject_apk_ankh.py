@@ -752,9 +752,9 @@ def configure(public_module) -> None:
             getattr(public_module, "_ankh_force_hit_enabled", False)
         )
         if pending_click is None:
-            raise injector.InjectError("Last Stand BuffIndicator click overlay source was not captured")
-        if (instant_enabled or force_enabled) and pending_char is None:
-            raise injector.InjectError("Optional combat Char overlay source was not captured")
+            raise injector.InjectError(
+                "Last Stand BuffIndicator click overlay source was not captured"
+            )
         if public_module._current_game_prefix is None:
             raise injector.InjectError("Target game prefix was not initialized")
         if public_module._current_abi_profile is None:
@@ -773,39 +773,85 @@ def configure(public_module) -> None:
         overlay_path.write_text(patched, encoding="utf-8")
         injector.log("Last Stand BuffIndicator click hook: OK")
 
+        if (instant_enabled or force_enabled) and pending_char is None:
+            injector.log(
+                "Optional combat features skipped: target Char overlay source is unavailable"
+            )
+            instant_enabled = False
+            force_enabled = False
+            public_module._ankh_instant_kill_enabled = False
+            public_module._ankh_force_hit_enabled = False
+
         if instant_enabled or force_enabled:
             char_descriptor, original_char = pending_char
             patched_char = original_char
+            char_changed = False
 
             if instant_enabled:
-                capability = public_module._current_abi_profile.get(
-                    "char.incomingAttackHook"
-                )
-                proto = capability.data.get("proto")
-                if not proto:
-                    raise injector.InjectError(
-                        "Instant Kill was enabled without a Char.attack descriptor"
+                try:
+                    capability = public_module._current_abi_profile.get(
+                        "char.incomingAttackHook"
                     )
-                patched_char = public_module.patch_char_instant_kill(
-                    patched_char, char_descriptor, proto
-                )
-                injector.log(
-                    f"Char.attack Instant Kill pre-defense hook ({proto}): OK"
-                )
+                    proto = capability.data.get("proto")
+                    if not proto:
+                        raise injector.InjectError(
+                            "Char.attack descriptor was not preserved"
+                        )
+                    patched_char = public_module.patch_char_instant_kill(
+                        patched_char, char_descriptor, proto
+                    )
+                    char_changed = True
+                    injector.log(
+                        f"Char.attack Instant Kill pre-defense hook ({proto}): OK"
+                    )
+                except injector.InjectError as exc:
+                    instant_enabled = False
+                    public_module._ankh_instant_kill_enabled = False
+                    injector.log(
+                        "Optional Instant Kill skipped during patch: " + str(exc)
+                    )
 
             if force_enabled:
-                patched_char = public_module.patch_char_hit(
-                    patched_char, char_descriptor
-                )
-                injector.log("Char.hit Force Hit pre-defense hook: OK")
+                try:
+                    patched_char = public_module.patch_char_hit(
+                        patched_char, char_descriptor
+                    )
+                    char_changed = True
+                    injector.log("Char.hit Force Hit pre-defense hook: OK")
+                except injector.InjectError as exc:
+                    force_enabled = False
+                    public_module._ankh_force_hit_enabled = False
+                    injector.log(
+                        "Optional Force Hit skipped during patch: " + str(exc)
+                    )
 
-            char_path = directory / Path(char_descriptor[1:-1] + ".smali")
-            if char_path.exists():
-                raise injector.InjectError(
-                    "Overlay already contains target Char class: " + char_descriptor
-                )
-            char_path.parent.mkdir(parents=True, exist_ok=True)
-            char_path.write_text(patched_char, encoding="utf-8")
+            if char_changed:
+                char_path = directory / Path(char_descriptor[1:-1] + ".smali")
+                if char_path.exists():
+                    raise injector.InjectError(
+                        "Overlay already contains target Char class: " + char_descriptor
+                    )
+                char_path.parent.mkdir(parents=True, exist_ok=True)
+                char_path.write_text(patched_char, encoding="utf-8")
+
+        core_keys = set(
+            getattr(public_module, "_ankh_core_payload_descriptors", set())
+        )
+        optional_sets = dict(
+            getattr(public_module, "_ankh_optional_payload_descriptors", {})
+        )
+        keep = set(core_keys)
+        if instant_enabled:
+            keep.update(optional_sets.get("instant", set()))
+        if force_enabled:
+            keep.update(optional_sets.get("force", set()))
+
+        optional_all = set()
+        for descriptors in optional_sets.values():
+            optional_all.update(descriptors)
+        for descriptor in optional_all.difference(keep):
+            payload_path = directory / Path(descriptor[1:-1] + ".smali")
+            payload_path.unlink(missing_ok=True)
 
         try:
             public_module._original_compile_smali(
