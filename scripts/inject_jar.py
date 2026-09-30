@@ -295,7 +295,7 @@ public class SmmCharAttackPatcher {
         String terminalAttackDesc;
         String forceMethod;
         String forceDesc;
-        boolean instantPreDefense;
+        int instantBranchOpcode = -1;
         String instantDetail;
     }
 
@@ -434,12 +434,16 @@ public class SmmCharAttackPatcher {
 
         ArrayList<Integer> branches = candidateBranches.get(candidate);
         if (branches == null) branches = new ArrayList<>();
-        plan.instantPreDefense = branches.size() == 1 && branches.get(0) == Opcodes.IFEQ;
-        if (plan.instantPreDefense) {
-            plan.instantDetail = "unique successful hit fallthrough";
+        if (branches.size() == 1
+                && (branches.get(0) == Opcodes.IFEQ
+                    || branches.get(0) == Opcodes.IFNE)) {
+            plan.instantBranchOpcode = branches.get(0);
+            plan.instantDetail = branches.get(0) == Opcodes.IFEQ
+                    ? "unique successful hit fallthrough"
+                    : "unique successful hit branch";
         } else {
             plan.instantDetail =
-                    "structural hit-check found, but no unique IFEQ success fallthrough";
+                    "selected hit-check found, but no unique boolean success branch";
         }
 
         System.out.println(
@@ -510,17 +514,7 @@ public class SmmCharAttackPatcher {
                                     && plan.forceDesc.equals(methodDesc);
                         }
 
-                        @Override
-                        public void visitJumpInsn(int opcode, Label label) {
-                            super.visitJumpInsn(opcode, label);
-                            if (!awaitingStructuralHit) return;
-                            awaitingStructuralHit = false;
-
-                            if (!plan.instantPreDefense || opcode != Opcodes.IFEQ) {
-                                return;
-                            }
-                            instantAnchors[0]++;
-
+                        private void emitInstant(Label nativeSuccess) {
                             Label nativeAttack = new Label();
                             super.visitVarInsn(Opcodes.ALOAD, 0);
                             super.visitVarInsn(Opcodes.ALOAD, 1);
@@ -535,6 +529,32 @@ public class SmmCharAttackPatcher {
                             super.visitInsn(Opcodes.IRETURN);
                             super.visitLabel(nativeAttack);
                             super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                            if (nativeSuccess != null) {
+                                super.visitJumpInsn(Opcodes.GOTO, nativeSuccess);
+                            }
+                        }
+
+                        @Override
+                        public void visitJumpInsn(int opcode, Label label) {
+                            if (!awaitingStructuralHit
+                                    || opcode != plan.instantBranchOpcode) {
+                                awaitingStructuralHit = false;
+                                super.visitJumpInsn(opcode, label);
+                                return;
+                            }
+                            awaitingStructuralHit = false;
+                            instantAnchors[0]++;
+
+                            if (opcode == Opcodes.IFEQ) {
+                                super.visitJumpInsn(opcode, label);
+                                emitInstant(null);
+                            } else {
+                                Label miss = new Label();
+                                super.visitJumpInsn(Opcodes.IFEQ, miss);
+                                emitInstant(label);
+                                super.visitLabel(miss);
+                                super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                            }
                         }
 
                         @Override
@@ -657,7 +677,7 @@ public class SmmCharAttackPatcher {
                             + forceMethods[0]);
         }
 
-        if (plan.instantPreDefense && instantAnchors[0] == 1) {
+        if (plan.instantBranchOpcode != -1 && instantAnchors[0] == 1) {
             System.out.println(
                     "Char.attack Instant Kill pre-defense patch: OK ("
                             + plan.terminalAttackDesc + ")");
