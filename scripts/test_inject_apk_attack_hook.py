@@ -180,6 +180,7 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(1, block.count(hook))
         self.assertLess(block.index("if-eqz v0, :miss"), block.index(hook))
         self.assertLess(block.index(hook), block.index("->defenseProc("))
+        self.assertIn(":smm_instant_kill_native\n    const/4 v0, 0x1", block)
 
         # The normal compile path adds Riposte completion after the Instant Kill
         # early return has been inserted, so every return remains covered.
