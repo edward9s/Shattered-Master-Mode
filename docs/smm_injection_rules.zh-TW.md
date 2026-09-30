@@ -56,7 +56,7 @@ JAR 注入不使用這把 APK 簽章金鑰。
 - ABI dependency 無法可靠解析時直接停止，不猜測、不硬塞。
 - 不複製任意 donor-only 或混淆 class 來掩蓋 compatibility error。
 - `--ankh-only` 必須保持精簡；ModAnkh + ModLastStand 與 Store / Loot / Debug Console 是保證核心，Instant Kill 與 Force Hit 是選配，不能因選配失敗拖垮核心注入。
-- 「選配」不代表消極放棄。Injector 必須先嘗試安全的結構式適配再決定跳過。Instant Kill 可退回 `attackProc()`；Force Hit 必須從 terminal attack 結構追蹤命中判定，而不是只接受精確的 vanilla `Char.hit(Char, Char, float, boolean)` signature。
+- 「選配」不代表消極放棄。APK 與 JAR 都必須先讓 Instant Kill / Force Hit 使用同一套 modern direct → legacy direct → structural fallback；Instant Kill 若找不到安全的命中成功分支仍可退回 `attackProc()`，Force Hit 則只有在找不到安全的 selected hit-check 時才跳過。
 - 選配的 full-SMM UI bridge 不得讓 ankh-only target 當機。若 UI class 本身或其任一 target UI 傳遞相依在 runtime 無法 linkage，應只停用該 optional UI bridge，保留底層戰鬥 Buff 正常運作。
 - Mod 系列 action 文字維持直接由程式碼提供。APK/JAR 若遇到舊版 `WndUseItem` 繞過 `Item.actionName()`、直接呼叫 `Messages.get(...)`，應只對該 legacy call site 做 ABI bridge，讓 `ac_*` 重新走 target 已存在的虛擬 `Item.actionName(action, hero)`；不要為 ModAnkh 修改 `items*.properties`。
 - Last Stand 的 BuffIndicator 行為在 APK/JAR、full/ankh-only 都直接 patch target：短按開啟 Store window；長按保留 target 原本的 buff info 行為。舊的混合式 click/tag UI layer 已移除；full SMM 的側邊入口獨立成 `ModLastStandTag`，且不進入 ankh-only dependency closure。
