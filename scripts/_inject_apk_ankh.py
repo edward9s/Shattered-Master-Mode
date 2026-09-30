@@ -114,11 +114,11 @@ def configure(public_module) -> None:
         attack_capability.required = False
         profile.add(attack_capability)
 
-        force_capability = public_module._probe_force_hit_hook(
+        hit_capability = public_module._probe_hit_hook(
             target_index, game_prefix
         )
-        force_capability.required = False
-        profile.add(force_capability)
+        hit_capability.required = False
+        profile.add(hit_capability)
 
         public_module._current_abi_profile = profile
         profile.log()
@@ -218,7 +218,7 @@ def configure(public_module) -> None:
 
         optional_specs = (
             ("instant", instant_kill, None, "Instant Kill"),
-            ("force", force_hit, "char.forceHitHook", "Force Hit"),
+            ("force", force_hit, "char.hitHook", "Force Hit"),
         )
         optional_closures = {}
 
@@ -459,18 +459,34 @@ def configure(public_module) -> None:
             char_changed = False
 
             if instant_enabled:
-                capability = public_module._current_abi_profile.get(
+                attack_capability = public_module._current_abi_profile.get(
                     "char.incomingAttackHook"
                 )
-                proto = capability.data.get("proto")
-                if capability.compatible and proto:
+                hit_capability = public_module._current_abi_profile.get(
+                    "char.hitHook"
+                )
+                proto = attack_capability.data.get("proto")
+                hit_method = hit_capability.data.get("method")
+                hit_proto = hit_capability.data.get("proto")
+                if (
+                    attack_capability.compatible
+                    and hit_capability.compatible
+                    and proto
+                    and hit_method
+                    and hit_proto
+                ):
                     try:
                         patched_char = public_module.patch_char_instant_kill(
-                            patched_char, char_descriptor, proto
+                            patched_char,
+                            char_descriptor,
+                            proto,
+                            hit_method,
+                            hit_proto,
                         )
                         char_changed = True
                         injector.log(
-                            f"Char.attack Instant Kill pre-defense hook ({proto}): OK"
+                            "Char.attack Instant Kill pre-defense hook "
+                            f"({proto} via {hit_method}{hit_proto}): OK"
                         )
                     except injector.InjectError as exc:
                         injector.log(
@@ -479,34 +495,39 @@ def configure(public_module) -> None:
                             + str(exc)
                         )
                 else:
+                    detail = (
+                        attack_capability.detail
+                        if not attack_capability.compatible
+                        else hit_capability.detail
+                    )
                     injector.log(
                         "Optional Instant Kill pre-defense hook unavailable; "
                         "keeping ModInstantKill with attackProc fallback: "
-                        + capability.detail
+                        + detail
                     )
 
             if force_enabled:
                 try:
-                    force_capability = public_module._current_abi_profile.get(
-                        "char.forceHitHook"
+                    hit_capability = public_module._current_abi_profile.get(
+                        "char.hitHook"
                     )
-                    force_method = force_capability.data.get("method")
-                    force_proto = force_capability.data.get("proto")
-                    if not force_method or not force_proto:
+                    hit_method = hit_capability.data.get("method")
+                    hit_proto = hit_capability.data.get("proto")
+                    if not hit_method or not hit_proto:
                         raise injector.InjectError(
-                            "Force Hit structural hook was not preserved"
+                            "Selected hit-check hook was not preserved"
                         )
                     patched_char = public_module.patch_char_hit(
                         patched_char,
                         char_descriptor,
-                        force_method,
-                        force_proto,
+                        hit_method,
+                        hit_proto,
                     )
                     char_changed = True
                     injector.log(
                         "Force Hit pre-defense hook "
-                        f"{force_method}{force_proto} "
-                        f"({force_capability.strategy}): OK"
+                        f"{hit_method}{hit_proto} "
+                        f"({hit_capability.strategy}): OK"
                     )
                 except injector.InjectError as exc:
                     force_enabled = False
