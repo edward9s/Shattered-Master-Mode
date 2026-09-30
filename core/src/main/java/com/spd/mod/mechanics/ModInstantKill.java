@@ -11,6 +11,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.TargetHealthIndicator;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.HashSet;
 
@@ -108,6 +109,12 @@ public class ModInstantKill extends ChampionEnemy {
         } catch (LinkageError e) {
             disableOptionalUi();
             return;
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof LinkageError) {
+                disableOptionalUi();
+                return;
+            }
+            throw new IllegalStateException("Unable to invoke optional Instant Kill UI integration", e);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Unable to invoke optional Instant Kill UI integration", e);
         }
