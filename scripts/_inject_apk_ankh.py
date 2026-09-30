@@ -75,6 +75,9 @@ def configure(public_module) -> None:
 
     injector = public_module.injector
     full_prefix = public_module.FULL_SMM_PREFIX
+    last_stand = full_prefix + "mechanics/ModLastStand;"
+    instant_kill = full_prefix + "mechanics/ModInstantKill;"
+    force_hit = full_prefix + "mechanics/ModForceHit;"
 
     def detect_target_game_prefix(target_index):
         game_prefix = public_module._original_detect_target_game_prefix(target_index)
@@ -179,7 +182,7 @@ def configure(public_module) -> None:
                 + ", ".join(sorted(core_unresolved))
             )
 
-        required_roots = {_LAST_STAND}
+        required_roots = {last_stand}
         missing_roots = sorted(required_roots.difference(core_closure))
         if missing_roots:
             raise injector.InjectError(
@@ -214,8 +217,8 @@ def configure(public_module) -> None:
                     )
 
         optional_specs = (
-            ("instant", _INSTANT_KILL, None, "Instant Kill"),
-            ("force", _FORCE_HIT, "char.forceHitHook", "Force Hit"),
+            ("instant", instant_kill, None, "Instant Kill"),
+            ("force", force_hit, "char.forceHitHook", "Force Hit"),
         )
         optional_closures = {}
 
