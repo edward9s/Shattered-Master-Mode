@@ -1307,9 +1307,11 @@ def run_ankh_only(
 
     raw_core_jar = work / "rebased-ankh-core-payload.jar"
     injector.write_helper_payload_jar(raw_core_jar, core_payload)
-    core_helper, core_payload = adapt_ankh_payload(
+    core_helper_tmp, core_payload = adapt_ankh_payload(
         java, target, raw_core_jar, work, target_game_root
     )
+    core_helper = work / "adapted-ankh-core-payload.jar"
+    shutil.copy2(core_helper_tmp, core_helper)
 
     adapted_optional: dict[str, dict[str, bytes]] = {}
     for feature, feature_payload in optional_payloads.items():
