@@ -796,6 +796,67 @@ def _first_smali_instruction(block: str) -> tuple[int, str]:
     raise injector.InjectError("Char.attack has no executable instruction")
 
 
+def patch_char_instant_kill(
+    text: str,
+    char_descriptor: str,
+    proto: str | None = None,
+) -> str:
+    if proto is None:
+        char_class = injector.SmaliClass.from_text(Path("Char.smali"), text)
+        proto, detail = _terminal_char_attack_proto(char_class, char_descriptor)
+        if proto is None:
+            raise injector.InjectError(
+                "Unable to identify terminal Char.attack overload: " + detail
+            )
+
+    start, end, block = injector.method_block(text, "attack", proto)
+    hook = (
+        "Lcom/spd/mod/mechanics/ModInstantKill;->resolveSuccessfulAttack("
+        f"{char_descriptor}{char_descriptor})Z"
+    )
+    if hook in block or ":smm_instant_kill_native" in block:
+        raise injector.InjectError(
+            "Char.attack already contains SMM Instant Kill success hook"
+        )
+
+    hit_desc = (
+        re.escape(char_descriptor)
+        + r"->hit\("
+        + re.escape(char_descriptor)
+        + re.escape(char_descriptor)
+        + r"FZ\)Z"
+    )
+    hit_re = re.compile(
+        r"(?m)^(?P<invoke>[ \t]*invoke-static(?:/range)?\s+\{[^}]+\},\s*"
+        + hit_desc
+        + r"\s*)\n"
+        r"(?P<move>[ \t]*move-result\s+(?P<reg>[vp]\d+)\s*)\n"
+        r"(?P<branch>[ \t]*if-eqz\s+(?P=reg),\s*:[A-Za-z0-9_$.-]+\s*)$"
+    )
+    matches = list(hit_re.finditer(block))
+    if len(matches) != 1:
+        raise injector.InjectError(
+            "Expected exactly one successful Char.hit branch in terminal Char.attack, "
+            f"found {len(matches)}"
+        )
+
+    match = matches[0]
+    indent = re.match(r"[ \t]*", match.group("branch")).group(0)
+    reg = match.group("reg")
+    injected = (
+        "\n"
+        f"{indent}# SMM Instant Kill after confirmed hit, before defenseProc\n"
+        f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
+        f"{indent}move-result {reg}\n"
+        f"{indent}if-eqz {reg}, :smm_instant_kill_native\n"
+        f"{indent}const/4 {reg}, 0x1\n"
+        f"{indent}return {reg}\n"
+        f"{indent}:smm_instant_kill_native"
+    )
+    patched = block[:match.end()] + injected + block[match.end():]
+    return text[:start] + patched + text[end:]
+
+
 def patch_char_attack(
     text: str,
     char_descriptor: str,
@@ -893,7 +954,10 @@ def compile_smali_with_char_hook(
         raise injector.InjectError("Target Char.attack ABI profile did not preserve its descriptor")
 
     char_descriptor, original_char = _pending_char_overlay
-    patched_char = patch_char_attack(original_char, char_descriptor, proto)
+    patched_char = patch_char_instant_kill(original_char, char_descriptor, proto)
+    # Add Riposte completion hooks after Instant Kill so the new early return
+    # is covered by the same terminal-attack lifecycle.
+    patched_char = patch_char_attack(patched_char, char_descriptor, proto)
     patched_char = patch_char_hit(patched_char, char_descriptor)
     char_output = directory / Path(char_descriptor[1:-1] + ".smali")
     if char_output.exists():
@@ -902,6 +966,7 @@ def compile_smali_with_char_hook(
         )
     char_output.parent.mkdir(parents=True, exist_ok=True)
     char_output.write_text(patched_char, encoding="utf-8")
+    injector.log(f"Char.attack Instant Kill pre-defense hook ({proto}): OK")
     injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
     injector.log("Char.hit Force Hit pre-defense hook: OK")
 
