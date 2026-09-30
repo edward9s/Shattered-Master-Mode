@@ -262,10 +262,15 @@ def patch_char(file_path: Path) -> None:
     content = file_path.read_text(encoding='utf-8')
     pre_marker = '// MASTER_MODE_INCOMING_ATTACK'
     completion_marker = '// MASTER_MODE_INCOMING_ATTACK_COMPLETE'
+    instant_marker = '// MASTER_MODE_INSTANT_KILL'
 
-    if completion_marker in content:
-        print(f"Incoming-attack entry/completion hooks already injected into {file_path}")
-        return
+    if completion_marker in content or instant_marker in content:
+        if completion_marker in content and instant_marker in content:
+            print(f"Char.attack hooks already injected into {file_path}")
+            return
+        raise RuntimeError(
+            f"Partial Char.attack hook set found in {file_path}; refusing an ambiguous patch"
+        )
 
     defender, open_brace, close_brace = _terminal_attack_method(content)
     body = content[open_brace + 1:close_brace]
@@ -286,6 +291,28 @@ def patch_char(file_path: Path) -> None:
     if pre_marker in content and pre_marker not in body:
         raise RuntimeError(
             f"Existing incoming-attack hook is not in terminal Char.attack: {file_path}"
+        )
+
+    # Instant Kill owns successful physical hits before any defenseProc() side
+    # effects. Match the terminal attack's single native hit(this, defender, ...)
+    # success branch and fail if that structural anchor is ambiguous.
+    hit_success = re.compile(
+        r'(?P<head>(?:}\s*else\s+)?if\s*\(\s*hit\s*\(\s*this\s*,\s*'
+        + re.escape(defender)
+        + r'\s*,[^{};]*?\)\s*\)\s*{)'
+    )
+    instant_code = (
+        "\n\t\t\t// MASTER_MODE_INSTANT_KILL\n"
+        f"\t\t\tif (com.spd.mod.mechanics.ModInstantKill.resolveSuccessfulAttack(this, {defender})) return true;"
+    )
+    clean_body, instant_count = hit_success.subn(
+        lambda m: m.group('head') + instant_code,
+        clean_body,
+    )
+    if instant_count != 1:
+        raise RuntimeError(
+            f"Expected exactly one successful Char.hit branch in terminal Char.attack, "
+            f"found {instant_count}: {file_path}"
         )
 
     # try/finally preserves Java return-expression evaluation order: completion
@@ -309,7 +336,7 @@ def patch_char(file_path: Path) -> None:
         + content[close_brace:]
     )
     file_path.write_text(content, encoding='utf-8')
-    print(f"Incoming-attack entry/completion hooks injected successfully into {file_path}")
+    print(f"Char.attack Riposte + Instant Kill hooks injected successfully into {file_path}")
 
 
 patch_wndgame(wnd_path)
