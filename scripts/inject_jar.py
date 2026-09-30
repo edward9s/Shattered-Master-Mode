@@ -1225,6 +1225,8 @@ def rebuild_ankh_jar(
     modankh_bytes = patched_modankh.read_bytes()
     if not dungeon_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched Dungeon.class is invalid")
+    if char_bytes is not None and not char_bytes.startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError("Patched Char.class is invalid")
     if not modankh_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched ModAnkh.class is invalid")
     for name, data in payload.items():
@@ -1314,12 +1316,23 @@ def run_ankh_only(
     shutil.copy2(core_helper_tmp, core_helper)
 
     adapted_optional: dict[str, dict[str, bytes]] = {}
+    feature_labels = {
+        "instant": "Instant Kill",
+        "force": "Force Hit",
+    }
     for feature, feature_payload in optional_payloads.items():
         raw_feature_jar = work / f"rebased-ankh-{feature}-payload.jar"
         injector.write_helper_payload_jar(raw_feature_jar, feature_payload)
-        _feature_helper, adapted = adapt_ankh_payload(
-            java, target, raw_feature_jar, work, target_game_root
-        )
+        try:
+            _feature_helper, adapted = adapt_ankh_payload(
+                java, target, raw_feature_jar, work, target_game_root
+            )
+        except injector.InjectError as exc:
+            injector.log(
+                f"Optional {feature_labels.get(feature, feature)} skipped "
+                f"during payload adaptation: {exc}"
+            )
+            continue
         adapted_optional[feature] = adapted
 
     probe_payload: dict[str, bytes] = {}
@@ -1332,9 +1345,17 @@ def run_ankh_only(
     patched_modankh, patched_dungeon = _original_patch_classes(
         java, target, core_helper, donor_modankh, work, target_game_root
     )
-    patched_char, enabled_features = patch_ankh_char(
-        java, target, probe_payload_jar, work, target_game_root
-    )
+    try:
+        patched_char, enabled_features = patch_ankh_char(
+            java, target, probe_payload_jar, work, target_game_root
+        )
+    except injector.InjectError as exc:
+        injector.log(
+            "Optional combat Char patch skipped; core injection continues: "
+            + str(exc)
+        )
+        patched_char = None
+        enabled_features = set()
 
     payload = dict(core_payload)
     for feature in sorted(enabled_features):
