@@ -1,6 +1,7 @@
 import pathlib
 import sys
 import unittest
+from types import SimpleNamespace
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -181,6 +182,60 @@ class ApkUiCompatTests(unittest.TestCase):
         self.assertFalse(hasattr(ankh_mode, "_ACTION_MESSAGE_BUNDLE_RE"))
         self.assertFalse(hasattr(ankh_mode, "_ACTION_MESSAGES"))
         self.assertFalse(hasattr(ankh_mode, "_append_action_messages"))
+
+    def test_ankh_payload_builder_resolves_required_roots_without_module_globals(self):
+        class FakeInjectError(Exception):
+            pass
+
+        class UnsupportedCapability:
+            compatible = False
+            detail = "unsupported"
+
+        class Profile:
+            def get(self, key):
+                return UnsupportedCapability()
+
+        full_prefix = "Lcom/spd/mod/"
+        mod_ankh = full_prefix + "items/ModAnkh;"
+        last_stand = full_prefix + "mechanics/ModLastStand;"
+        ankh_item = object()
+        last_stand_item = SimpleNamespace(descriptor=last_stand)
+
+        def dependencies(item):
+            if item is ankh_item:
+                return {last_stand}
+            return set()
+
+        fake_injector = SimpleNamespace(
+            MOD_ANKH=mod_ankh,
+            TARGET_API_PREFIXES=("Ltarget/",),
+            InjectError=FakeInjectError,
+            smali_dependencies=dependencies,
+            relocated_helper_descriptor=lambda descriptor: descriptor,
+            rewrite_smali_class=lambda item, relocations: item,
+            log=lambda message: None,
+        )
+        public_module = SimpleNamespace(
+            injector=fake_injector,
+            FULL_SMM_PREFIX=full_prefix,
+            _current_abi_profile=Profile(),
+            _current_game_prefix=None,
+            _original_find_class=None,
+            _original_patch_dungeon=None,
+        )
+
+        ankh_mode.configure(public_module)
+        payload, relocations = fake_injector.build_debug_payload(
+            {
+                mod_ankh: ankh_item,
+                last_stand: last_stand_item,
+            },
+            {},
+        )
+
+        self.assertIn(last_stand, payload)
+        self.assertEqual({}, relocations)
+        self.assertEqual({last_stand}, public_module._ankh_core_payload_descriptors)
 
 
 if __name__ == "__main__":
