@@ -7,6 +7,7 @@ import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
+import com.shatteredpixel.shatteredpixeldungeon.ui.TargetHealthIndicator;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
@@ -170,14 +171,30 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public void onAttackProc(Char defender) {
-        if (instantKill
-                && target != null
-                && target.isAlive()
-                && defender != null
-                && defender != target
-                && defender.isAlive()) {
-            executeInstantKill(defender);
+        // Primary Instant Kill resolution happens immediately after Char.hit()
+        // succeeds and before defenseProc(). Keep this as a compatibility
+        // fallback for source/fork builds that have not installed that hook.
+        resolveSuccessfulAttack(target, defender);
+    }
+
+    /**
+     * Resolves Instant Kill after a physical hit has succeeded but before the
+     * defender's defenseProc() runs. This prevents defensive side effects such
+     * as Swarm splitting and works for synchronous, turn-free Assassinate.
+     */
+    public static boolean resolveSuccessfulAttack(Char attacker, Char defender) {
+        ModInstantKill buff = find(attacker);
+        if (buff == null
+                || !buff.instantKill
+                || buff.target != attacker
+                || attacker == null
+                || defender == null
+                || defender == attacker
+                || !attacker.isAlive()
+                || !defender.isAlive()) {
+            return false;
         }
+        return executeInstantKill(attacker, defender);
     }
 
     /**
@@ -197,20 +214,30 @@ public class ModInstantKill extends ChampionEnemy {
                 || !defender.isInvulnerable(attacker.getClass())) {
             return false;
         }
-        return buff.executeInstantKill(defender);
+        return executeInstantKill(attacker, defender);
     }
 
-    private boolean executeInstantKill(Char defender) {
-        if (target == null
-                || !target.isAlive()
+    private static boolean executeInstantKill(Char attacker, Char defender) {
+        if (attacker == null
                 || defender == null
-                || defender == target
+                || defender == attacker
                 || !defender.isAlive()) {
             return false;
         }
 
         Wound.hit(defender);
-        if (!ModDeathCompat.kill(defender, target)) {
+
+        // TargetHealthIndicator keeps a direct Char reference and calls isAlive()
+        // every frame. Brute.isAlive() has side effects: after a forced first-stage
+        // death, a later UI query can trigger BruteRage on the already-removed Char
+        // and redraw its shield bar. Drop only this stale UI reference before the
+        // native death path; normal target acquisition will replace it as usual.
+        if (TargetHealthIndicator.instance != null
+                && TargetHealthIndicator.instance.target() == defender) {
+            TargetHealthIndicator.instance.target(null);
+        }
+
+        if (!ModDeathCompat.kill(defender, attacker)) {
             return false;
         }
         if (defender.sprite != null) {
