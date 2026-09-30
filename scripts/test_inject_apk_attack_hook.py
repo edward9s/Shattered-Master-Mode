@@ -193,6 +193,55 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(3, block.count(completion))
 
 
+    def test_instant_kill_supports_mlpd_branch_to_success_shape(self):
+        terminal = f"({self.char}FFF{self.damage_type})Z"
+        hit_proto = f"({self.char}{self.char}FZ)Z"
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public attack{terminal}\n"
+            "    .locals 2\n"
+            "    const/4 v1, 0x0\n"
+            f"    invoke-static {{p0, p1, p4, v1}}, {self.char}->hit{hit_proto}\n"
+            "    .line 123\n"
+            "    move-result v0\n"
+            "    .line 124\n"
+            "    if-nez v0, :hit_success\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ":hit_success\n"
+            "    .line 125\n"
+            f"    invoke-virtual {{p1, p0, v1}}, {self.char}->defenseProc({self.char}I)I\n"
+            "    move-result v1\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+
+        patched = mod.patch_char_instant_kill(text, self.char, terminal)
+        hook = (
+            "Lcom/spd/mod/mechanics/ModInstantKill;->resolveSuccessfulAttack("
+            + self.char + self.char + ")Z"
+        )
+        _, _, block = mod.injector.method_block(patched, "attack", terminal)
+        self.assertEqual(1, block.count(hook))
+        self.assertNotIn("if-nez v0, :hit_success", block)
+        self.assertLess(
+            block.index("if-eqz v0, :smm_instant_kill_miss"),
+            block.index(hook),
+        )
+        self.assertLess(block.index(hook), block.index("goto :hit_success"))
+        self.assertLess(
+            block.index(":smm_instant_kill_miss"),
+            block.index("const/4 v0, 0x0"),
+        )
+        self.assertLess(
+            block.index("const/4 v0, 0x0"),
+            block.index("\n:hit_success\n"),
+        )
+        self.assertLess(block.index("\n:hit_success\n"), block.index("->defenseProc("))
+        self.assertIn(":smm_instant_kill_native\n    const/4 v0, 0x1", block)
+
     def test_force_hit_hook_is_added_to_static_hit(self):
         proto = f"({self.char}{self.char}FZ)Z"
         text = (

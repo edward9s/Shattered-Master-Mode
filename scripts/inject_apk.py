@@ -826,25 +826,76 @@ def patch_char_instant_kill(
         + re.escape(char_descriptor)
         + r"FZ\)Z"
     )
-    hit_re = re.compile(
-        r"(?m)^(?P<invoke>[ \t]*invoke-static(?:/range)?\s+\{[^}]+\},\s*"
+    invoke_re = re.compile(
+        r"^\s*invoke-static(?:/range)?\s+\{[^}]+\},\s*"
         + hit_desc
-        + r"\s*)\n"
-        r"(?P<move>[ \t]*move-result\s+(?P<reg>[vp]\d+)\s*)\n"
-        r"(?P<branch>[ \t]*if-eqz\s+(?P=reg),\s*:[A-Za-z0-9_$.-]+\s*)$"
+        + r"\s*(?:#.*)?$"
     )
-    matches = list(hit_re.finditer(block))
-    if len(matches) != 1:
-        raise injector.InjectError(
-            "Expected exactly one successful Char.hit branch in terminal Char.attack, "
-            f"found {len(matches)}"
+    move_re = re.compile(r"^\s*move-result\s+([vp]\d+)\s*(?:#.*)?$")
+    branch_re = re.compile(
+        r"^\s*if-(eqz|nez)\s+([vp]\d+),\s*(:[A-Za-z0-9_$.-]+)\s*(?:#.*)?$"
+    )
+
+    lines = block.splitlines(keepends=True)
+    offsets = []
+    offset = 0
+    for line in lines:
+        offsets.append(offset)
+        offset += len(line)
+
+    def next_instruction(index: int) -> int | None:
+        for candidate in range(index + 1, len(lines)):
+            stripped = lines[candidate].strip()
+            if (
+                not stripped
+                or stripped.startswith("#")
+                or stripped.startswith(".")
+                or stripped.startswith(":")
+            ):
+                continue
+            return candidate
+        return None
+
+    candidates = []
+    for invoke_index, line in enumerate(lines):
+        if invoke_re.match(line.rstrip("\r\n")) is None:
+            continue
+
+        move_index = next_instruction(invoke_index)
+        if move_index is None:
+            continue
+        move_match = move_re.match(lines[move_index].rstrip("\r\n"))
+        if move_match is None:
+            continue
+
+        branch_index = next_instruction(move_index)
+        if branch_index is None:
+            continue
+        branch_match = branch_re.match(lines[branch_index].rstrip("\r\n"))
+        if branch_match is None or branch_match.group(2) != move_match.group(1):
+            continue
+
+        candidates.append(
+            (
+                move_match.group(1),
+                branch_match.group(1),
+                branch_match.group(3),
+                branch_index,
+            )
         )
 
-    match = matches[0]
-    indent = re.match(r"[ \t]*", match.group("branch")).group(0)
-    reg = match.group("reg")
-    injected = (
-        "\n"
+    if len(candidates) != 1:
+        raise injector.InjectError(
+            "Expected exactly one successful Char.hit branch in terminal Char.attack, "
+            f"found {len(candidates)}"
+        )
+
+    reg, opcode, target_label, branch_index = candidates[0]
+    indent = re.match(r"[ \t]*", lines[branch_index]).group(0)
+    branch_start = offsets[branch_index]
+    branch_end = branch_start + len(lines[branch_index])
+
+    native_tail = (
         f"{indent}# SMM Instant Kill after confirmed hit, before defenseProc\n"
         f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
         f"{indent}move-result {reg}\n"
@@ -852,12 +903,33 @@ def patch_char_instant_kill(
         f"{indent}const/4 {reg}, 0x1\n"
         f"{indent}return {reg}\n"
         f"{indent}:smm_instant_kill_native\n"
-        # The native branch originally reaches this point with the hit-result
+        # The native success path reaches this point with the hit-result
         # register == true. Restore that value after reusing the register for
         # resolveSuccessfulAttack() so downstream bytecode sees identical state.
-        f"{indent}const/4 {reg}, 0x1"
+        f"{indent}const/4 {reg}, 0x1\n"
     )
-    patched = block[:match.end()] + injected + block[match.end():]
+
+    if opcode == "eqz":
+        patched = block[:branch_end] + native_tail + block[branch_end:]
+    else:
+        if ":smm_instant_kill_miss" in block:
+            raise injector.InjectError(
+                "Char.attack already contains SMM Instant Kill miss trampoline"
+            )
+        rewritten_branch = (
+            f"{indent}if-eqz {reg}, :smm_instant_kill_miss\n"
+        )
+        trampoline = (
+            native_tail
+            + f"{indent}goto {target_label}\n"
+            + f"{indent}:smm_instant_kill_miss\n"
+        )
+        patched = (
+            block[:branch_start]
+            + rewritten_branch
+            + trampoline
+            + block[branch_end:]
+        )
     return text[:start] + patched + text[end:]
 
 
@@ -958,9 +1030,27 @@ def compile_smali_with_char_hook(
         raise injector.InjectError("Target Char.attack ABI profile did not preserve its descriptor")
 
     char_descriptor, original_char = _pending_char_overlay
-    patched_char = patch_char_instant_kill(original_char, char_descriptor, proto)
-    # Add Riposte completion hooks after Instant Kill so the new early return
-    # is covered by the same terminal-attack lifecycle.
+    patched_char = original_char
+    instant_kill_predefense = True
+    try:
+        patched_char = patch_char_instant_kill(
+            patched_char, char_descriptor, proto
+        )
+    except injector.InjectError as exc:
+        message = str(exc)
+        if not message.startswith(
+            "Expected exactly one successful Char.hit branch "
+            "in terminal Char.attack"
+        ):
+            raise
+        instant_kill_predefense = False
+        injector.log(
+            "Char.attack Instant Kill pre-defense hook unavailable; "
+            "using ModInstantKill attackProc fallback: " + message
+        )
+
+    # Add Riposte completion hooks after the optional Instant Kill early return
+    # so every terminal-attack return remains covered.
     patched_char = patch_char_attack(patched_char, char_descriptor, proto)
     patched_char = patch_char_hit(patched_char, char_descriptor)
     char_output = directory / Path(char_descriptor[1:-1] + ".smali")
@@ -970,7 +1060,12 @@ def compile_smali_with_char_hook(
         )
     char_output.parent.mkdir(parents=True, exist_ok=True)
     char_output.write_text(patched_char, encoding="utf-8")
-    injector.log(f"Char.attack Instant Kill pre-defense hook ({proto}): OK")
+    if instant_kill_predefense:
+        injector.log(f"Char.attack Instant Kill pre-defense hook ({proto}): OK")
+    else:
+        injector.log(
+            "Char.attack Instant Kill pre-defense hook: fallback-only"
+        )
     injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
     injector.log("Char.hit Force Hit pre-defense hook: OK")
 
