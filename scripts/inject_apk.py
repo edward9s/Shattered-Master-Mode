@@ -562,6 +562,238 @@ def _probe_char_attack_hook(
     )
 
 
+def _smali_next_instruction(lines: list[str], index: int) -> int | None:
+    for candidate in range(index + 1, len(lines)):
+        stripped = lines[candidate].strip()
+        if (
+            not stripped
+            or stripped.startswith("#")
+            or stripped.startswith(".")
+            or stripped.startswith(":")
+        ):
+            continue
+        return candidate
+    return None
+
+
+def _smali_invoke_registers(raw: str, is_range: bool) -> list[str] | None:
+    raw = raw.strip()
+    if not is_range:
+        return [part.strip() for part in raw.split(",") if part.strip()]
+
+    parts = [part.strip() for part in raw.split("..")]
+    if len(parts) != 2:
+        return None
+    first = re.fullmatch(r"([vp])(\d+)", parts[0])
+    last = re.fullmatch(r"([vp])(\d+)", parts[1])
+    if first is None or last is None or first.group(1) != last.group(1):
+        return None
+    lo = int(first.group(2))
+    hi = int(last.group(2))
+    if hi < lo:
+        return None
+    return [f"{first.group(1)}{index}" for index in range(lo, hi + 1)]
+
+
+def _smali_resolves_to_param(
+    lines: list[str],
+    before_index: int,
+    register: str,
+    expected: str,
+) -> bool:
+    current = register
+    if current == expected:
+        return True
+
+    move_re = re.compile(
+        r"^\s*move-object(?:/from16|/16)?\s+([vp]\d+),\s*([vp]\d+)\s*(?:#.*)?$"
+    )
+    write_re = re.compile(
+        r"^\s*[a-z][a-z0-9_/-]*\s+([vp]\d+)(?:,|\s|$)"
+    )
+
+    for index in range(before_index - 1, -1, -1):
+        text = lines[index].rstrip("\r\n")
+        move = move_re.match(text)
+        if move is not None and move.group(1) == current:
+            current = move.group(2)
+            if current == expected:
+                return True
+            continue
+
+        write = write_re.match(text)
+        if write is not None and write.group(1) == current:
+            return False
+
+    return current == expected
+
+
+def _smali_parameter_words(proto: str) -> int:
+    match = re.fullmatch(r"\((.*)\).", proto)
+    if match is None:
+        raise injector.InjectError("Invalid smali method descriptor: " + proto)
+    params = match.group(1)
+    words = 0
+    index = 0
+    while index < len(params):
+        ch = params[index]
+        if ch == "L":
+            end = params.find(";", index)
+            if end < 0:
+                raise injector.InjectError("Invalid object descriptor: " + proto)
+            words += 1
+            index = end + 1
+        elif ch == "[":
+            index += 1
+            while index < len(params) and params[index] == "[":
+                index += 1
+            if index < len(params) and params[index] == "L":
+                end = params.find(";", index)
+                if end < 0:
+                    raise injector.InjectError("Invalid array descriptor: " + proto)
+                index = end + 1
+            else:
+                index += 1
+            words += 1
+        else:
+            words += 2 if ch in {"J", "D"} else 1
+            index += 1
+    return words
+
+
+def _smali_local_register_count(block: str, proto: str, is_static: bool) -> int:
+    locals_match = re.search(r"(?m)^\s*\.locals\s+(\d+)\s*$", block)
+    if locals_match is not None:
+        return int(locals_match.group(1))
+
+    registers_match = re.search(r"(?m)^\s*\.registers\s+(\d+)\s*$", block)
+    if registers_match is None:
+        return -1
+
+    params = _smali_parameter_words(proto) + (0 if is_static else 1)
+    return int(registers_match.group(1)) - params
+
+
+def _probe_force_hit_hook(
+    target_index: dict[str, injector.SmaliClass],
+    game_prefix: str,
+) -> AbiCapability:
+    char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
+    char_class = target_index.get(char_descriptor)
+    if char_class is None:
+        return AbiCapability(
+            "char.forceHitHook",
+            ABI_UNSUPPORTED,
+            "Char class is missing",
+        )
+
+    terminal_proto, terminal_detail = _terminal_char_attack_proto(
+        char_class, char_descriptor
+    )
+    if terminal_proto is None:
+        return AbiCapability(
+            "char.forceHitHook",
+            ABI_UNSUPPORTED,
+            "cannot identify terminal Char.attack: " + terminal_detail,
+        )
+
+    _start, _end, block = injector.method_block(
+        char_class.text, "attack", terminal_proto
+    )
+    lines = block.splitlines(keepends=True)
+
+    invoke_re = re.compile(
+        r"^\s*invoke-static(?P<range>/range)?\s+\{(?P<args>[^}]*)\},\s*"
+        + re.escape(char_descriptor)
+        + r"->(?P<name>[^\s(]+)(?P<proto>\([^)]*\)Z)\s*(?:#.*)?$"
+    )
+    move_re = re.compile(r"^\s*move-result\s+([vp]\d+)\s*(?:#.*)?$")
+    branch_re = re.compile(
+        r"^\s*if-(?:eqz|nez)\s+([vp]\d+),\s*:[A-Za-z0-9_$.-]+\s*(?:#.*)?$"
+    )
+
+    candidates: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for invoke_index, line in enumerate(lines):
+        invoke = invoke_re.match(line.rstrip("\r\n"))
+        if invoke is None:
+            continue
+
+        name = invoke.group("name")
+        proto = invoke.group("proto")
+        flags = char_class.methods.get((name, proto))
+        if flags is None or "static" not in flags:
+            continue
+        if not proto.startswith(f"({char_descriptor}{char_descriptor}"):
+            continue
+
+        registers = _smali_invoke_registers(
+            invoke.group("args"), bool(invoke.group("range"))
+        )
+        if registers is None or len(registers) < 2:
+            continue
+        if not _smali_resolves_to_param(lines, invoke_index, registers[0], "p0"):
+            continue
+        if not _smali_resolves_to_param(lines, invoke_index, registers[1], "p1"):
+            continue
+
+        move_index = _smali_next_instruction(lines, invoke_index)
+        if move_index is None:
+            continue
+        move = move_re.match(lines[move_index].rstrip("\r\n"))
+        if move is None:
+            continue
+
+        branch_index = _smali_next_instruction(lines, move_index)
+        if branch_index is None:
+            continue
+        branch = branch_re.match(lines[branch_index].rstrip("\r\n"))
+        if branch is None or branch.group(1) != move.group(1):
+            continue
+
+        try:
+            _hit_start, _hit_end, hit_block = injector.method_block(
+                char_class.text, name, proto
+            )
+        except injector.InjectError:
+            continue
+        if _smali_local_register_count(hit_block, proto, True) < 1:
+            continue
+
+        key = (name, proto)
+        if key not in seen:
+            seen.add(key)
+            candidates.append(key)
+
+    if len(candidates) != 1:
+        found = ", ".join(
+            f"{name}{proto}" for name, proto in candidates
+        ) or "none"
+        return AbiCapability(
+            "char.forceHitHook",
+            ABI_UNSUPPORTED,
+            "expected exactly one structural hit-check method called by terminal "
+            f"Char.attack{terminal_proto}, found {len(candidates)}: {found}",
+        )
+
+    method_name, method_proto = candidates[0]
+    exact_proto = f"({char_descriptor}{char_descriptor}FZ)Z"
+    strategy = (
+        ABI_DIRECT
+        if method_name == "hit" and method_proto == exact_proto
+        else ABI_STRUCTURAL
+    )
+    return AbiCapability(
+        "char.forceHitHook",
+        strategy,
+        "unique structural hit-check "
+        f"{method_name}{method_proto} selected from terminal "
+        f"Char.attack{terminal_proto}",
+        data={"method": method_name, "proto": method_proto},
+    )
+
+
 ABI_PROBES: tuple[
     Callable[[dict[str, injector.SmaliClass], str], AbiCapability], ...
 ] = (
@@ -569,6 +801,7 @@ ABI_PROBES: tuple[
     _probe_wndgame_menu_hook,
     _probe_duelist_combo,
     _probe_char_attack_hook,
+    _probe_force_hit_hook,
 )
 
 
@@ -987,9 +1220,24 @@ def patch_char_attack(
     return text[:start] + patched + text[end:]
 
 
-def patch_char_hit(text: str, char_descriptor: str) -> str:
-    proto = f"({char_descriptor}{char_descriptor}FZ)Z"
-    start, end, block = injector.method_block(text, "hit", proto)
+def patch_char_hit(
+    text: str,
+    char_descriptor: str,
+    method_name: str | None = None,
+    proto: str | None = None,
+) -> str:
+    method_name = method_name or "hit"
+    proto = proto or f"({char_descriptor}{char_descriptor}FZ)Z"
+    if not proto.startswith(f"({char_descriptor}{char_descriptor}") or not proto.endswith(")Z"):
+        raise injector.InjectError(
+            "Force Hit target must be a boolean static method whose first two "
+            "parameters are attacker and defender Char values"
+        )
+    start, end, block = injector.method_block(text, method_name, proto)
+    if _smali_local_register_count(block, proto, True) < 1:
+        raise injector.InjectError(
+            "Force Hit target has no safe local register for the hook result"
+        )
     hook = (
         "Lcom/spd/mod/mechanics/ModForceHit;->forceHitCheck("
         f"{char_descriptor}{char_descriptor})Z"
@@ -1052,7 +1300,20 @@ def compile_smali_with_char_hook(
     # Add Riposte completion hooks after the optional Instant Kill early return
     # so every terminal-attack return remains covered.
     patched_char = patch_char_attack(patched_char, char_descriptor, proto)
-    patched_char = patch_char_hit(patched_char, char_descriptor)
+
+    force_capability = _current_abi_profile.get("char.forceHitHook")
+    force_method = force_capability.data.get("method")
+    force_proto = force_capability.data.get("proto")
+    if not force_method or not force_proto:
+        raise injector.InjectError(
+            "Target Force Hit ABI profile did not preserve its structural hook"
+        )
+    patched_char = patch_char_hit(
+        patched_char,
+        char_descriptor,
+        force_method,
+        force_proto,
+    )
     char_output = directory / Path(char_descriptor[1:-1] + ".smali")
     if char_output.exists():
         raise injector.InjectError(
@@ -1067,7 +1328,10 @@ def compile_smali_with_char_hook(
             "Char.attack Instant Kill pre-defense hook: fallback-only"
         )
     injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
-    injector.log("Char.hit Force Hit pre-defense hook: OK")
+    injector.log(
+        "Force Hit pre-defense hook "
+        f"{force_method}{force_proto} ({force_capability.strategy}): OK"
+    )
 
     try:
         _original_compile_smali(java, smali_jar, directory, output, api)

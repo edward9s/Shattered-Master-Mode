@@ -876,6 +876,7 @@ public class SmmAnkhPayloadAdapter {
 ANKH_CHAR_HELPER = r'''
 import java.io.*;
 import java.nio.file.*;
+import java.util.*;
 import java.util.jar.*;
 import jdk.internal.org.objectweb.asm.*;
 
@@ -925,75 +926,188 @@ public class SmmAnkhCharAttackPatcher {
     static final class Scan {
         int attackMethods;
         int attackAnchors;
-        int hitMethods;
         boolean alreadyInstant;
         boolean alreadyForce;
+        String forceMethod;
+        String forceDesc;
+        String forceDetail;
+    }
+
+    static boolean isCharAttack(String name, String desc, int access) {
+        Type[] args = Type.getArgumentTypes(desc);
+        return "attack".equals(name)
+                && (access & Opcodes.ACC_STATIC) == 0
+                && Type.BOOLEAN_TYPE.equals(Type.getReturnType(desc))
+                && args.length >= 1
+                && ("L" + CHAR + ";").equals(args[0].getDescriptor());
+    }
+
+    static boolean isStructuralHitDesc(String desc) {
+        Type[] args = Type.getArgumentTypes(desc);
+        return Type.BOOLEAN_TYPE.equals(Type.getReturnType(desc))
+                && args.length >= 2
+                && ("L" + CHAR + ";").equals(args[0].getDescriptor())
+                && ("L" + CHAR + ";").equals(args[1].getDescriptor());
     }
 
     static Scan scan(byte[] original) {
         Scan scan = new Scan();
+        LinkedHashMap<String, Integer> attacks = new LinkedHashMap<>();
+        LinkedHashMap<String, LinkedHashSet<String>> edges = new LinkedHashMap<>();
+        LinkedHashSet<String> staticBooleanCandidates = new LinkedHashSet<>();
+
         new ClassReader(original).accept(new ClassVisitor(API) {
             @Override
             public MethodVisitor visitMethod(int access, String name, String desc,
                                              String signature, String[] exceptions) {
-                if ("attack".equals(name)
-                        && ATTACK_DESC.equals(desc)
-                        && (access & Opcodes.ACC_STATIC) == 0) {
-                    scan.attackMethods++;
-                    return new MethodVisitor(API) {
-                        private boolean awaitingHitBranch;
-
-                        @Override
-                        public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                    String methodDesc, boolean isInterface) {
-                            if (MOD_INSTANT_KILL.equals(owner)
-                                    && "resolveSuccessfulAttack".equals(methodName)
-                                    && COMBAT_HOOK_DESC.equals(methodDesc)) {
-                                scan.alreadyInstant = true;
-                            }
-                            if (opcode == Opcodes.INVOKESTATIC
-                                    && CHAR.equals(owner)
-                                    && "hit".equals(methodName)
-                                    && HIT_DESC.equals(methodDesc)) {
-                                awaitingHitBranch = true;
-                            }
-                        }
-
-                        @Override
-                        public void visitJumpInsn(int opcode, Label label) {
-                            if (awaitingHitBranch) {
-                                if (opcode == Opcodes.IFEQ) {
-                                    scan.attackAnchors++;
-                                }
-                                awaitingHitBranch = false;
-                            }
-                        }
-                    };
+                if (isCharAttack(name, desc, access)) {
+                    attacks.put(desc, access);
+                    edges.put(desc, new LinkedHashSet<>());
                 }
-
-                if ("hit".equals(name)
-                        && HIT_DESC.equals(desc)
-                        && (access & Opcodes.ACC_STATIC) != 0) {
-                    scan.hitMethods++;
-                    return new MethodVisitor(API) {
-                        @Override
-                        public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                    String methodDesc, boolean isInterface) {
-                            if (MOD_FORCE_HIT.equals(owner)
-                                    && "forceHitCheck".equals(methodName)
-                                    && COMBAT_HOOK_DESC.equals(methodDesc)) {
-                                scan.alreadyForce = true;
-                            }
-                        }
-                    };
+                if ((access & Opcodes.ACC_STATIC) != 0
+                        && isStructuralHitDesc(desc)) {
+                    staticBooleanCandidates.add(name + "\n" + desc);
                 }
                 return null;
             }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+
+        new ClassReader(original).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if (!isCharAttack(name, desc, access)) return null;
+                scan.attackMethods++;
+                return new MethodVisitor(API) {
+                    private boolean awaitingInstantBranch;
+
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean isInterface) {
+                        if (MOD_INSTANT_KILL.equals(owner)
+                                && "resolveSuccessfulAttack".equals(methodName)
+                                && COMBAT_HOOK_DESC.equals(methodDesc)) {
+                            scan.alreadyInstant = true;
+                        }
+                        if (MOD_FORCE_HIT.equals(owner)
+                                && "forceHitCheck".equals(methodName)
+                                && COMBAT_HOOK_DESC.equals(methodDesc)) {
+                            scan.alreadyForce = true;
+                        }
+                        if (CHAR.equals(owner)
+                                && "attack".equals(methodName)
+                                && edges.containsKey(methodDesc)) {
+                            edges.get(desc).add(methodDesc);
+                        }
+                        if (opcode == Opcodes.INVOKESTATIC
+                                && CHAR.equals(owner)
+                                && "hit".equals(methodName)
+                                && HIT_DESC.equals(methodDesc)) {
+                            awaitingInstantBranch = true;
+                        }
+                    }
+
+                    @Override
+                    public void visitJumpInsn(int opcode, Label label) {
+                        if (awaitingInstantBranch) {
+                            if (opcode == Opcodes.IFEQ) {
+                                scan.attackAnchors++;
+                            }
+                            awaitingInstantBranch = false;
+                        }
+                    }
+                };
+            }
         }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+
+        LinkedHashSet<String> terminals = new LinkedHashSet<>();
+        for (String desc : attacks.keySet()) {
+            if (edges.get(desc).isEmpty()) terminals.add(desc);
+        }
+        if (terminals.size() != 1) {
+            scan.forceDetail = "expected one terminal Char.attack, found " + terminals.size();
+            return scan;
+        }
+        String terminalDesc = terminals.iterator().next();
+
+        LinkedHashSet<String> forceCandidates = new LinkedHashSet<>();
+        new ClassReader(original).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if (!"attack".equals(name) || !terminalDesc.equals(desc)
+                        || (access & Opcodes.ACC_STATIC) != 0) return null;
+                return new MethodVisitor(API) {
+                    private String pendingCandidate;
+
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean isInterface) {
+                        pendingCandidate = null;
+                        String key = methodName + "\n" + methodDesc;
+                        if (opcode == Opcodes.INVOKESTATIC
+                                && CHAR.equals(owner)
+                                && staticBooleanCandidates.contains(key)) {
+                            pendingCandidate = key;
+                        }
+                    }
+
+                    @Override
+                    public void visitJumpInsn(int opcode, Label label) {
+                        if (pendingCandidate != null
+                                && (opcode == Opcodes.IFEQ || opcode == Opcodes.IFNE)) {
+                            forceCandidates.add(pendingCandidate);
+                        }
+                        pendingCandidate = null;
+                    }
+
+                    @Override public void visitInsn(int opcode) { pendingCandidate = null; }
+                    @Override public void visitIntInsn(int opcode, int operand) { pendingCandidate = null; }
+                    @Override public void visitVarInsn(int opcode, int var) { pendingCandidate = null; }
+                    @Override public void visitTypeInsn(int opcode, String type) { pendingCandidate = null; }
+                    @Override public void visitFieldInsn(int opcode, String owner, String name, String desc) { pendingCandidate = null; }
+                    @Override public void visitLdcInsn(Object value) { pendingCandidate = null; }
+                    @Override public void visitIincInsn(int var, int increment) { pendingCandidate = null; }
+                };
+            }
+        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+
+        if (forceCandidates.size() != 1) {
+            scan.forceDetail = "expected one structural hit-check in terminal Char.attack"
+                    + terminalDesc + ", found " + forceCandidates.size();
+            return scan;
+        }
+
+        String candidate = forceCandidates.iterator().next();
+        int split = candidate.indexOf('\n');
+        scan.forceMethod = candidate.substring(0, split);
+        scan.forceDesc = candidate.substring(split + 1);
+        scan.forceDetail = "structural hit-check " + scan.forceMethod + scan.forceDesc
+                + " selected from terminal Char.attack" + terminalDesc;
+
+        new ClassReader(original).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if (!scan.forceMethod.equals(name) || !scan.forceDesc.equals(desc)) return null;
+                return new MethodVisitor(API) {
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean isInterface) {
+                        if (MOD_FORCE_HIT.equals(owner)
+                                && "forceHitCheck".equals(methodName)
+                                && COMBAT_HOOK_DESC.equals(methodDesc)) {
+                            scan.alreadyForce = true;
+                        }
+                    }
+                };
+            }
+        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+
         return scan;
     }
 
-    static byte[] patch(byte[] original, boolean instant, boolean force) {
+    static byte[] patch(byte[] original, boolean instant, boolean force, String forceMethod, String forceDesc) {
         ClassReader reader = new ClassReader(original);
         ClassWriter writer = new ClassWriter(0);
 
@@ -1052,8 +1166,8 @@ public class SmmAnkhCharAttackPatcher {
                 }
 
                 if (force
-                        && "hit".equals(name)
-                        && HIT_DESC.equals(desc)
+                        && forceMethod.equals(name)
+                        && forceDesc.equals(desc)
                         && (access & Opcodes.ACC_STATIC) != 0) {
                     return new MethodVisitor(API, base) {
                         @Override
@@ -1118,7 +1232,8 @@ public class SmmAnkhCharAttackPatcher {
                 && scan.attackAnchors == 1;
         boolean force = donorForce
                 && !scan.alreadyForce
-                && scan.hitMethods == 1;
+                && scan.forceMethod != null
+                && scan.forceDesc != null;
 
         if (instant) {
             System.out.println("Optional Instant Kill ABI: supported");
@@ -1127,13 +1242,15 @@ public class SmmAnkhCharAttackPatcher {
                     "Optional Instant Kill skipped: exact Char.attack/hit-success ABI unavailable");
         }
         if (force) {
-            System.out.println("Optional Force Hit ABI: supported");
+            System.out.println("Optional Force Hit structural hook: supported - " + scan.forceDetail);
         } else {
             System.out.println(
-                    "Optional Force Hit skipped: exact static Char.hit ABI unavailable");
+                    "Optional Force Hit skipped: " + (scan.forceDetail == null
+                            ? "no unique structural hit-check"
+                            : scan.forceDetail));
         }
 
-        Files.write(output, patch(original, instant, force));
+        Files.write(output, patch(original, instant, force, scan.forceMethod, scan.forceDesc));
         Files.writeString(
                 status,
                 "instant=" + (instant ? "1" : "0") + "\n"

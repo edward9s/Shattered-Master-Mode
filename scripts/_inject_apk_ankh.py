@@ -402,23 +402,10 @@ def configure(public_module) -> None:
         attack_capability.required = False
         profile.add(attack_capability)
 
-        hit_proto = f"({char_descriptor}{char_descriptor}FZ)Z"
-        hit_flags = char_class.methods.get(("hit", hit_proto))
-        if hit_flags is not None and "static" in hit_flags:
-            force_capability = public_module.AbiCapability(
-                "char.forceHitHook",
-                public_module.ABI_DIRECT,
-                "exact static Char.hit(Char, Char, float, boolean) is available",
-                required=False,
-                data={"proto": hit_proto},
-            )
-        else:
-            force_capability = public_module.AbiCapability(
-                "char.forceHitHook",
-                public_module.ABI_UNSUPPORTED,
-                "exact static Char.hit(Char, Char, float, boolean) is unavailable",
-                required=False,
-            )
+        force_capability = public_module._probe_force_hit_hook(
+            target_index, game_prefix
+        )
+        force_capability.required = False
         profile.add(force_capability)
 
         public_module._current_abi_profile = profile
@@ -811,16 +798,33 @@ def configure(public_module) -> None:
 
             if force_enabled:
                 try:
+                    force_capability = public_module._current_abi_profile.get(
+                        "char.forceHitHook"
+                    )
+                    force_method = force_capability.data.get("method")
+                    force_proto = force_capability.data.get("proto")
+                    if not force_method or not force_proto:
+                        raise injector.InjectError(
+                            "Force Hit structural hook was not preserved"
+                        )
                     patched_char = public_module.patch_char_hit(
-                        patched_char, char_descriptor
+                        patched_char,
+                        char_descriptor,
+                        force_method,
+                        force_proto,
                     )
                     char_changed = True
-                    injector.log("Char.hit Force Hit pre-defense hook: OK")
+                    injector.log(
+                        "Force Hit pre-defense hook "
+                        f"{force_method}{force_proto} "
+                        f"({force_capability.strategy}): OK"
+                    )
                 except injector.InjectError as exc:
                     force_enabled = False
                     public_module._ankh_force_hit_enabled = False
                     injector.log(
-                        "Optional Force Hit skipped during patch: " + str(exc)
+                        "Optional Force Hit skipped after structural patch attempt: "
+                        + str(exc)
                     )
 
             if char_changed:
@@ -877,7 +881,8 @@ def configure(public_module) -> None:
     # Ankh-only guarantees the ModAnkh + Last Stand core. Instant Kill is a
     # best-effort extra: keep its payload whenever the target API can load it,
     # then install the pre-defense Char hook when possible and otherwise rely on
-    # its attackProc fallback. Force Hit still requires its Char.hit hook.
+    # its attackProc fallback. Force Hit is structurally traced from terminal
+    # Char.attack and is skipped only when no unique safe hit-check can be found.
     injector.detect_target_game_prefix = detect_target_game_prefix
     injector.build_debug_payload = build_ankh_payload
     injector.payload_compatibility_errors = payload_compatibility_errors

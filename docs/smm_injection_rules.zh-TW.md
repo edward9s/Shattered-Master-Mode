@@ -20,15 +20,18 @@ python inject_apk.py TARGET.apk --ankh-only
 python inject_jar.py TARGET.jar --ankh-only
 ```
 
-`--ankh-only` 包含：
+`--ankh-only` 保證的核心只有：
 
 - `ModAnkh`
 - `ModLastStand`
-- `ModInstantKill`
 - Store / Loot / Debug Console 所需相依
 
-`ModInstantKill` 可透過 Debug Console 的 `affect ModInstantKill` 套用到任意角色。
-最小注入不安裝完整 SMM 選單，也不加入 Assassinate、Force Hit、Riposte 等完整 SMM 戰鬥／UI 功能。
+另外會盡力加入兩個選配戰鬥 Buff：
+
+- `ModInstantKill`：只要 payload 本身與 target API 相容就保留。優先安裝 pre-defense `Char.attack()` hook；若無法安全辨識該 hook，仍保留 Buff，改用既有的 `attackProc()` fallback。
+- `ModForceHit`：從 terminal `Char.attack()` 結構追蹤唯一的 static boolean 命中判定方法；其前兩個參數必須是 attacker / defender `Char`，且回傳值必須直接控制命中分支。即使方法改名或多出其他參數，只要能唯一安全辨識就照樣 patch；只有無法唯一確定命中判定時才跳過 Force Hit。
+
+兩者都可透過 Debug Console 的 `affect ModInstantKill` / `affect ModForceHit` 套用。最小注入仍不安裝完整 SMM 選單、Assassinate 或 Riposte。
 
 ## Injection Kit
 
@@ -52,8 +55,9 @@ JAR 注入不使用這把 APK 簽章金鑰。
 - Fork package name 不同時，重新對應 SPD package reference。
 - ABI dependency 無法可靠解析時直接停止，不猜測、不硬塞。
 - 不複製任意 donor-only 或混淆 class 來掩蓋 compatibility error。
-- `--ankh-only` 必須保持精簡；用途就是讓老 fork 能使用 ModAnkh、ModLastStand、ModInstantKill，以及 Store / Loot / Debug Console 工具。
-- 完整注入可以使用既有 SMM 選單、Riposte `Char.attack()` hook 與 Force Hit `Char.hit()` hook；最小注入不得安裝這些 full-SMM hook。
+- `--ankh-only` 必須保持精簡；ModAnkh + ModLastStand 與 Store / Loot / Debug Console 是保證核心，Instant Kill 與 Force Hit 是選配，不能因選配失敗拖垮核心注入。
+- 「選配」不代表消極放棄。Injector 必須先嘗試安全的結構式適配再決定跳過。Instant Kill 可退回 `attackProc()`；Force Hit 必須從 terminal attack 結構追蹤命中判定，而不是只接受精確的 vanilla `Char.hit(Char, Char, float, boolean)` signature。
+- 完整注入可以使用既有 SMM 選單與 Riposte `Char.attack()` hook。最小注入不得安裝 Riposte 或完整選單，但可以安裝上述狹窄用途的 Instant Kill / Force Hit hook。
 - Debug Console 指令可能觸發 target 本身既有的 bug；不要為了讓指令表面成功而順便修改無關的 target 遊戲邏輯。
 
 ## 目前命名
@@ -62,4 +66,4 @@ JAR 注入不使用這把 APK 簽章金鑰。
 
 ## 驗證
 
-代表性 APK/JAR 測試只能證明該 target 的靜態注入通過；若某個必要 ABI 無法安全適配，應 fail closed。
+代表性 APK/JAR 測試只能證明該 target 的靜態注入通過；必要核心 ABI 無法安全適配時應 fail closed。選配功能則應先嘗試安全的結構式適配，以及既有且明確的 fallback；兩者都不可行時，只跳過該選配功能。

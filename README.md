@@ -6,7 +6,7 @@
 
 - Designed for in-game sandbox testing, rapid editing, and easily creating meme images.
 - **Preserves Vanilla Mechanics:** SMM does not replace or rewrite vanilla gameplay mechanics. Vanilla behavior remains unchanged unless an SMM feature is explicitly enabled.
-- **Minimal Integration:** SMM uses existing vanilla extension points whenever possible. Full SMM currently installs two gameplay-level hooks: `Char.attack()` for Riposte and `Char.hit()` for Force Hit. Minimal `--ankh-only` injection does not install either full-SMM hook.
+- **Minimal Integration:** SMM uses existing vanilla extension points whenever possible. Full SMM installs combat hooks for Riposte and Force Hit. Minimal `--ankh-only` keeps Riposte out, but best-effort injects Instant Kill and Force Hit when their target hooks can be identified safely.
 - **Save transfer:** Tools can export/import full save snapshots with one-click Android storage or a native Desktop folder chooser; Desktop remembers the last export/import locations separately.
 
 ## Known Limitations & Warnings
@@ -66,7 +66,7 @@ python inject_apk.py TARGET.apk --ankh-only
 python inject_jar.py TARGET.jar --ankh-only
 ```
 
-`--ankh-only` injects **ModAnkh**, **ModLastStand**, **ModInstantKill**, and their Store / Loot / Debug Console dependencies. It does not install the full SMM menu or unrelated combat features such as Assassinate, Force Hit, or Riposte.
+`--ankh-only` always injects the **ModAnkh + ModLastStand** core and its Store / Loot / Debug Console dependencies. **ModInstantKill** is added on a best-effort basis: the injector prefers the pre-defense attack hook and falls back to its existing `attackProc()` path when that hook cannot be installed safely. **ModForceHit** is also attempted as an optional extra by structurally tracing the boolean hit-check used by the terminal `Char.attack()` method; it is skipped only when no unique safe hit-check can be identified. The minimal mode still does not install the full SMM menu, Assassinate, or Riposte.
 
 Default outputs are `TARGET-SMM-Ankh.apk` and `TARGET-SMM-Ankh.jar`. Use `--out` to choose another path.
 
