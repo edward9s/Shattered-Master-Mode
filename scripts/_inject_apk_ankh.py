@@ -376,13 +376,23 @@ def configure(public_module) -> None:
     def detect_target_game_prefix(target_index):
         game_prefix = public_module._original_detect_target_game_prefix(target_index)
         public_module._current_game_prefix = game_prefix
-        public_module._pending_char_overlay = None
+
+        char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
+        char_class = target_index.get(char_descriptor)
+        if char_class is None:
+            raise injector.InjectError("Target Char class is missing")
+        public_module._pending_char_overlay = (
+            char_descriptor,
+            char_class.text,
+        )
+
         public_module._pending_ankh_buff_click_overlay = _find_buff_click_overlay(
             injector, target_index, game_prefix
         )
 
         profile = public_module.AbiProfile()
         profile.add(public_module._probe_item_set_current(target_index, game_prefix))
+        profile.add(public_module._probe_char_attack_hook(target_index, game_prefix))
         public_module._current_abi_profile = profile
         profile.log()
         profile.require_compatible()
@@ -595,13 +605,20 @@ def configure(public_module) -> None:
         output: Path,
         api: int,
     ) -> None:
-        pending = getattr(public_module, "_pending_ankh_buff_click_overlay", None)
-        if pending is None:
+        pending_click = getattr(
+            public_module, "_pending_ankh_buff_click_overlay", None
+        )
+        pending_char = getattr(public_module, "_pending_char_overlay", None)
+        if pending_click is None:
             raise injector.InjectError("Last Stand BuffIndicator click overlay source was not captured")
+        if pending_char is None:
+            raise injector.InjectError("Instant Kill Char.attack overlay source was not captured")
         if public_module._current_game_prefix is None:
             raise injector.InjectError("Target game prefix was not initialized")
+        if public_module._current_abi_profile is None:
+            raise injector.InjectError("Target ABI profile was not initialized")
 
-        descriptor, original_text = pending
+        descriptor, original_text = pending_click
         patched = _patch_last_stand_buff_click(
             injector, original_text, descriptor, public_module._current_game_prefix
         )
@@ -614,12 +631,32 @@ def configure(public_module) -> None:
         overlay_path.write_text(patched, encoding="utf-8")
         injector.log("Last Stand BuffIndicator click hook: OK")
 
+        char_descriptor, original_char = pending_char
+        capability = public_module._current_abi_profile.get("char.incomingAttackHook")
+        proto = capability.data.get("proto")
+        if not proto:
+            raise injector.InjectError(
+                "Target Char.attack ABI profile did not preserve its descriptor"
+            )
+        patched_char = public_module.patch_char_instant_kill(
+            original_char, char_descriptor, proto
+        )
+        char_path = directory / Path(char_descriptor[1:-1] + ".smali")
+        if char_path.exists():
+            raise injector.InjectError(
+                "Overlay already contains target Char class: " + char_descriptor
+            )
+        char_path.parent.mkdir(parents=True, exist_ok=True)
+        char_path.write_text(patched_char, encoding="utf-8")
+        injector.log(f"Char.attack Instant Kill pre-defense hook ({proto}): OK")
+
         try:
             public_module._original_compile_smali(
                 java, smali_jar, directory, output, api
             )
         finally:
             public_module._pending_ankh_buff_click_overlay = None
+            public_module._pending_char_overlay = None
 
     def rebuild_apk(target, overlay_dex, output, manifest=None):
         mapping = original_rebuild_apk(
@@ -636,10 +673,9 @@ def configure(public_module) -> None:
             target.stem + "-SMM-Ankh" + (target.suffix or ".apk")
         )
 
-    # Ankh-only uses the original narrow injector mechanics: patch Dungeon.init()
-    # after HeroClass.initHero(Hero), and do not install the full SMM menu or the
-    # independent Riposte Char.attack hook. Last Stand's buff click is patched
-    # directly into the target BuffIndicator instead of shipping its newer overlay.
+    # Ankh-only keeps the narrow injector mechanics: patch Dungeon.init(), the
+    # Last Stand BuffIndicator click, and only the Char.attack hook required by
+    # Instant Kill. It does not install the full SMM menu, Riposte, or Force Hit.
     injector.detect_target_game_prefix = detect_target_game_prefix
     injector.build_debug_payload = build_ankh_payload
     injector.payload_compatibility_errors = payload_compatibility_errors
