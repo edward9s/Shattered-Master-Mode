@@ -1038,14 +1038,9 @@ def compile_smali_with_char_hook(
         )
     except injector.InjectError as exc:
         message = str(exc)
-        if not (
-            message.startswith(
-                "Expected exactly one successful Char.hit branch "
-                "in terminal Char.attack"
-            )
-            or message.startswith(
-                "Char.hit success target label is not uniquely identifiable"
-            )
+        if not message.startswith(
+            "Expected exactly one successful Char.hit branch "
+            "in terminal Char.attack"
         ):
             raise
         instant_kill_predefense = False
