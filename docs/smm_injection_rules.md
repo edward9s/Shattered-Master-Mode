@@ -29,7 +29,7 @@ python inject_jar.py TARGET.jar --ankh-only
 It also attempts two optional combat buffs:
 
 - `ModInstantKill`: keep the payload whenever its target API is compatible. Prefer the pre-defense `Char.attack()` hook; if that hook cannot be identified safely, retain the buff and use its existing `attackProc()` fallback.
-- `ModForceHit`: trace the terminal `Char.attack()` method to the unique static boolean hit-check whose first two parameters are attacker/defender `Char` values and whose result directly controls the hit branch. Patch that method even if its name or additional parameters differ from vanilla. Skip Force Hit only if no unique safe hit-check can be identified.
+- `ModForceHit` and `ModInstantKill` share one selected hit-check capability. Prefer known direct ABIs in order: `Char.hit(Char, Char, float, boolean)`, then legacy `Char.hit(Char, Char, boolean)`. Only when neither exists, trace terminal `Char.attack()` to a unique static boolean hit-check whose first two parameters are attacker/defender `Char` values and whose result controls the hit branch. Patch the selected method even if its name or additional parameters differ from vanilla.
 
 Both can be applied from the Debug Console with `affect ModInstantKill` or `affect ModForceHit`. Minimal injection still does not install the full SMM menu, Assassinate, or Riposte.
 
