@@ -352,6 +352,218 @@ public class Harness {{
                     java, target, work, GAME_ROOT
                 )
 
+    @classmethod
+    def _compile_ark_combat_target(
+        cls,
+        work: pathlib.Path,
+    ) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path]:
+        src = work / "combat-src"
+        target_classes = work / "combat-target-classes"
+        payload_classes = work / "combat-payload-classes"
+        package = GAME_ROOT.replace("/", ".")
+
+        cls._write(
+            src,
+            f"{GAME_ROOT}/actors/Char.java",
+            f"""
+package {package}.actors;
+public class Char {{
+    public static boolean nativeHit = true;
+    public boolean attack(Char enemy) {{
+        return hit(this, enemy, false);
+    }}
+    public static boolean hit(Char attacker, Char defender, boolean magic) {{
+        return nativeHit;
+    }}
+}}
+""",
+        )
+        cls._write(
+            src,
+            "com/spd/mod/mechanics/ModInstantKill.java",
+            f"""
+package com.spd.mod.mechanics;
+import {package}.actors.Char;
+public class ModInstantKill {{
+    public static boolean enabled;
+    public static int calls;
+    public static boolean resolveSuccessfulAttack(Char attacker, Char defender) {{
+        calls++;
+        return enabled;
+    }}
+}}
+""",
+        )
+        cls._write(
+            src,
+            "com/spd/mod/mechanics/ModForceHit.java",
+            f"""
+package com.spd.mod.mechanics;
+import {package}.actors.Char;
+public class ModForceHit {{
+    public static boolean enabled;
+    public static boolean forceHitCheck(Char attacker, Char defender) {{
+        return enabled;
+    }}
+}}
+""",
+        )
+        cls._write(
+            src,
+            "com/spd/mod/mechanics/ModParryRiposte.java",
+            f"""
+package com.spd.mod.mechanics;
+import {package}.actors.Char;
+public class ModParryRiposte {{
+    public static void onIncomingAttack(Char attacker, Char defender) {{
+    }}
+}}
+""",
+        )
+        cls._write(
+            src,
+            f"{GAME_ROOT}/actors/CombatHarness.java",
+            f"""
+package {package}.actors;
+import com.spd.mod.mechanics.ModForceHit;
+import com.spd.mod.mechanics.ModInstantKill;
+public class CombatHarness {{
+    private static void check(boolean value, String label) {{
+        if (!value) throw new AssertionError(label);
+    }}
+    public static void main(String[] args) {{
+        Char attacker = new Char();
+        Char defender = new Char();
+
+        Char.nativeHit = false;
+        ModForceHit.enabled = true;
+        ModInstantKill.enabled = false;
+        ModInstantKill.calls = 0;
+        check(attacker.attack(defender), "Force Hit did not override legacy hit");
+        check(ModInstantKill.calls == 1, "Instant Kill did not observe forced legacy hit");
+
+        Char.nativeHit = true;
+        ModForceHit.enabled = false;
+        ModInstantKill.enabled = true;
+        ModInstantKill.calls = 0;
+        check(attacker.attack(defender), "Instant Kill changed successful attack result");
+        check(ModInstantKill.calls == 1, "Instant Kill did not hook legacy hit success");
+    }}
+}}
+""",
+        )
+
+        javac = cls._tool("javac")
+        target_sources = [
+            src / f"{GAME_ROOT}/actors/Char.java",
+            src / f"{GAME_ROOT}/actors/CombatHarness.java",
+            src / "com/spd/mod/mechanics/ModInstantKill.java",
+            src / "com/spd/mod/mechanics/ModForceHit.java",
+            src / "com/spd/mod/mechanics/ModParryRiposte.java",
+        ]
+        subprocess.run(
+            [javac, "-d", str(target_classes), *map(str, target_sources)],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+
+        payload_classes.mkdir(parents=True, exist_ok=True)
+        for relative in (
+            "com/spd/mod/mechanics/ModInstantKill.class",
+            "com/spd/mod/mechanics/ModForceHit.class",
+            "com/spd/mod/mechanics/ModParryRiposte.class",
+        ):
+            source = target_classes / relative
+            destination = payload_classes / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+
+        target = work / "ark-target.jar"
+        with zipfile.ZipFile(target, "w") as jar:
+            for class_file in target_classes.rglob("*.class"):
+                if "com/spd/mod/" in class_file.as_posix():
+                    continue
+                jar.write(class_file, class_file.relative_to(target_classes).as_posix())
+
+        payload = work / "combat-payload.jar"
+        with zipfile.ZipFile(payload, "w") as jar:
+            for class_file in payload_classes.rglob("*.class"):
+                jar.write(class_file, class_file.relative_to(payload_classes).as_posix())
+
+        return target, payload, target_classes
+
+    @staticmethod
+    def _run_combat_harness(classes: pathlib.Path) -> subprocess.CompletedProcess[str]:
+        java = shutil.which("java")
+        if java is None:
+            raise unittest.SkipTest("java is unavailable")
+        return subprocess.run(
+            [
+                java,
+                "-cp",
+                str(classes),
+                f"{GAME_ROOT.replace('/', '.')}.actors.CombatHarness",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+
+    def test_ark_legacy_hit_supported_by_ankh_jar_for_force_and_instant(self):
+        java = pathlib.Path(self._tool("java"))
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            target, payload, classes = self._compile_ark_combat_target(work)
+            patched, enabled = mod.patch_ankh_char(
+                java, target, payload, work, GAME_ROOT
+            )
+            self.assertIsNotNone(patched)
+            self.assertEqual({"instant", "force"}, enabled)
+            char_class = classes / f"{GAME_ROOT}/actors/Char.class"
+            char_class.write_bytes(patched.read_bytes())
+
+            result = self._run_combat_harness(classes)
+            self.assertEqual(0, result.returncode, result.stdout)
+
+    def test_ark_legacy_hit_supported_by_full_jar_for_force_and_instant(self):
+        java = pathlib.Path(self._tool("java"))
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            target, payload, classes = self._compile_ark_combat_target(work)
+            helper = work / "SmmCharAttackPatcher.java"
+            helper.write_text(
+                mod.CHAR_HELPER.replace(
+                    "__CHAR__", GAME_ROOT + "/actors/Char"
+                ),
+                encoding="utf-8",
+            )
+            patched = work / "Char.class"
+            result = subprocess.run(
+                [
+                    str(java),
+                    "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
+                    str(helper),
+                    str(target),
+                    str(payload),
+                    str(patched),
+                ],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            self.assertEqual(0, result.returncode, result.stdout)
+            self.assertIn("Shared hit-check selected:", result.stdout)
+            self.assertIn("direct", result.stdout)
+
+            char_class = classes / f"{GAME_ROOT}/actors/Char.class"
+            char_class.write_bytes(patched.read_bytes())
+            harness = self._run_combat_harness(classes)
+            self.assertEqual(0, harness.returncode, harness.stdout)
+
     def test_legacy_wnduseitem_synthetic_bridge(self):
         java = pathlib.Path(self._tool("java"))
         javac = self._tool("javac")
