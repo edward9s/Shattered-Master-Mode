@@ -149,6 +149,49 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertIn("cycle", capability.detail)
 
 
+    def test_instant_kill_runs_after_hit_before_defense_proc(self):
+        proto = f"({self.char}FFF)Z"
+        hit_proto = f"({self.char}{self.char}FZ)Z"
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public attack{proto}\n"
+            "    .locals 2\n"
+            "    const/4 v1, 0x0\n"
+            f"    invoke-static {{p0, p1, p4, v1}}, {self.char}->hit{hit_proto}\n"
+            "    move-result v0\n"
+            "    if-eqz v0, :miss\n"
+            f"    invoke-virtual {{p1, p0, v1}}, {self.char}->defenseProc({self.char}I)I\n"
+            "    move-result v1\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ":miss\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+
+        patched = mod.patch_char_instant_kill(text, self.char, proto)
+        hook = (
+            "Lcom/spd/mod/mechanics/ModInstantKill;->resolveSuccessfulAttack("
+            + self.char + self.char + ")Z"
+        )
+        _, _, block = mod.injector.method_block(patched, "attack", proto)
+        self.assertEqual(1, block.count(hook))
+        self.assertLess(block.index("if-eqz v0, :miss"), block.index(hook))
+        self.assertLess(block.index(hook), block.index("->defenseProc("))
+
+        # The normal compile path adds Riposte completion after the Instant Kill
+        # early return has been inserted, so every return remains covered.
+        patched = mod.patch_char_attack(patched, self.char, proto)
+        _, _, block = mod.injector.method_block(patched, "attack", proto)
+        completion = (
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete("
+            + self.char + self.char + ")V"
+        )
+        self.assertEqual(3, block.count(completion))
+
+
     def test_force_hit_hook_is_added_to_static_hit(self):
         proto = f"({self.char}{self.char}FZ)Z"
         text = (
