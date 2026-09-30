@@ -20,15 +20,18 @@ python inject_apk.py TARGET.apk --ankh-only
 python inject_jar.py TARGET.jar --ankh-only
 ```
 
-`--ankh-only` contains:
+`--ankh-only` guarantees this core:
 
 - `ModAnkh`
 - `ModLastStand`
-- `ModInstantKill`
 - Store / Loot / Debug Console dependencies
 
-`ModInstantKill` can be applied to any character from the Debug Console with `affect ModInstantKill`.
-Minimal injection does not install the full SMM menu or include full-SMM combat/UI features such as Assassinate, Force Hit, or Riposte.
+It also attempts two optional combat buffs:
+
+- `ModInstantKill`: keep the payload whenever its target API is compatible. Prefer the pre-defense `Char.attack()` hook; if that hook cannot be identified safely, retain the buff and use its existing `attackProc()` fallback.
+- `ModForceHit`: trace the terminal `Char.attack()` method to the unique static boolean hit-check whose first two parameters are attacker/defender `Char` values and whose result directly controls the hit branch. Patch that method even if its name or additional parameters differ from vanilla. Skip Force Hit only if no unique safe hit-check can be identified.
+
+Both can be applied from the Debug Console with `affect ModInstantKill` or `affect ModForceHit`. Minimal injection still does not install the full SMM menu, Assassinate, or Riposte.
 
 ## Injection Kit
 
@@ -52,8 +55,9 @@ JAR injection does not use this APK signing key.
 - Rebase SPD package references when the fork uses another package name.
 - Reject unresolved or ambiguous ABI dependencies instead of forcing the build.
 - Do not copy arbitrary donor-only or obfuscated classes to hide compatibility errors.
-- Keep `--ankh-only` narrow. It exists to provide ModAnkh, ModLastStand, ModInstantKill, and the Store / Loot / Debug Console tools on older forks.
-- Full injection may use the existing SMM menu, the Riposte `Char.attack()` hook, and the Force Hit `Char.hit()` hook; minimal injection must not install these full-SMM hooks.
+- Keep `--ankh-only` narrow. ModAnkh + ModLastStand and Store / Loot / Debug Console are the guaranteed core; Instant Kill and Force Hit are optional extras and must never make that core fail.
+- Optional does not mean passive. The injector must attempt safe structural adaptation before skipping a feature. Instant Kill may fall back to `attackProc()`; Force Hit must structurally trace the terminal attack's hit-check instead of requiring the exact vanilla `Char.hit(Char, Char, float, boolean)` signature.
+- Full injection may use the existing SMM menu and the Riposte `Char.attack()` hook. Minimal injection must not install Riposte or the full menu, but may install the narrow Instant Kill / Force Hit hooks described above.
 - A Debug Console command can expose bugs already present in the target game. Do not patch unrelated target gameplay bugs merely to make a command appear successful.
 
 ## Current naming
@@ -62,4 +66,4 @@ The assassin buff class is `ModAssassinate`. The old `ModAssassinBuff` class is 
 
 ## Validation
 
-Representative APK/JAR tests are useful, but successful static injection does not guarantee every fork-specific runtime path. A required ABI that cannot be adapted safely should fail closed.
+Representative APK/JAR tests are useful, but successful static injection does not guarantee every fork-specific runtime path. Required core ABI that cannot be adapted safely should fail closed. Optional features should first attempt safe structural adaptation and, when available, a documented fallback; only that optional feature should be skipped when neither path is safe.
