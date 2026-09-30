@@ -6,6 +6,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 /** Permanent Char buff with a configurable forced-hit effect. */
@@ -118,6 +119,12 @@ public class ModForceHit extends Buff {
         } catch (LinkageError e) {
             disableOptionalUi();
             return;
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof LinkageError) {
+                disableOptionalUi();
+                return;
+            }
+            throw new IllegalStateException("Unable to invoke optional Force Hit UI integration", e);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Unable to invoke optional Force Hit UI integration", e);
         }
