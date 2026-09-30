@@ -377,6 +377,8 @@ def configure(public_module) -> None:
     def detect_target_game_prefix(target_index):
         game_prefix = public_module._original_detect_target_game_prefix(target_index)
         public_module._current_game_prefix = game_prefix
+        public_module._ankh_instant_kill_enabled = False
+        public_module._ankh_force_hit_enabled = False
 
         char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
         char_class = target_index.get(char_descriptor)
@@ -393,7 +395,32 @@ def configure(public_module) -> None:
 
         profile = public_module.AbiProfile()
         profile.add(public_module._probe_item_set_current(target_index, game_prefix))
-        profile.add(public_module._probe_char_attack_hook(target_index, game_prefix))
+
+        attack_capability = public_module._probe_char_attack_hook(
+            target_index, game_prefix
+        )
+        attack_capability.required = False
+        profile.add(attack_capability)
+
+        hit_proto = f"({char_descriptor}{char_descriptor}FZ)Z"
+        hit_flags = char_class.methods.get(("hit", hit_proto))
+        if hit_flags is not None and "static" in hit_flags:
+            force_capability = public_module.AbiCapability(
+                "char.forceHitHook",
+                public_module.ABI_DIRECT,
+                "exact static Char.hit(Char, Char, float, boolean) is available",
+                required=False,
+                data={"proto": hit_proto},
+            )
+        else:
+            force_capability = public_module.AbiCapability(
+                "char.forceHitHook",
+                public_module.ABI_UNSUPPORTED,
+                "exact static Char.hit(Char, Char, float, boolean) is unavailable",
+                required=False,
+            )
+        profile.add(force_capability)
+
         public_module._current_abi_profile = profile
         profile.log()
         profile.require_compatible()
@@ -418,8 +445,40 @@ def configure(public_module) -> None:
                 "ModAnkh has no SMM dependency closure in the donor; rebuild the injection donor"
             )
 
+        if public_module._current_abi_profile is None:
+            raise injector.InjectError("Target ABI profile was not initialized")
+
+        optional_roots = []
+        attack_capability = public_module._current_abi_profile.get(
+            "char.incomingAttackHook"
+        )
+        if attack_capability.compatible and _INSTANT_KILL in donor_index:
+            optional_roots.append(_INSTANT_KILL)
+            public_module._ankh_instant_kill_enabled = True
+        else:
+            reason = (
+                attack_capability.detail
+                if not attack_capability.compatible
+                else "donor ModInstantKill is missing"
+            )
+            injector.log("Optional Instant Kill skipped: " + reason)
+
+        force_capability = public_module._current_abi_profile.get(
+            "char.forceHitHook"
+        )
+        if force_capability.compatible and _FORCE_HIT in donor_index:
+            optional_roots.append(_FORCE_HIT)
+            public_module._ankh_force_hit_enabled = True
+        else:
+            reason = (
+                force_capability.detail
+                if not force_capability.compatible
+                else "donor ModForceHit is missing"
+            )
+            injector.log("Optional Force Hit skipped: " + reason)
+
         closure = {}
-        queue = list(direct)
+        queue = list(dict.fromkeys([*direct, *optional_roots]))
         unresolved = set()
 
         while queue:
@@ -455,7 +514,7 @@ def configure(public_module) -> None:
                 + ", ".join(sorted(unresolved))
             )
 
-        required_roots = {_LAST_STAND, _INSTANT_KILL, _FORCE_HIT}
+        required_roots = {_LAST_STAND}
         missing_roots = sorted(required_roots.difference(closure))
         if missing_roots:
             raise injector.InjectError(
@@ -483,8 +542,6 @@ def configure(public_module) -> None:
                     full_prefix + "mechanics/ModDebug;",
                     full_prefix + "mechanics/ModLegacyCompat;",
                     full_prefix + "mechanics/ModLastStand;",
-                    full_prefix + "mechanics/ModInstantKill;",
-                    full_prefix + "mechanics/ModForceHit;",
                 }
                 missing_roots = sorted(required_roots.difference(closure))
                 if missing_roots:
@@ -533,7 +590,7 @@ def configure(public_module) -> None:
         }
         injector.log(
             f"ModAnkh dependency closure: {len(payload)} class(es) "
-            "(Store + Loot + Console + Last Stand + Instant Kill + Force Hit)"
+            "(Store + Loot + Console + Last Stand; optional Instant Kill/Force Hit by ABI)"
         )
         return payload, relocations
 
@@ -611,10 +668,16 @@ def configure(public_module) -> None:
             public_module, "_pending_ankh_buff_click_overlay", None
         )
         pending_char = getattr(public_module, "_pending_char_overlay", None)
+        instant_enabled = bool(
+            getattr(public_module, "_ankh_instant_kill_enabled", False)
+        )
+        force_enabled = bool(
+            getattr(public_module, "_ankh_force_hit_enabled", False)
+        )
         if pending_click is None:
             raise injector.InjectError("Last Stand BuffIndicator click overlay source was not captured")
-        if pending_char is None:
-            raise injector.InjectError("Instant Kill/Force Hit Char overlay source was not captured")
+        if (instant_enabled or force_enabled) and pending_char is None:
+            raise injector.InjectError("Optional combat Char overlay source was not captured")
         if public_module._current_game_prefix is None:
             raise injector.InjectError("Target game prefix was not initialized")
         if public_module._current_abi_profile is None:
@@ -633,28 +696,39 @@ def configure(public_module) -> None:
         overlay_path.write_text(patched, encoding="utf-8")
         injector.log("Last Stand BuffIndicator click hook: OK")
 
-        char_descriptor, original_char = pending_char
-        capability = public_module._current_abi_profile.get("char.incomingAttackHook")
-        proto = capability.data.get("proto")
-        if not proto:
-            raise injector.InjectError(
-                "Target Char.attack ABI profile did not preserve its descriptor"
-            )
-        patched_char = public_module.patch_char_instant_kill(
-            original_char, char_descriptor, proto
-        )
-        patched_char = public_module.patch_char_hit(
-            patched_char, char_descriptor
-        )
-        char_path = directory / Path(char_descriptor[1:-1] + ".smali")
-        if char_path.exists():
-            raise injector.InjectError(
-                "Overlay already contains target Char class: " + char_descriptor
-            )
-        char_path.parent.mkdir(parents=True, exist_ok=True)
-        char_path.write_text(patched_char, encoding="utf-8")
-        injector.log(f"Char.attack Instant Kill pre-defense hook ({proto}): OK")
-        injector.log("Char.hit Force Hit pre-defense hook: OK")
+        if instant_enabled or force_enabled:
+            char_descriptor, original_char = pending_char
+            patched_char = original_char
+
+            if instant_enabled:
+                capability = public_module._current_abi_profile.get(
+                    "char.incomingAttackHook"
+                )
+                proto = capability.data.get("proto")
+                if not proto:
+                    raise injector.InjectError(
+                        "Instant Kill was enabled without a Char.attack descriptor"
+                    )
+                patched_char = public_module.patch_char_instant_kill(
+                    patched_char, char_descriptor, proto
+                )
+                injector.log(
+                    f"Char.attack Instant Kill pre-defense hook ({proto}): OK"
+                )
+
+            if force_enabled:
+                patched_char = public_module.patch_char_hit(
+                    patched_char, char_descriptor
+                )
+                injector.log("Char.hit Force Hit pre-defense hook: OK")
+
+            char_path = directory / Path(char_descriptor[1:-1] + ".smali")
+            if char_path.exists():
+                raise injector.InjectError(
+                    "Overlay already contains target Char class: " + char_descriptor
+                )
+            char_path.parent.mkdir(parents=True, exist_ok=True)
+            char_path.write_text(patched_char, encoding="utf-8")
 
         try:
             public_module._original_compile_smali(
@@ -679,9 +753,9 @@ def configure(public_module) -> None:
             target.stem + "-SMM-Ankh" + (target.suffix or ".apk")
         )
 
-    # Ankh-only keeps the narrow injector mechanics: patch Dungeon.init(), the
-    # Last Stand BuffIndicator click, and only the Char hooks required by Instant
-    # Kill and Force Hit. It does not install the full SMM menu or Riposte.
+    # Ankh-only guarantees the ModAnkh + Last Stand core. Instant Kill and
+    # Force Hit are capability-gated extras: an unsupported Char ABI skips only
+    # that feature instead of aborting the core injection.
     injector.detect_target_game_prefix = detect_target_game_prefix
     injector.build_debug_payload = build_ankh_payload
     injector.payload_compatibility_errors = payload_compatibility_errors
