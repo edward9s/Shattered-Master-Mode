@@ -851,7 +851,11 @@ def patch_char_instant_kill(
         f"{indent}if-eqz {reg}, :smm_instant_kill_native\n"
         f"{indent}const/4 {reg}, 0x1\n"
         f"{indent}return {reg}\n"
-        f"{indent}:smm_instant_kill_native"
+        f"{indent}:smm_instant_kill_native\n"
+        # The native branch originally reaches this point with the hit-result
+        # register == true. Restore that value after reusing the register for
+        # resolveSuccessfulAttack() so downstream bytecode sees identical state.
+        f"{indent}const/4 {reg}, 0x1"
     )
     patched = block[:match.end()] + injected + block[match.end():]
     return text[:start] + patched + text[end:]
