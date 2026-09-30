@@ -171,7 +171,7 @@ public class ModForceHit extends Buff {
     @Override
     public String desc() {
         return "Forces this character's hit checks to succeed whenever the target can be hit. "
-                + "Invulnerability is not bypassed. Tap to configure.";
+                + "Invulnerability is not bypassed.";
     }
 
     @Override
