@@ -29,7 +29,7 @@ python inject_jar.py TARGET.jar --ankh-only
 另外會盡力加入兩個選配戰鬥 Buff：
 
 - `ModInstantKill`：只要 payload 本身與 target API 相容就保留。優先安裝 pre-defense `Char.attack()` hook；若無法安全辨識該 hook，仍保留 Buff，改用既有的 `attackProc()` fallback。
-- `ModForceHit`：從 terminal `Char.attack()` 結構追蹤唯一的 static boolean 命中判定方法；其前兩個參數必須是 attacker / defender `Char`，且回傳值必須直接控制命中分支。即使方法改名或多出其他參數，只要能唯一安全辨識就照樣 patch；只有無法唯一確定命中判定時才跳過 Force Hit。
+- `ModForceHit` 與 `ModInstantKill` 共用同一個 selected hit-check capability。優先依序辨識已知 direct ABI：`Char.hit(Char, Char, float, boolean)`，其次是 ARK 等舊版使用的 `Char.hit(Char, Char, boolean)`；兩者都不存在時，才從 terminal `Char.attack()` 結構追蹤唯一的 static boolean 命中判定。即使方法改名或多出其他參數，只要能唯一安全辨識就 patch 同一個 selected hit-check。
 
 兩者都可透過 Debug Console 的 `affect ModInstantKill` / `affect ModForceHit` 套用。最小注入仍不安裝完整 SMM 選單、Assassinate 或 Riposte。
 
