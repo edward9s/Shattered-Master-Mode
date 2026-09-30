@@ -1,5 +1,6 @@
 package com.spd.mod.mechanics;
 
+import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Preparation;
@@ -176,7 +177,12 @@ public class ModInstantKill extends ChampionEnemy {
                 && defender != null
                 && defender != target
                 && defender.isAlive()) {
-            executeInstantKill(defender);
+            // ChampionEnemy.onAttackProc() runs before Char.attack() applies the
+            // attack's native damage. Killing here lets multi-stage enemies such
+            // as Brute observe HP == 0 later in the same attack and create their
+            // second-stage shield after death. Finish the instant kill at the
+            // same actor time, after the native attack stack has unwound.
+            Actor.add(new InstantKillActor(target, defender));
         }
     }
 
@@ -197,20 +203,19 @@ public class ModInstantKill extends ChampionEnemy {
                 || !defender.isInvulnerable(attacker.getClass())) {
             return false;
         }
-        return buff.executeInstantKill(defender);
+        return executeInstantKill(attacker, defender);
     }
 
-    private boolean executeInstantKill(Char defender) {
-        if (target == null
-                || !target.isAlive()
+    private static boolean executeInstantKill(Char attacker, Char defender) {
+        if (attacker == null
                 || defender == null
-                || defender == target
+                || defender == attacker
                 || !defender.isAlive()) {
             return false;
         }
 
         Wound.hit(defender);
-        if (!ModDeathCompat.kill(defender, target)) {
+        if (!ModDeathCompat.kill(defender, attacker)) {
             return false;
         }
         if (defender.sprite != null) {
@@ -219,6 +224,33 @@ public class ModInstantKill extends ChampionEnemy {
                     Messages.get(Preparation.class, "assassinated"));
         }
         return true;
+    }
+
+    /**
+     * Defers successful-hit Instant Kill until Char.attack() has finished its
+     * native damage and isAlive() checks. VFX priority keeps the kill at the
+     * current actor time and ahead of normal Hero/Mob/Buff turns.
+     */
+    private static class InstantKillActor extends Actor {
+
+        private final Char attacker;
+        private final Char defender;
+
+        InstantKillActor(Char attacker, Char defender) {
+            this.attacker = attacker;
+            this.defender = defender;
+            actPriority = VFX_PRIO;
+        }
+
+        @Override
+        protected boolean act() {
+            try {
+                executeInstantKill(attacker, defender);
+            } finally {
+                Actor.remove(this);
+            }
+            return true;
+        }
     }
 
     @Override
