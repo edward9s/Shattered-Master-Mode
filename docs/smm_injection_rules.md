@@ -57,7 +57,7 @@ JAR injection does not use this APK signing key.
 - Do not copy arbitrary donor-only or obfuscated classes to hide compatibility errors.
 - Keep `--ankh-only` narrow. ModAnkh + ModLastStand and Store / Loot / Debug Console are the guaranteed core; Instant Kill and Force Hit are optional extras and must never make that core fail.
 - Optional does not mean passive. The injector must attempt safe structural adaptation before skipping a feature. Instant Kill may fall back to `attackProc()`; Force Hit must structurally trace the terminal attack's hit-check instead of requiring the exact vanilla `Char.hit(Char, Char, float, boolean)` signature.
-- Full injection may use the existing SMM menu and the Riposte `Char.attack()` hook. Minimal injection must not install Riposte or the full menu, but may install the narrow Instant Kill / Force Hit hooks described above.
+- Full injection may use the existing SMM menu and the Riposte `Char.attack()` hook. For JAR injection, the injector selects the unique terminal `Char.attack()` overload instead of assuming the vanilla four-parameter wrapper. Instant Kill uses the same pre-defense hit branch when it can be identified safely; otherwise it remains available through its `attackProc()` fallback. Force Hit uses the structurally identified hit-check. Minimal injection must not install Riposte or the full menu, but may install the narrow Instant Kill / Force Hit hooks described above.
 - A Debug Console command can expose bugs already present in the target game. Do not patch unrelated target gameplay bugs merely to make a command appear successful.
 
 ## Current naming
