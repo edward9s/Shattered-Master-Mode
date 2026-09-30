@@ -1357,8 +1357,17 @@ def run_ankh_only(
         patched_char = None
         enabled_features = set()
 
+    payload_features = set(enabled_features)
+    if "instant" in adapted_optional:
+        if "instant" not in enabled_features:
+            injector.log(
+                "Optional Instant Kill pre-defense hook unavailable; "
+                "keeping ModInstantKill with attackProc fallback"
+            )
+        payload_features.add("instant")
+
     payload = dict(core_payload)
-    for feature in sorted(enabled_features):
+    for feature in sorted(payload_features):
         payload.update(adapted_optional.get(feature, {}))
 
     injector.step("Repacking target JAR")
@@ -1385,7 +1394,8 @@ def run_ankh_only(
     injector.log(
         f"Injected: ModAnkh only "
         f"(core: Store + Loot + Console + Last Stand; "
-        f"optional: {', '.join(sorted(enabled_features)) or 'none'}; "
+        f"optional payloads: {', '.join(sorted(payload_features)) or 'none'}; "
+        f"Char hooks: {', '.join(sorted(enabled_features)) or 'none'}; "
         f"{len(payload)} dependency classes)"
     )
     return 0
@@ -1407,7 +1417,7 @@ def print_help() -> None:
         "Inject SMM into an SPD-derived desktop JAR using smm-inject-donor.jar beside this script.\n\n"
         "modes:\n"
         "  default       inject the full supported SMM payload\n"
-        "  --ankh-only   inject ModAnkh + Last Stand core; add Instant Kill/Force Hit when ABI-compatible\n\n"
+        "  --ankh-only   inject ModAnkh + Last Stand core; add Instant Kill best-effort and Force Hit when compatible\n\n"
         "options:\n"
         "  --out PATH    output JAR (default: <target>-SMM.jar or <target>-SMM-Ankh.jar)\n"
         "  --keep-work   keep temporary work files\n"
@@ -1454,7 +1464,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     injector.log(
         "Injection mode: "
         + (
-            "ModAnkh only (core: Store + Loot + Console + Last Stand; optional combat by ABI)"
+            "ModAnkh only (core: Store + Loot + Console + Last Stand; Instant Kill best-effort; Force Hit by ABI)"
             if parsed.ankh_only else "full SMM"
         )
     )
