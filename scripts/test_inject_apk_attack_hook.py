@@ -242,6 +242,27 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertLess(block.index("\n:hit_success\n"), block.index("->defenseProc("))
         self.assertIn(":smm_instant_kill_native\n    const/4 v0, 0x1", block)
 
+    def test_force_hit_unsupported_is_optional_in_full_abi_profile(self):
+        original_probes = mod.ABI_PROBES
+
+        def unsupported_force_hit(_target_index, _game_prefix):
+            return mod.AbiCapability(
+                "char.forceHitHook",
+                mod.ABI_UNSUPPORTED,
+                "no structural hit-check",
+            )
+
+        try:
+            mod.ABI_PROBES = (unsupported_force_hit,)
+            profile = mod.detect_target_abi({}, self.game)
+        finally:
+            mod.ABI_PROBES = original_probes
+
+        capability = profile.get("char.forceHitHook")
+        self.assertFalse(capability.required)
+        self.assertFalse(capability.compatible)
+        profile.require_compatible()
+
     def test_force_hit_structurally_finds_renamed_hit_with_extra_parameter(self):
         attack_proto = f"({self.char}FFF)Z"
         hit_proto = f"({self.char}{self.char}FZI)Z"
