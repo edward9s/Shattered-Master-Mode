@@ -874,9 +874,10 @@ def configure(public_module) -> None:
             target.stem + "-SMM-Ankh" + (target.suffix or ".apk")
         )
 
-    # Ankh-only guarantees the ModAnkh + Last Stand core. Instant Kill and
-    # Force Hit are capability-gated extras: an unsupported Char ABI skips only
-    # that feature instead of aborting the core injection.
+    # Ankh-only guarantees the ModAnkh + Last Stand core. Instant Kill is a
+    # best-effort extra: keep its payload whenever the target API can load it,
+    # then install the pre-defense Char hook when possible and otherwise rely on
+    # its attackProc fallback. Force Hit still requires its Char.hit hook.
     injector.detect_target_game_prefix = detect_target_game_prefix
     injector.build_debug_payload = build_ankh_payload
     injector.payload_compatibility_errors = payload_compatibility_errors
