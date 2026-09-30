@@ -777,7 +777,7 @@ def configure(public_module) -> None:
                 force_enabled = False
                 public_module._ankh_force_hit_enabled = False
 
-        if instant_enabled or force_enabled:
+        if (instant_enabled or force_enabled) and pending_char is not None:
             char_descriptor, original_char = pending_char
             patched_char = original_char
             char_changed = False
