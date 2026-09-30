@@ -628,6 +628,52 @@ def _smali_resolves_to_param(
     return current == expected
 
 
+def _smali_parameter_words(proto: str) -> int:
+    match = re.fullmatch(r"\((.*)\).", proto)
+    if match is None:
+        raise injector.InjectError("Invalid smali method descriptor: " + proto)
+    params = match.group(1)
+    words = 0
+    index = 0
+    while index < len(params):
+        ch = params[index]
+        if ch == "L":
+            end = params.find(";", index)
+            if end < 0:
+                raise injector.InjectError("Invalid object descriptor: " + proto)
+            words += 1
+            index = end + 1
+        elif ch == "[":
+            index += 1
+            while index < len(params) and params[index] == "[":
+                index += 1
+            if index < len(params) and params[index] == "L":
+                end = params.find(";", index)
+                if end < 0:
+                    raise injector.InjectError("Invalid array descriptor: " + proto)
+                index = end + 1
+            else:
+                index += 1
+            words += 1
+        else:
+            words += 2 if ch in {"J", "D"} else 1
+            index += 1
+    return words
+
+
+def _smali_local_register_count(block: str, proto: str, is_static: bool) -> int:
+    locals_match = re.search(r"(?m)^\s*\.locals\s+(\d+)\s*$", block)
+    if locals_match is not None:
+        return int(locals_match.group(1))
+
+    registers_match = re.search(r"(?m)^\s*\.registers\s+(\d+)\s*$", block)
+    if registers_match is None:
+        return -1
+
+    params = _smali_parameter_words(proto) + (0 if is_static else 1)
+    return int(registers_match.group(1)) - params
+
+
 def _probe_force_hit_hook(
     target_index: dict[str, injector.SmaliClass],
     game_prefix: str,
@@ -704,6 +750,15 @@ def _probe_force_hit_hook(
             continue
         branch = branch_re.match(lines[branch_index].rstrip("\r\n"))
         if branch is None or branch.group(1) != move.group(1):
+            continue
+
+        try:
+            _hit_start, _hit_end, hit_block = injector.method_block(
+                char_class.text, name, proto
+            )
+        except injector.InjectError:
+            continue
+        if _smali_local_register_count(hit_block, proto, True) < 1:
             continue
 
         key = (name, proto)
@@ -1179,6 +1234,10 @@ def patch_char_hit(
             "parameters are attacker and defender Char values"
         )
     start, end, block = injector.method_block(text, method_name, proto)
+    if _smali_local_register_count(block, proto, True) < 1:
+        raise injector.InjectError(
+            "Force Hit target has no safe local register for the hook result"
+        )
     hook = (
         "Lcom/spd/mod/mechanics/ModForceHit;->forceHitCheck("
         f"{char_descriptor}{char_descriptor})Z"
