@@ -543,7 +543,7 @@ def rebuild_full_jar(
     wnd_entry = root + "windows/WndGame.class"
     char_entry = root + "actors/Char.class"
     wnd_bytes = patched_wndgame.read_bytes()
-    char_bytes = patched_char.read_bytes() if patched_char is not None else None
+    char_bytes = patched_char.read_bytes()
     modankh_bytes = patched_modankh.read_bytes()
     if not wnd_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched WndGame.class is invalid")
