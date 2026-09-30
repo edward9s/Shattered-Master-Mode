@@ -524,28 +524,19 @@ def configure(public_module) -> None:
                     )
 
         optional_specs = (
-            (
-                "instant",
-                _INSTANT_KILL,
-                "char.incomingAttackHook",
-                "Instant Kill",
-            ),
-            (
-                "force",
-                _FORCE_HIT,
-                "char.forceHitHook",
-                "Force Hit",
-            ),
+            ("instant", _INSTANT_KILL, None, "Instant Kill"),
+            ("force", _FORCE_HIT, "char.forceHitHook", "Force Hit"),
         )
         optional_closures = {}
 
         for feature, root, capability_key, label in optional_specs:
-            capability = public_module._current_abi_profile.get(capability_key)
-            if not capability.compatible:
-                injector.log(
-                    f"Optional {label} skipped: {capability.detail}"
-                )
-                continue
+            if capability_key is not None:
+                capability = public_module._current_abi_profile.get(capability_key)
+                if not capability.compatible:
+                    injector.log(
+                        f"Optional {label} skipped: {capability.detail}"
+                    )
+                    continue
             if root not in donor_index:
                 injector.log(
                     f"Optional {label} skipped: donor class is missing"
@@ -773,14 +764,18 @@ def configure(public_module) -> None:
         overlay_path.write_text(patched, encoding="utf-8")
         injector.log("Last Stand BuffIndicator click hook: OK")
 
-        if (instant_enabled or force_enabled) and pending_char is None:
-            injector.log(
-                "Optional combat features skipped: target Char overlay source is unavailable"
-            )
-            instant_enabled = False
-            force_enabled = False
-            public_module._ankh_instant_kill_enabled = False
-            public_module._ankh_force_hit_enabled = False
+        if pending_char is None:
+            if instant_enabled:
+                injector.log(
+                    "Optional Instant Kill pre-defense hook unavailable: "
+                    "using attackProc fallback because target Char overlay is unavailable"
+                )
+            if force_enabled:
+                injector.log(
+                    "Optional Force Hit skipped: target Char overlay is unavailable"
+                )
+                force_enabled = False
+                public_module._ankh_force_hit_enabled = False
 
         if instant_enabled or force_enabled:
             char_descriptor, original_char = pending_char
@@ -788,27 +783,30 @@ def configure(public_module) -> None:
             char_changed = False
 
             if instant_enabled:
-                try:
-                    capability = public_module._current_abi_profile.get(
-                        "char.incomingAttackHook"
-                    )
-                    proto = capability.data.get("proto")
-                    if not proto:
-                        raise injector.InjectError(
-                            "Char.attack descriptor was not preserved"
+                capability = public_module._current_abi_profile.get(
+                    "char.incomingAttackHook"
+                )
+                proto = capability.data.get("proto")
+                if capability.compatible and proto:
+                    try:
+                        patched_char = public_module.patch_char_instant_kill(
+                            patched_char, char_descriptor, proto
                         )
-                    patched_char = public_module.patch_char_instant_kill(
-                        patched_char, char_descriptor, proto
-                    )
-                    char_changed = True
+                        char_changed = True
+                        injector.log(
+                            f"Char.attack Instant Kill pre-defense hook ({proto}): OK"
+                        )
+                    except injector.InjectError as exc:
+                        injector.log(
+                            "Optional Instant Kill pre-defense hook unavailable; "
+                            "keeping ModInstantKill with attackProc fallback: "
+                            + str(exc)
+                        )
+                else:
                     injector.log(
-                        f"Char.attack Instant Kill pre-defense hook ({proto}): OK"
-                    )
-                except injector.InjectError as exc:
-                    instant_enabled = False
-                    public_module._ankh_instant_kill_enabled = False
-                    injector.log(
-                        "Optional Instant Kill skipped during patch: " + str(exc)
+                        "Optional Instant Kill pre-defense hook unavailable; "
+                        "keeping ModInstantKill with attackProc fallback: "
+                        + capability.detail
                     )
 
             if force_enabled:
