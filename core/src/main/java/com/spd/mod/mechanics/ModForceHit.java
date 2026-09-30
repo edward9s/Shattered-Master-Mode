@@ -6,6 +6,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 /** Permanent Char buff with a configurable forced-hit effect. */
@@ -115,9 +116,24 @@ public class ModForceHit extends Buff {
         }
         try {
             method.invoke(null);
+        } catch (LinkageError e) {
+            disableOptionalUi();
+            return;
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof LinkageError) {
+                disableOptionalUi();
+                return;
+            }
+            throw new IllegalStateException("Unable to invoke optional Force Hit UI integration", e);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Unable to invoke optional Force Hit UI integration", e);
         }
+    }
+
+    private static void disableOptionalUi() {
+        ensureOptionalUiMethod = null;
+        refreshOptionalUiMethod = null;
+        optionalUiResolved = true;
     }
 
     private static synchronized void resolveOptionalUi() {
@@ -135,8 +151,11 @@ public class ModForceHit extends Buff {
                     ModForceHit.class.getClassLoader());
             ensureOptionalUiMethod = uiClass.getMethod("ensureInstalled");
             refreshOptionalUiMethod = uiClass.getMethod("refreshIndicators");
-        } catch (ClassNotFoundException ignored) {
-            // Expected in --ankh-only: Force Hit works without full-SMM UI.
+        } catch (ClassNotFoundException | LinkageError ignored) {
+            // Expected in --ankh-only when the full UI class or one of its
+            // transitive UI dependencies is unavailable in the target fork.
+            disableOptionalUi();
+            return;
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Incompatible optional Force Hit UI integration", e);
         }

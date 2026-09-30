@@ -11,6 +11,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.TargetHealthIndicator;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.HashSet;
 
@@ -105,9 +106,24 @@ public class ModInstantKill extends ChampionEnemy {
         }
         try {
             method.invoke(null);
+        } catch (LinkageError e) {
+            disableOptionalUi();
+            return;
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof LinkageError) {
+                disableOptionalUi();
+                return;
+            }
+            throw new IllegalStateException("Unable to invoke optional Instant Kill UI integration", e);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Unable to invoke optional Instant Kill UI integration", e);
         }
+    }
+
+    private static void disableOptionalUi() {
+        ensureOptionalUiMethod = null;
+        refreshOptionalUiMethod = null;
+        optionalUiResolved = true;
     }
 
     private static synchronized void resolveOptionalUi() {
@@ -125,8 +141,11 @@ public class ModInstantKill extends ChampionEnemy {
                     ModInstantKill.class.getClassLoader());
             ensureOptionalUiMethod = uiClass.getMethod("ensureInstalled");
             refreshOptionalUiMethod = uiClass.getMethod("refreshIndicators");
-        } catch (ClassNotFoundException ignored) {
-            // Expected in --ankh-only: the combat buff deliberately works without full-SMM UI.
+        } catch (ClassNotFoundException | LinkageError ignored) {
+            // Expected in --ankh-only when the full UI class or one of its
+            // transitive UI dependencies is unavailable in the target fork.
+            disableOptionalUi();
+            return;
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Incompatible optional Instant Kill UI integration", e);
         }
