@@ -145,7 +145,10 @@ public class ModForceHit extends Buff {
 
     @Override
     public int icon() {
-        return ModBuffIconCompat.get("INVERT_MARK");
+        return ModBuffIconCompat.getFirst(
+                "INVERT_MARK",
+                "MARK",
+                "HEART");
     }
 
     @Override
