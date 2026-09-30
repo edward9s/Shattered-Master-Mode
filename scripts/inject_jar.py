@@ -697,7 +697,7 @@ def _smm_dependencies(data: bytes, available: set[str]) -> set[str]:
 def build_ankh_payload(
     donor: zipfile.ZipFile,
     target_game_root: str,
-) -> dict[str, bytes]:
+) -> tuple[dict[str, bytes], dict[str, dict[str, bytes]]]:
     available = {
         name for name in donor.namelist()
         if name.startswith(FULL_SMM_CLASS_PREFIX) and name.endswith(".class")
@@ -706,43 +706,63 @@ def build_ankh_payload(
     if root not in available:
         raise injector.InjectError("SMM donor JAR is missing ModAnkh")
 
-    closure: set[str] = set()
-    queue = list(_smm_dependencies(donor.read(root), available))
+    def collect(roots: list[str]) -> set[str]:
+        closure: set[str] = set()
+        queue = list(roots)
+        while queue:
+            name = queue.pop()
+            if name == root or name in closure:
+                continue
+            if name not in available:
+                raise injector.InjectError(
+                    "SMM donor dependency closure is missing: " + name
+                )
+            closure.add(name)
+            for dep in _smm_dependencies(donor.read(name), available):
+                if dep != root and dep not in closure:
+                    queue.append(dep)
+        return closure
 
-    # Instant Kill and Force Hit are optional ankh-only extras. Keep their donor
-    # dependency families available for capability probing, but do not make them
-    # part of the required ModAnkh + Last Stand core.
-    for optional_root in (
-        "com/spd/mod/mechanics/ModInstantKill.class",
-        "com/spd/mod/mechanics/ModForceHit.class",
-    ):
-        if optional_root in available:
-            queue.append(optional_root)
-
-    while queue:
-        name = queue.pop()
-        if name == root or name in closure:
-            continue
-        closure.add(name)
-        for dep in _smm_dependencies(donor.read(name), available):
-            if dep != root and dep not in closure:
-                queue.append(dep)
-
-    missing = sorted(ANKH_REQUIRED_ROOTS - closure)
+    core_closure = collect(list(_smm_dependencies(donor.read(root), available)))
+    missing = sorted(ANKH_REQUIRED_ROOTS - core_closure)
     if missing:
         raise injector.InjectError(
             "SMM donor is too old for --ankh-only JAR injection; rebuild the Injection Kit. "
             "Missing ModAnkh dependency root(s): " + ", ".join(missing)
         )
 
-    injector.log(
-        f"ModAnkh dependency closure: {len(closure)} class(es) "
-        "(Store + Loot + Console + Last Stand; optional Instant Kill/Force Hit by ABI)"
-    )
-    return {
-        name: injector.rebase_class_bytes(donor.read(name), target_game_root)
-        for name in sorted(closure)
+    optional_roots = {
+        "instant": "com/spd/mod/mechanics/ModInstantKill.class",
+        "force": "com/spd/mod/mechanics/ModForceHit.class",
     }
+    optional_closures: dict[str, set[str]] = {}
+    for feature, optional_root in optional_roots.items():
+        if optional_root in available:
+            optional_closures[feature] = collect([optional_root])
+        else:
+            injector.log(
+                "Optional "
+                + ("Instant Kill" if feature == "instant" else "Force Hit")
+                + " skipped: donor class is missing"
+            )
+
+    def rebased(names: set[str]) -> dict[str, bytes]:
+        return {
+            name: injector.rebase_class_bytes(donor.read(name), target_game_root)
+            for name in sorted(names)
+        }
+
+    injector.log(
+        f"ModAnkh core dependency closure: {len(core_closure)} class(es) "
+        "(Store + Loot + Console + Last Stand)"
+    )
+    return (
+        rebased(core_closure),
+        {
+            feature: rebased(closure)
+            for feature, closure in optional_closures.items()
+        },
+    )
 
 
 ANKH_LISTENER_ADAPTER = r'''
@@ -1281,29 +1301,42 @@ def run_ankh_only(
                 donor.read(injector.MOD_ANKH_ENTRY), target_game_root
             )
         )
-        payload = build_ankh_payload(donor, target_game_root)
+        core_payload, optional_payloads = build_ankh_payload(
+            donor, target_game_root
+        )
 
-    raw_payload_jar = work / "rebased-ankh-payload.jar"
-    injector.write_helper_payload_jar(raw_payload_jar, payload)
-    helper_payload, payload = adapt_ankh_payload(
-        java, target, raw_payload_jar, work, target_game_root
+    raw_core_jar = work / "rebased-ankh-core-payload.jar"
+    injector.write_helper_payload_jar(raw_core_jar, core_payload)
+    core_helper, core_payload = adapt_ankh_payload(
+        java, target, raw_core_jar, work, target_game_root
     )
+
+    adapted_optional: dict[str, dict[str, bytes]] = {}
+    for feature, feature_payload in optional_payloads.items():
+        raw_feature_jar = work / f"rebased-ankh-{feature}-payload.jar"
+        injector.write_helper_payload_jar(raw_feature_jar, feature_payload)
+        _feature_helper, adapted = adapt_ankh_payload(
+            java, target, raw_feature_jar, work, target_game_root
+        )
+        adapted_optional[feature] = adapted
+
+    probe_payload: dict[str, bytes] = {}
+    for feature_payload in adapted_optional.values():
+        probe_payload.update(feature_payload)
+    probe_payload_jar = work / "rebased-ankh-optional-probe.jar"
+    injector.write_helper_payload_jar(probe_payload_jar, probe_payload)
 
     injector.step("Adapting and validating donor ModAnkh against target JAR")
     patched_modankh, patched_dungeon = _original_patch_classes(
-        java, target, helper_payload, donor_modankh, work, target_game_root
+        java, target, core_helper, donor_modankh, work, target_game_root
     )
     patched_char, enabled_features = patch_ankh_char(
-        java, target, helper_payload, work, target_game_root
+        java, target, probe_payload_jar, work, target_game_root
     )
 
-    optional_entries = {
-        "instant": "com/spd/mod/mechanics/ModInstantKill.class",
-        "force": "com/spd/mod/mechanics/ModForceHit.class",
-    }
-    for feature, entry in optional_entries.items():
-        if feature not in enabled_features:
-            payload.pop(entry, None)
+    payload = dict(core_payload)
+    for feature in sorted(enabled_features):
+        payload.update(adapted_optional.get(feature, {}))
 
     injector.step("Repacking target JAR")
     output.parent.mkdir(parents=True, exist_ok=True)
