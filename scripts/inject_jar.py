@@ -293,8 +293,8 @@ public class SmmCharAttackPatcher {
 
     static final class Plan {
         String terminalAttackDesc;
-        String forceMethod;
-        String forceDesc;
+        String hitMethod;
+        String hitDesc;
         int instantBranchOpcode = -1;
         String instantDetail;
     }
@@ -429,8 +429,8 @@ public class SmmCharAttackPatcher {
         }
 
         int split = candidate.indexOf('\n');
-        plan.forceMethod = candidate.substring(0, split);
-        plan.forceDesc = candidate.substring(split + 1);
+        plan.hitMethod = candidate.substring(0, split);
+        plan.hitDesc = candidate.substring(split + 1);
 
         ArrayList<Integer> branches = candidateBranches.get(candidate);
         if (branches == null) branches = new ArrayList<>();
@@ -450,7 +450,7 @@ public class SmmCharAttackPatcher {
                 "Terminal Char.attack selected: " + plan.terminalAttackDesc);
         System.out.println(
                 "Shared hit-check selected: "
-                        + plan.forceMethod + plan.forceDesc
+                        + plan.hitMethod + plan.hitDesc
                         + (directHit != null ? " (direct)" : " (structural)"));
         return plan;
     }
@@ -461,7 +461,7 @@ public class SmmCharAttackPatcher {
         ClassWriter writer = new ClassWriter(0);
 
         final int[] terminalAttackMethods = {0};
-        final int[] forceMethods = {0};
+        final int[] hitMethods = {0};
         final int[] instantAnchors = {0};
         final boolean[] alreadyRiposte = {false};
         final boolean[] alreadyForce = {false};
@@ -510,8 +510,8 @@ public class SmmCharAttackPatcher {
                             super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
                             awaitingStructuralHit = opcode == Opcodes.INVOKESTATIC
                                     && CHAR.equals(owner)
-                                    && plan.forceMethod.equals(methodName)
-                                    && plan.forceDesc.equals(methodDesc);
+                                    && plan.hitMethod.equals(methodName)
+                                    && plan.hitDesc.equals(methodDesc);
                         }
 
                         private void emitInstant(Label nativeSuccess) {
@@ -607,10 +607,10 @@ public class SmmCharAttackPatcher {
                     };
                 }
 
-                if (plan.forceMethod.equals(name)
-                        && plan.forceDesc.equals(desc)
+                if (plan.hitMethod.equals(name)
+                        && plan.hitDesc.equals(desc)
                         && (access & Opcodes.ACC_STATIC) != 0) {
-                    forceMethods[0]++;
+                    hitMethods[0]++;
                     return new MethodVisitor(API, base) {
                         @Override
                         public void visitCode() {
@@ -671,10 +671,10 @@ public class SmmCharAttackPatcher {
                     "Expected one selected terminal Char.attack, found "
                             + terminalAttackMethods[0]);
         }
-        if (forceMethods[0] != 1) {
+        if (hitMethods[0] != 1) {
             throw new IllegalStateException(
                     "Expected one selected structural hit-check method, found "
-                            + forceMethods[0]);
+                            + hitMethods[0]);
         }
 
         if (plan.instantBranchOpcode != -1 && instantAnchors[0] == 1) {
@@ -690,7 +690,7 @@ public class SmmCharAttackPatcher {
                 "Char.attack incoming-attack patch: OK (" + plan.terminalAttackDesc + ")");
         System.out.println(
                 "Force Hit pre-defense patch: OK ("
-                        + plan.forceMethod + plan.forceDesc + ")");
+                        + plan.hitMethod + plan.hitDesc + ")");
         return writer.toByteArray();
     }
 
