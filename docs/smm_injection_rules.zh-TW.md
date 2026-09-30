@@ -60,7 +60,7 @@ JAR 注入不使用這把 APK 簽章金鑰。
 - 選配的 full-SMM UI bridge 不得讓 ankh-only target 當機。若 UI class 本身或其任一 target UI 傳遞相依在 runtime 無法 linkage，應只停用該 optional UI bridge，保留底層戰鬥 Buff 正常運作。
 - Mod 系列 action 文字維持直接由程式碼提供。APK/JAR 若遇到舊版 `WndUseItem` 繞過 `Item.actionName()`、直接呼叫 `Messages.get(...)`，應只對該 legacy call site 做 ABI bridge，讓 `ac_*` 重新走 target 已存在的虛擬 `Item.actionName(action, hero)`；不要為 ModAnkh 修改 `items*.properties`。
 - Last Stand 的 BuffIndicator 行為在 APK/JAR、full/ankh-only 都直接 patch target：短按開啟 Store window；長按保留 target 原本的 buff info 行為。舊的混合式 click/tag UI layer 已移除；full SMM 的側邊入口獨立成 `ModLastStandTag`，且不進入 ankh-only dependency closure。
-- 完整注入可以使用既有 SMM 選單與 Riposte `Char.attack()` hook。JAR 注入會選擇唯一的 terminal `Char.attack()` overload，不再假設一定是 vanilla 四參數 wrapper。Instant Kill 能安全辨識 pre-defense 命中分支時就安裝該 hook；無法安全辨識時仍保留並使用 `attackProc()` fallback。Force Hit 則使用結構式辨識出的命中判定方法。最小注入不得安裝 Riposte 或完整選單，但可以安裝上述狹窄用途的 Instant Kill / Force Hit hook。
+- 完整注入可以使用既有 SMM 選單與 Riposte `Char.attack()` hook。APK/JAR 都會選擇唯一的 terminal `Char.attack()` overload，並共用 modern direct → legacy direct → structural 的 selected hit-check。Instant Kill 能安全辨識該 selected hit-check 的成功分支時就安裝 pre-defense hook；無法安全辨識時仍保留 `attackProc()` fallback。Force Hit 則直接 patch 同一個 selected hit-check。最小注入不得安裝 Riposte 或完整選單，但可以安裝上述狹窄用途的 Instant Kill / Force Hit hook。
 - Debug Console 指令可能觸發 target 本身既有的 bug；不要為了讓指令表面成功而順便修改無關的 target 遊戲邏輯。
 
 ## 目前命名
