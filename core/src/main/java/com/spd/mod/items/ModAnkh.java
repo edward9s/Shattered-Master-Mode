@@ -3,6 +3,7 @@ package com.spd.mod.items;
 import com.spd.mod.ModGame;
 import com.spd.mod.mechanics.ModDebug$Console;
 import com.spd.mod.mechanics.ModItemCompat;
+import com.spd.mod.mechanics.ModForceHit;
 import com.spd.mod.mechanics.ModInstantKill;
 import com.spd.mod.mechanics.ModLastStand;
 import com.spd.mod.mechanics.ModLegacyCompat;
@@ -35,7 +36,7 @@ public class ModAnkh extends Ankh {
     // injector discovery rules. This method is intentionally never called.
     @SuppressWarnings("unused")
     private static Class<?>[] ankhOnlyPayloadRoots() {
-        return new Class<?>[]{ModLastStand.class, ModInstantKill.class};
+        return new Class<?>[]{ModLastStand.class, ModInstantKill.class, ModForceHit.class};
     }
 
     // Times revived via blessed ankh (kept inventory, instant revive).
