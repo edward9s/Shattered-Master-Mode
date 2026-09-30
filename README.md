@@ -68,6 +68,8 @@ python inject_jar.py TARGET.jar --ankh-only
 
 `--ankh-only` always injects the **ModAnkh + ModLastStand** core and its Store / Loot / Debug Console dependencies. **ModInstantKill** is added on a best-effort basis: the injector prefers the pre-defense attack hook and falls back to its existing `attackProc()` path when that hook cannot be installed safely. **ModForceHit** is also attempted as an optional extra by structurally tracing the boolean hit-check used by the terminal `Char.attack()` method; it is skipped only when no unique safe hit-check can be identified. The minimal mode still does not install the full SMM menu, Assassinate, or Riposte.
 
+For Last Stand, APK and JAR use the same structural `BuffIndicator` patch in both full and `--ankh-only` modes: short-click opens Store, while long-click reuses the target's original buff-info behavior. Only full SMM adds the optional `ModLastStandTag` side control. ModAnkh action labels remain code-defined English strings; legacy `WndUseItem` implementations that bypass `Item.actionName()` are bridged at the call site, without modifying `items*.properties`.
+
 Default outputs are `TARGET-SMM-Ankh.apk` and `TARGET-SMM-Ankh.jar`. Use `--out` to choose another path.
 
 If Java classes included in the payload change, rebuild the Injection Kit so the donor APK/JAR matches the source.

@@ -242,6 +242,30 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertLess(block.index("\n:hit_success\n"), block.index("->defenseProc("))
         self.assertIn(":smm_instant_kill_native\n    const/4 v0, 0x1", block)
 
+    def test_force_hit_prefers_exact_spd_hit_without_structural_trace(self):
+        attack_proto = f"({self.char}FFF{self.damage_type})Z"
+        hit_proto = f"({self.char}{self.char}FZ)Z"
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public attack{attack_proto}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+            f".method public static hit{hit_proto}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        capability = mod._probe_force_hit_hook(
+            {self.char: self.cls(text)}, self.game
+        )
+        self.assertEqual(mod.ABI_DIRECT, capability.strategy)
+        self.assertEqual("hit", capability.data.get("method"))
+        self.assertEqual(hit_proto, capability.data.get("proto"))
+
     def test_force_hit_structurally_finds_renamed_hit_with_extra_parameter(self):
         attack_proto = f"({self.char}FFF)Z"
         hit_proto = f"({self.char}{self.char}FZI)Z"

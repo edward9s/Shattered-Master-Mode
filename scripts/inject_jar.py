@@ -716,6 +716,8 @@ def rebuild_full_jar(
     target: Path,
     patched_wndgame: Path,
     patched_char: Path,
+    patched_wnd_use_item: tuple[str, Path] | None,
+    patched_buff_click: tuple[str, Path],
     patched_modankh: Path,
     payload: dict[str, bytes],
     output: Path,
@@ -726,13 +728,28 @@ def rebuild_full_jar(
     char_entry = root + "actors/Char.class"
     wnd_bytes = patched_wndgame.read_bytes()
     char_bytes = patched_char.read_bytes()
+    wnd_use_item_entry = (
+        patched_wnd_use_item[0] if patched_wnd_use_item is not None else None
+    )
+    wnd_use_item_bytes = (
+        patched_wnd_use_item[1].read_bytes()
+        if patched_wnd_use_item is not None
+        else None
+    )
+    buff_entry, buff_path = patched_buff_click
+    buff_bytes = buff_path.read_bytes()
     modankh_bytes = patched_modankh.read_bytes()
     if not wnd_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched WndGame.class is invalid")
     if not char_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched Char.class is invalid")
-    if not char_bytes.startswith(injector.CLASS_MAGIC):
-        raise injector.InjectError("Patched Char.class is invalid")
+    if (
+        wnd_use_item_bytes is not None
+        and not wnd_use_item_bytes.startswith(injector.CLASS_MAGIC)
+    ):
+        raise injector.InjectError("Patched WndUseItem.class is invalid")
+    if not buff_bytes.startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError("Patched BuffIndicator button class is invalid")
     if not modankh_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched ModAnkh.class is invalid")
     for name, data in payload.items():
@@ -745,6 +762,8 @@ def rebuild_full_jar(
             raise injector.InjectError(f"Target JAR has no {wnd_entry}")
         if char_entry not in names:
             raise injector.InjectError(f"Target JAR has no {char_entry}")
+        if buff_entry not in names:
+            raise injector.InjectError(f"Target JAR has no {buff_entry}")
         if injector.MOD_ANKH_ENTRY in names:
             raise injector.InjectError("Target JAR already contains ModAnkh; refusing a second injection")
 
@@ -766,6 +785,13 @@ def rebuild_full_jar(
                     data = wnd_bytes
                 elif name == char_entry:
                     data = char_bytes
+                elif (
+                    wnd_use_item_entry is not None
+                    and name == wnd_use_item_entry
+                ):
+                    data = wnd_use_item_bytes
+                elif name == buff_entry:
+                    data = buff_bytes
                 else:
                     data = zin.read(name)
                 zout.writestr(injector.clone_zipinfo(info), data)
@@ -791,34 +817,6 @@ ANKH_REQUIRED_ROOTS = {
     "com/spd/mod/mechanics/ModItemCompat.class",
     "com/spd/mod/mechanics/ModLastStand.class",
 }
-
-_ACTION_MESSAGE_BUNDLE_RE = re.compile(
-    r"^assets/messages/items/items(?:_[^/]+)?\.properties$"
-)
-_ACTION_MESSAGES = (
-    (b"com.spd.mod.items.modankh.ac_store", b"Store"),
-    (b"com.spd.mod.items.modankh.ac_loot", b"Loot"),
-    (b"com.spd.mod.items.modankh.ac_console", b"Console"),
-    (b"com.spd.mod.items.modankh.ac_unbless", b"Unbless"),
-)
-
-
-def _append_action_messages(data: bytes) -> tuple[bytes, int]:
-    missing = []
-    for key, value in _ACTION_MESSAGES:
-        if re.search(rb"(?m)^" + re.escape(key) + rb"\s*=", data) is None:
-            missing.append((key, value))
-    if not missing:
-        return data, 0
-
-    out = bytearray(data)
-    if out and not out.endswith((b"\n", b"\r")):
-        out.extend(b"\n")
-    out.extend(b"\n# SMM ModAnkh injected action labels\n")
-    for key, value in missing:
-        out.extend(key + b"=" + value + b"\n")
-    return bytes(out), len(missing)
-
 
 def _class_utf8_strings(data: bytes) -> list[str]:
     if len(data) < 10 or data[:4] != b"\xca\xfe\xba\xbe":
@@ -945,6 +943,576 @@ def build_ankh_payload(
             for feature, closure in optional_closures.items()
         },
     )
+
+
+LAST_STAND_BUFF_CLICK_HELPER = r'''
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.jar.*;
+import jdk.internal.org.objectweb.asm.*;
+
+public class SmmLastStandBuffClickPatcher {
+    static final int API = Opcodes.ASM8;
+    static final String BUFF = "__BUFF__";
+    static final String WND_INFO_BUFF = "__WND_INFO_BUFF__";
+    static final String BUFF_INDICATOR_PREFIX = "__BUFF_INDICATOR_PREFIX__";
+    static final String LAST_STAND = "com/spd/mod/mechanics/ModLastStand";
+    static final String INFO_HELPER = "smm$lastStandInfo";
+    static final String LONG_HELPER = "smm$nativeLongClick";
+
+    static byte[] read(JarFile jar, JarEntry entry) throws IOException {
+        try (InputStream in = jar.getInputStream(entry)) {
+            return in.readAllBytes();
+        }
+    }
+
+    static final class Shape {
+        String className;
+        String superName;
+        String buffField;
+        int buffFields;
+        int onClickMethods;
+        int infoRefs;
+        boolean hasLongClick;
+        boolean alreadyPatched;
+
+        boolean candidate() {
+            return className != null
+                    && className.startsWith(BUFF_INDICATOR_PREFIX)
+                    && buffFields == 1
+                    && onClickMethods == 1
+                    && infoRefs > 0;
+        }
+    }
+
+    static Shape analyze(byte[] bytes) {
+        Shape shape = new Shape();
+        ClassReader reader = new ClassReader(bytes);
+        shape.className = reader.getClassName();
+        shape.superName = reader.getSuperName();
+
+        reader.accept(new ClassVisitor(API) {
+            @Override
+            public FieldVisitor visitField(int access, String name, String desc,
+                                           String signature, Object value) {
+                if ((access & Opcodes.ACC_STATIC) == 0
+                        && ("L" + BUFF + ";").equals(desc)) {
+                    shape.buffFields++;
+                    shape.buffField = name;
+                }
+                return null;
+            }
+
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if (INFO_HELPER.equals(name) || LONG_HELPER.equals(name)) {
+                    shape.alreadyPatched = true;
+                }
+                if ("onLongClick".equals(name)
+                        && "()Z".equals(desc)
+                        && (access & Opcodes.ACC_STATIC) == 0) {
+                    shape.hasLongClick = true;
+                }
+                if (!"onClick".equals(name)
+                        || !"()V".equals(desc)
+                        || (access & Opcodes.ACC_STATIC) != 0) {
+                    return null;
+                }
+                shape.onClickMethods++;
+                return new MethodVisitor(API) {
+                    @Override
+                    public void visitTypeInsn(int opcode, String type) {
+                        if (opcode == Opcodes.NEW && WND_INFO_BUFF.equals(type)) {
+                            shape.infoRefs++;
+                        }
+                    }
+
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean isInterface) {
+                        if (WND_INFO_BUFF.equals(owner) && "<init>".equals(methodName)) {
+                            shape.infoRefs++;
+                        }
+                        if (LAST_STAND.equals(owner) && "open".equals(methodName)) {
+                            shape.alreadyPatched = true;
+                        }
+                    }
+                };
+            }
+        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        return shape;
+    }
+
+    static int privateAccess(int access) {
+        return (access & ~(Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED))
+                | Opcodes.ACC_PRIVATE;
+    }
+
+    static byte[] patch(byte[] original, Shape shape) {
+        if (shape.alreadyPatched) {
+            throw new IllegalStateException(
+                    "BuffIndicator button already contains Last Stand click patch");
+        }
+
+        ClassReader reader = new ClassReader(original);
+        ClassWriter writer = new ClassWriter(0);
+
+        ClassVisitor visitor = new ClassVisitor(API, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if ("onClick".equals(name)
+                        && "()V".equals(desc)
+                        && (access & Opcodes.ACC_STATIC) == 0) {
+                    return super.visitMethod(
+                            privateAccess(access),
+                            INFO_HELPER,
+                            desc,
+                            signature,
+                            exceptions);
+                }
+                if ("onLongClick".equals(name)
+                        && "()Z".equals(desc)
+                        && (access & Opcodes.ACC_STATIC) == 0) {
+                    return super.visitMethod(
+                            privateAccess(access),
+                            LONG_HELPER,
+                            desc,
+                            signature,
+                            exceptions);
+                }
+                return super.visitMethod(access, name, desc, signature, exceptions);
+            }
+
+            @Override
+            public void visitEnd() {
+                MethodVisitor click = super.visitMethod(
+                        Opcodes.ACC_PROTECTED, "onClick", "()V", null, null);
+                click.visitCode();
+                Label nativeClick = new Label();
+                click.visitVarInsn(Opcodes.ALOAD, 0);
+                click.visitFieldInsn(
+                        Opcodes.GETFIELD,
+                        shape.className,
+                        shape.buffField,
+                        "L" + BUFF + ";");
+                click.visitTypeInsn(Opcodes.INSTANCEOF, LAST_STAND);
+                click.visitJumpInsn(Opcodes.IFEQ, nativeClick);
+                click.visitVarInsn(Opcodes.ALOAD, 0);
+                click.visitFieldInsn(
+                        Opcodes.GETFIELD,
+                        shape.className,
+                        shape.buffField,
+                        "L" + BUFF + ";");
+                click.visitTypeInsn(Opcodes.CHECKCAST, LAST_STAND);
+                click.visitMethodInsn(
+                        Opcodes.INVOKEVIRTUAL,
+                        LAST_STAND,
+                        "open",
+                        "()V",
+                        false);
+                click.visitInsn(Opcodes.RETURN);
+                click.visitLabel(nativeClick);
+                click.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                click.visitVarInsn(Opcodes.ALOAD, 0);
+                click.visitMethodInsn(
+                        Opcodes.INVOKESPECIAL,
+                        shape.className,
+                        INFO_HELPER,
+                        "()V",
+                        false);
+                click.visitInsn(Opcodes.RETURN);
+                click.visitMaxs(2, 1);
+                click.visitEnd();
+
+                MethodVisitor longClick = super.visitMethod(
+                        Opcodes.ACC_PROTECTED, "onLongClick", "()Z", null, null);
+                longClick.visitCode();
+                Label nativeLong = new Label();
+                longClick.visitVarInsn(Opcodes.ALOAD, 0);
+                longClick.visitFieldInsn(
+                        Opcodes.GETFIELD,
+                        shape.className,
+                        shape.buffField,
+                        "L" + BUFF + ";");
+                longClick.visitTypeInsn(Opcodes.INSTANCEOF, LAST_STAND);
+                longClick.visitJumpInsn(Opcodes.IFEQ, nativeLong);
+                longClick.visitVarInsn(Opcodes.ALOAD, 0);
+                longClick.visitMethodInsn(
+                        Opcodes.INVOKESPECIAL,
+                        shape.className,
+                        INFO_HELPER,
+                        "()V",
+                        false);
+                longClick.visitInsn(Opcodes.ICONST_1);
+                longClick.visitInsn(Opcodes.IRETURN);
+                longClick.visitLabel(nativeLong);
+                longClick.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                longClick.visitVarInsn(Opcodes.ALOAD, 0);
+                if (shape.hasLongClick) {
+                    longClick.visitMethodInsn(
+                            Opcodes.INVOKESPECIAL,
+                            shape.className,
+                            LONG_HELPER,
+                            "()Z",
+                            false);
+                } else {
+                    longClick.visitMethodInsn(
+                            Opcodes.INVOKESPECIAL,
+                            shape.superName,
+                            "onLongClick",
+                            "()Z",
+                            false);
+                }
+                longClick.visitInsn(Opcodes.IRETURN);
+                longClick.visitMaxs(2, 1);
+                longClick.visitEnd();
+
+                super.visitEnd();
+            }
+        };
+
+        reader.accept(visitor, 0);
+        return writer.toByteArray();
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length != 3) {
+            throw new IllegalArgumentException(
+                    "Usage: SmmLastStandBuffClickPatcher <target.jar> <out-class> <status.txt>");
+        }
+
+        Path target = Paths.get(args[0]);
+        Path output = Paths.get(args[1]);
+        Path status = Paths.get(args[2]);
+
+        ArrayList<String> candidates = new ArrayList<>();
+        LinkedHashMap<String, byte[]> bytesByEntry = new LinkedHashMap<>();
+        LinkedHashMap<String, Shape> shapeByEntry = new LinkedHashMap<>();
+
+        try (JarFile jar = new JarFile(target.toFile())) {
+            Enumeration<JarEntry> entries = jar.entries();
+            while (entries.hasMoreElements()) {
+                JarEntry entry = entries.nextElement();
+                if (entry.isDirectory()
+                        || !entry.getName().startsWith(BUFF_INDICATOR_PREFIX)
+                        || !entry.getName().endsWith(".class")) {
+                    continue;
+                }
+                byte[] bytes = read(jar, entry);
+                Shape shape = analyze(bytes);
+                if (shape.candidate()) {
+                    candidates.add(entry.getName());
+                    bytesByEntry.put(entry.getName(), bytes);
+                    shapeByEntry.put(entry.getName(), shape);
+                }
+            }
+        }
+
+        if (candidates.size() != 1) {
+            throw new IllegalStateException(
+                    "Expected one BuffIndicator button with Buff field + native info click, found "
+                            + candidates.size() + ": " + candidates);
+        }
+
+        String entry = candidates.get(0);
+        Shape shape = shapeByEntry.get(entry);
+        Files.write(output, patch(bytesByEntry.get(entry), shape));
+        Files.writeString(status, entry + "\n");
+
+        System.out.println(
+                "Last Stand BuffIndicator click hook: OK (" + entry
+                        + "; short click=Store, long click=native info)");
+    }
+}
+'''
+
+
+WND_USE_ITEM_ACTION_HELPER = r'''
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.jar.*;
+import jdk.internal.org.objectweb.asm.*;
+
+public class SmmWndUseItemActionPatcher {
+    static final int API = Opcodes.ASM8;
+    static final String WND_USE_ITEM = "__WND_USE_ITEM__";
+    static final String ITEM = "__ITEM__";
+    static final String HERO = "__HERO__";
+    static final String DUNGEON = "__DUNGEON__";
+    static final String MESSAGES = "__MESSAGES__";
+
+    static final String HERO_DESC = "L" + HERO + ";";
+    static final String ACTION_NAME_DESC =
+            "(Ljava/lang/String;" + HERO_DESC + ")Ljava/lang/String;";
+    static final String MESSAGE_GET_DESC =
+            "(Ljava/lang/Object;Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;";
+    static final String ACTION_HELPER = "smm$actionName";
+
+    static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
+        try (JarFile jar = new JarFile(jarPath.toFile())) {
+            JarEntry entry = jar.getJarEntry(entryName);
+            if (entry == null) throw new IOException("Missing JAR entry: " + entryName);
+            try (InputStream in = jar.getInputStream(entry)) {
+                return in.readAllBytes();
+            }
+        }
+    }
+
+    static boolean itemActionNameAvailable(Path target) throws IOException {
+        byte[] item = readJarEntry(target, ITEM + ".class");
+        final int[] matches = {0};
+        new ClassReader(item).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if ("actionName".equals(name)
+                        && ACTION_NAME_DESC.equals(desc)
+                        && (access & Opcodes.ACC_PUBLIC) != 0
+                        && (access & Opcodes.ACC_STATIC) == 0) {
+                    matches[0]++;
+                }
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        return matches[0] == 1;
+    }
+
+    static final class Analysis {
+        final LinkedHashSet<String> legacyConstructors = new LinkedHashSet<>();
+        boolean helperExists;
+    }
+
+    static boolean containsLegacyKey(Object value) {
+        return value instanceof String && ((String) value).contains("ac_");
+    }
+
+    static Analysis analyze(byte[] original) {
+        ClassReader reader = new ClassReader(original);
+        if (!WND_USE_ITEM.equals(reader.getClassName())) {
+            throw new IllegalStateException(
+                    "Target class is not WndUseItem: " + reader.getClassName());
+        }
+
+        Analysis analysis = new Analysis();
+        reader.accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if (ACTION_HELPER.equals(name) && MESSAGE_GET_DESC.equals(desc)) {
+                    analysis.helperExists = true;
+                }
+                if (!"<init>".equals(name) || (access & Opcodes.ACC_STATIC) != 0) {
+                    return null;
+                }
+
+                return new MethodVisitor(API) {
+                    boolean hasLegacyKey;
+                    boolean hasMessagesGet;
+
+                    @Override
+                    public void visitLdcInsn(Object value) {
+                        if (containsLegacyKey(value)) {
+                            hasLegacyKey = true;
+                        }
+                    }
+
+                    @Override
+                    public void visitInvokeDynamicInsn(
+                            String name,
+                            String methodDesc,
+                            Handle bootstrapMethodHandle,
+                            Object... bootstrapMethodArguments) {
+                        for (Object argument : bootstrapMethodArguments) {
+                            if (containsLegacyKey(argument)) {
+                                hasLegacyKey = true;
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean isInterface) {
+                        if (opcode == Opcodes.INVOKESTATIC
+                                && MESSAGES.equals(owner)
+                                && "get".equals(methodName)
+                                && MESSAGE_GET_DESC.equals(methodDesc)) {
+                            hasMessagesGet = true;
+                        }
+                    }
+
+                    @Override
+                    public void visitEnd() {
+                        if (hasLegacyKey && hasMessagesGet) {
+                            analysis.legacyConstructors.add(desc);
+                        }
+                    }
+                };
+            }
+        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        return analysis;
+    }
+
+    static byte[] patch(byte[] original, Set<String> legacyConstructors, int[] rewrites) {
+        ClassReader reader = new ClassReader(original);
+        ClassWriter writer = new ClassWriter(0);
+
+        ClassVisitor visitor = new ClassVisitor(API, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
+                if (!"<init>".equals(name)
+                        || (access & Opcodes.ACC_STATIC) != 0
+                        || !legacyConstructors.contains(desc)) {
+                    return base;
+                }
+
+                return new MethodVisitor(API, base) {
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean isInterface) {
+                        if (opcode == Opcodes.INVOKESTATIC
+                                && MESSAGES.equals(owner)
+                                && "get".equals(methodName)
+                                && MESSAGE_GET_DESC.equals(methodDesc)) {
+                            rewrites[0]++;
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    WND_USE_ITEM,
+                                    ACTION_HELPER,
+                                    MESSAGE_GET_DESC,
+                                    false);
+                            return;
+                        }
+                        super.visitMethodInsn(
+                                opcode, owner, methodName, methodDesc, isInterface);
+                    }
+                };
+            }
+
+            @Override
+            public void visitEnd() {
+                MethodVisitor mv = super.visitMethod(
+                        Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
+                        ACTION_HELPER,
+                        MESSAGE_GET_DESC,
+                        null,
+                        null);
+                mv.visitCode();
+
+                Label fallback = new Label();
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitJumpInsn(Opcodes.IFNULL, fallback);
+
+                mv.visitVarInsn(Opcodes.ALOAD, 0);
+                mv.visitTypeInsn(Opcodes.INSTANCEOF, ITEM);
+                mv.visitJumpInsn(Opcodes.IFEQ, fallback);
+
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitLdcInsn("ac_");
+                mv.visitMethodInsn(
+                        Opcodes.INVOKEVIRTUAL,
+                        "java/lang/String",
+                        "startsWith",
+                        "(Ljava/lang/String;)Z",
+                        false);
+                mv.visitJumpInsn(Opcodes.IFEQ, fallback);
+
+                mv.visitVarInsn(Opcodes.ALOAD, 0);
+                mv.visitTypeInsn(Opcodes.CHECKCAST, ITEM);
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitInsn(Opcodes.ICONST_3);
+                mv.visitMethodInsn(
+                        Opcodes.INVOKEVIRTUAL,
+                        "java/lang/String",
+                        "substring",
+                        "(I)Ljava/lang/String;",
+                        false);
+                mv.visitFieldInsn(
+                        Opcodes.GETSTATIC,
+                        DUNGEON,
+                        "hero",
+                        HERO_DESC);
+                mv.visitMethodInsn(
+                        Opcodes.INVOKEVIRTUAL,
+                        ITEM,
+                        "actionName",
+                        ACTION_NAME_DESC,
+                        false);
+                mv.visitInsn(Opcodes.ARETURN);
+
+                mv.visitLabel(fallback);
+                mv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                mv.visitVarInsn(Opcodes.ALOAD, 0);
+                mv.visitVarInsn(Opcodes.ALOAD, 1);
+                mv.visitVarInsn(Opcodes.ALOAD, 2);
+                mv.visitMethodInsn(
+                        Opcodes.INVOKESTATIC,
+                        MESSAGES,
+                        "get",
+                        MESSAGE_GET_DESC,
+                        false);
+                mv.visitInsn(Opcodes.ARETURN);
+                mv.visitMaxs(3, 3);
+                mv.visitEnd();
+
+                super.visitEnd();
+            }
+        };
+
+        reader.accept(visitor, 0);
+        return writer.toByteArray();
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length != 3) {
+            throw new IllegalArgumentException(
+                    "Usage: SmmWndUseItemActionPatcher <target.jar> <out-class> <status.txt>");
+        }
+
+        Path target = Paths.get(args[0]);
+        Path output = Paths.get(args[1]);
+        Path status = Paths.get(args[2]);
+
+        byte[] original = readJarEntry(target, WND_USE_ITEM + ".class");
+        Analysis analysis = analyze(original);
+        if (analysis.helperExists) {
+            throw new IllegalStateException(
+                    "WndUseItem already contains SMM action-name compatibility bridge");
+        }
+        if (analysis.legacyConstructors.isEmpty()) {
+            Files.writeString(status, "native\n");
+            System.out.println(
+                    "WndUseItem action labels: native actionName-compatible path");
+            return;
+        }
+        if (!itemActionNameAvailable(target)) {
+            throw new IllegalStateException(
+                    "Legacy WndUseItem bypasses Item.actionName(), but target Item "
+                    + "does not expose public actionName(String, Hero)");
+        }
+
+        int[] rewrites = {0};
+        byte[] patched = patch(original, analysis.legacyConstructors, rewrites);
+        if (rewrites[0] == 0) {
+            throw new IllegalStateException(
+                    "Legacy WndUseItem constructor was identified, but no Messages.get "
+                    + "call was rewritten");
+        }
+
+        Files.write(output, patched);
+        Files.writeString(status, "patched\n");
+        System.out.println(
+                "WndUseItem action labels: bridged "
+                        + rewrites[0]
+                        + " legacy Messages.get call(s) through Item.actionName()");
+    }
+}
+'''
 
 
 ANKH_LISTENER_ADAPTER = r'''
@@ -1442,6 +2010,91 @@ public class SmmAnkhCharAttackPatcher {
 '''
 
 
+def patch_last_stand_buff_click_jar(
+    java: Path,
+    target: Path,
+    work: Path,
+    target_game_root: str,
+) -> tuple[str, Path]:
+    helper = work / "SmmLastStandBuffClickPatcher.java"
+    helper.write_text(
+        LAST_STAND_BUFF_CLICK_HELPER
+        .replace("__BUFF__", target_game_root + "/actors/buffs/Buff")
+        .replace("__WND_INFO_BUFF__", target_game_root + "/windows/WndInfoBuff")
+        .replace("__BUFF_INDICATOR_PREFIX__", target_game_root + "/ui/BuffIndicator$"),
+        encoding="utf-8",
+    )
+
+    output = work / "LastStandBuffButton.class"
+    status = work / "last-stand-buff-click-entry.txt"
+    injector.run([
+        java,
+        "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
+        helper, target, output, status,
+    ])
+
+    if not output.is_file() or not output.read_bytes().startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError(
+            "Last Stand BuffIndicator helper did not produce a valid class"
+        )
+    if not status.is_file():
+        raise injector.InjectError(
+            "Last Stand BuffIndicator helper did not report the patched entry"
+        )
+
+    entry = status.read_text(encoding="utf-8").strip()
+    prefix = target_game_root + "/ui/BuffIndicator$"
+    if not entry.startswith(prefix) or not entry.endswith(".class"):
+        raise injector.InjectError(
+            "Last Stand BuffIndicator helper reported an invalid entry: " + entry
+        )
+    return entry, output
+
+
+def patch_wnd_use_item_action_names(
+    java: Path,
+    target: Path,
+    work: Path,
+    target_game_root: str,
+) -> tuple[str, Path] | None:
+    wnd_entry = target_game_root + "/windows/WndUseItem.class"
+    helper = work / "SmmWndUseItemActionPatcher.java"
+    helper.write_text(
+        WND_USE_ITEM_ACTION_HELPER
+        .replace("__WND_USE_ITEM__", target_game_root + "/windows/WndUseItem")
+        .replace("__ITEM__", target_game_root + "/items/Item")
+        .replace("__HERO__", target_game_root + "/actors/hero/Hero")
+        .replace("__DUNGEON__", target_game_root + "/Dungeon")
+        .replace("__MESSAGES__", target_game_root + "/messages/Messages"),
+        encoding="utf-8",
+    )
+
+    output = work / "WndUseItemAction.class"
+    status = work / "wnduseitem-action-status.txt"
+    injector.run([
+        java,
+        "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
+        helper, target, output, status,
+    ])
+    if not status.is_file():
+        raise injector.InjectError(
+            "WndUseItem action helper did not report compatibility status"
+        )
+
+    mode = status.read_text(encoding="utf-8").strip()
+    if mode == "native":
+        return None
+    if mode != "patched":
+        raise injector.InjectError(
+            "WndUseItem action helper reported unknown status: " + mode
+        )
+    if not output.is_file() or not output.read_bytes().startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError(
+            "WndUseItem action helper did not produce a valid class"
+        )
+    return wnd_entry, output
+
+
 def patch_ankh_char(
     java: Path,
     target: Path,
@@ -1514,6 +2167,8 @@ def rebuild_ankh_jar(
     target: Path,
     patched_dungeon: Path,
     patched_char: Path | None,
+    patched_wnd_use_item: tuple[str, Path] | None,
+    patched_buff_click: tuple[str, Path],
     patched_modankh: Path,
     payload: dict[str, bytes],
     output: Path,
@@ -1521,19 +2176,34 @@ def rebuild_ankh_jar(
 ) -> None:
     dungeon_bytes = patched_dungeon.read_bytes()
     char_bytes = patched_char.read_bytes() if patched_char is not None else None
+    wnd_use_item_entry = (
+        patched_wnd_use_item[0] if patched_wnd_use_item is not None else None
+    )
+    wnd_use_item_bytes = (
+        patched_wnd_use_item[1].read_bytes()
+        if patched_wnd_use_item is not None
+        else None
+    )
+    buff_entry, buff_path = patched_buff_click
+    buff_bytes = buff_path.read_bytes()
     modankh_bytes = patched_modankh.read_bytes()
     if not dungeon_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched Dungeon.class is invalid")
     if char_bytes is not None and not char_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched Char.class is invalid")
+    if (
+        wnd_use_item_bytes is not None
+        and not wnd_use_item_bytes.startswith(injector.CLASS_MAGIC)
+    ):
+        raise injector.InjectError("Patched WndUseItem.class is invalid")
+    if not buff_bytes.startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError("Patched BuffIndicator button class is invalid")
     if not modankh_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched ModAnkh.class is invalid")
     for name, data in payload.items():
         if not data.startswith(injector.CLASS_MAGIC):
             raise injector.InjectError(f"Invalid ModAnkh dependency class: {name}")
 
-    matched_bundles = 0
-    added_labels = 0
     with zipfile.ZipFile(target, "r") as zin:
         names = set(zin.namelist())
         if dungeon_entry not in names:
@@ -1542,6 +2212,8 @@ def rebuild_ankh_jar(
         char_entry = root + "actors/Char.class"
         if char_entry not in names:
             raise injector.InjectError(f"Target JAR has no {char_entry}")
+        if buff_entry not in names:
+            raise injector.InjectError(f"Target JAR has no {buff_entry}")
         if injector.MOD_ANKH_ENTRY in names:
             raise injector.InjectError("Target JAR already contains ModAnkh; refusing a second injection")
         collisions = sorted((set(payload) | {injector.MOD_ANKH_ENTRY}) & names)
@@ -1559,12 +2231,15 @@ def rebuild_ankh_jar(
                     data = dungeon_bytes
                 elif info.filename == char_entry and char_bytes is not None:
                     data = char_bytes
+                elif (
+                    wnd_use_item_entry is not None
+                    and info.filename == wnd_use_item_entry
+                ):
+                    data = wnd_use_item_bytes
+                elif info.filename == buff_entry:
+                    data = buff_bytes
                 else:
                     data = zin.read(info.filename)
-                if _ACTION_MESSAGE_BUNDLE_RE.fullmatch(info.filename):
-                    matched_bundles += 1
-                    data, count = _append_action_messages(data)
-                    added_labels += count
                 zout.writestr(injector.clone_zipinfo(info), data)
 
             zout.writestr(
@@ -1572,18 +2247,6 @@ def rebuild_ankh_jar(
             )
             for name in sorted(payload):
                 zout.writestr(injector.clone_zipinfo(dungeon_info, name), payload[name])
-
-    if matched_bundles == 0:
-        injector.log(
-            "No standard SPD item message bundle found; "
-            "ModAnkh action labels rely on target actionName() support"
-        )
-    elif added_labels:
-        injector.log(
-            f"Injected ModAnkh action labels into {matched_bundles} item message bundle(s)"
-        )
-    else:
-        injector.log("ModAnkh action labels already present in target message bundles")
 
 
 def run_ankh_only(
@@ -1644,6 +2307,12 @@ def run_ankh_only(
     patched_modankh, patched_dungeon = _original_patch_classes(
         java, target, core_helper, donor_modankh, work, target_game_root
     )
+    patched_wnd_use_item = patch_wnd_use_item_action_names(
+        java, target, work, target_game_root
+    )
+    patched_buff_click = patch_last_stand_buff_click_jar(
+        java, target, work, target_game_root
+    )
     try:
         patched_char, enabled_features = patch_ankh_char(
             java, target, probe_payload_jar, work, target_game_root
@@ -1676,15 +2345,24 @@ def run_ankh_only(
         target,
         patched_dungeon,
         patched_char,
+        patched_wnd_use_item,
+        patched_buff_click,
         patched_modankh,
         payload,
         tmp,
         dungeon_entry,
     )
     char_entry = target_game_root + "/actors/Char.class"
-    injector.validate_jar(
-        tmp, [dungeon_entry, char_entry, injector.MOD_ANKH_ENTRY, *sorted(payload)]
-    )
+    validate_entries = [
+        dungeon_entry,
+        char_entry,
+        injector.MOD_ANKH_ENTRY,
+        *sorted(payload),
+    ]
+    if patched_wnd_use_item is not None:
+        validate_entries.append(patched_wnd_use_item[0])
+    validate_entries.append(patched_buff_click[0])
+    injector.validate_jar(tmp, validate_entries)
     shutil.copy2(tmp, output)
 
     injector.step("Done")
@@ -1825,6 +2503,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             work,
             target_game_root,
         )
+        patched_wnd_use_item = patch_wnd_use_item_action_names(
+            java, target, work, target_game_root
+        )
+        patched_buff_click = patch_last_stand_buff_click_jar(
+            java, target, work, target_game_root
+        )
 
         injector.step("Repacking target JAR")
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -1833,15 +2517,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             target,
             patched_wndgame,
             patched_char,
+            patched_wnd_use_item,
+            patched_buff_click,
             patched_modankh,
             payload,
             unsigned_tmp,
             dungeon_entry,
         )
-        injector.validate_jar(
-            unsigned_tmp,
-            [wnd_entry, char_entry, injector.MOD_ANKH_ENTRY, *payload_names],
-        )
+        full_validate_entries = [
+            wnd_entry,
+            char_entry,
+            patched_buff_click[0],
+            injector.MOD_ANKH_ENTRY,
+            *payload_names,
+        ]
+        if patched_wnd_use_item is not None:
+            full_validate_entries.append(patched_wnd_use_item[0])
+        injector.validate_jar(unsigned_tmp, full_validate_entries)
         shutil.copy2(unsigned_tmp, output)
 
         injector.step("Done")
