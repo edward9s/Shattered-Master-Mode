@@ -892,27 +892,10 @@ def patch_char_instant_kill(
 
     reg, opcode, target_label, branch_index = candidates[0]
     indent = re.match(r"[ \t]*", lines[branch_index]).group(0)
+    branch_start = offsets[branch_index]
+    branch_end = branch_start + len(lines[branch_index])
 
-    if opcode == "eqz":
-        insert_at = offsets[branch_index] + len(lines[branch_index])
-    else:
-        label_re = re.compile(
-            r"^\s*" + re.escape(target_label) + r"\s*(?:#.*)?$"
-        )
-        label_indexes = [
-            index
-            for index in range(branch_index + 1, len(lines))
-            if label_re.match(lines[index].rstrip("\r\n")) is not None
-        ]
-        if len(label_indexes) != 1:
-            raise injector.InjectError(
-                "Char.hit success target label is not uniquely identifiable: "
-                + target_label
-            )
-        label_index = label_indexes[0]
-        insert_at = offsets[label_index] + len(lines[label_index])
-
-    injected = (
+    native_tail = (
         f"{indent}# SMM Instant Kill after confirmed hit, before defenseProc\n"
         f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
         f"{indent}move-result {reg}\n"
@@ -925,7 +908,28 @@ def patch_char_instant_kill(
         # resolveSuccessfulAttack() so downstream bytecode sees identical state.
         f"{indent}const/4 {reg}, 0x1\n"
     )
-    patched = block[:insert_at] + injected + block[insert_at:]
+
+    if opcode == "eqz":
+        patched = block[:branch_end] + native_tail + block[branch_end:]
+    else:
+        if ":smm_instant_kill_miss" in block:
+            raise injector.InjectError(
+                "Char.attack already contains SMM Instant Kill miss trampoline"
+            )
+        rewritten_branch = (
+            f"{indent}if-eqz {reg}, :smm_instant_kill_miss\n"
+        )
+        trampoline = (
+            native_tail
+            + f"{indent}goto {target_label}\n"
+            + f"{indent}:smm_instant_kill_miss\n"
+        )
+        patched = (
+            block[:branch_start]
+            + rewritten_branch
+            + trampoline
+            + block[branch_end:]
+        )
     return text[:start] + patched + text[end:]
 
 
