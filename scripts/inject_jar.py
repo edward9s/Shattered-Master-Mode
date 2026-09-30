@@ -1221,7 +1221,7 @@ def rebuild_ankh_jar(
     dungeon_entry: str,
 ) -> None:
     dungeon_bytes = patched_dungeon.read_bytes()
-    char_bytes = patched_char.read_bytes()
+    char_bytes = patched_char.read_bytes() if patched_char is not None else None
     modankh_bytes = patched_modankh.read_bytes()
     if not dungeon_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched Dungeon.class is invalid")
