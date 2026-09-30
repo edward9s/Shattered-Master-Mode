@@ -826,25 +826,93 @@ def patch_char_instant_kill(
         + re.escape(char_descriptor)
         + r"FZ\)Z"
     )
-    hit_re = re.compile(
-        r"(?m)^(?P<invoke>[ \t]*invoke-static(?:/range)?\s+\{[^}]+\},\s*"
+    invoke_re = re.compile(
+        r"^\s*invoke-static(?:/range)?\s+\{[^}]+\},\s*"
         + hit_desc
-        + r"\s*)\n"
-        r"(?P<move>[ \t]*move-result\s+(?P<reg>[vp]\d+)\s*)\n"
-        r"(?P<branch>[ \t]*if-eqz\s+(?P=reg),\s*:[A-Za-z0-9_$.-]+\s*)$"
+        + r"\s*(?:#.*)?$"
     )
-    matches = list(hit_re.finditer(block))
-    if len(matches) != 1:
-        raise injector.InjectError(
-            "Expected exactly one successful Char.hit branch in terminal Char.attack, "
-            f"found {len(matches)}"
+    move_re = re.compile(r"^\s*move-result\s+([vp]\d+)\s*(?:#.*)?$")
+    branch_re = re.compile(
+        r"^\s*if-(eqz|nez)\s+([vp]\d+),\s*(:[A-Za-z0-9_$.-]+)\s*(?:#.*)?$"
+    )
+
+    lines = block.splitlines(keepends=True)
+    offsets = []
+    offset = 0
+    for line in lines:
+        offsets.append(offset)
+        offset += len(line)
+
+    def next_instruction(index: int) -> int | None:
+        for candidate in range(index + 1, len(lines)):
+            stripped = lines[candidate].strip()
+            if (
+                not stripped
+                or stripped.startswith("#")
+                or stripped.startswith(".")
+                or stripped.startswith(":")
+            ):
+                continue
+            return candidate
+        return None
+
+    candidates = []
+    for invoke_index, line in enumerate(lines):
+        if invoke_re.match(line.rstrip("\r\n")) is None:
+            continue
+
+        move_index = next_instruction(invoke_index)
+        if move_index is None:
+            continue
+        move_match = move_re.match(lines[move_index].rstrip("\r\n"))
+        if move_match is None:
+            continue
+
+        branch_index = next_instruction(move_index)
+        if branch_index is None:
+            continue
+        branch_match = branch_re.match(lines[branch_index].rstrip("\r\n"))
+        if branch_match is None or branch_match.group(2) != move_match.group(1):
+            continue
+
+        candidates.append(
+            (
+                move_match.group(1),
+                branch_match.group(1),
+                branch_match.group(3),
+                branch_index,
+            )
         )
 
-    match = matches[0]
-    indent = re.match(r"[ \t]*", match.group("branch")).group(0)
-    reg = match.group("reg")
+    if len(candidates) != 1:
+        raise injector.InjectError(
+            "Expected exactly one successful Char.hit branch in terminal Char.attack, "
+            f"found {len(candidates)}"
+        )
+
+    reg, opcode, target_label, branch_index = candidates[0]
+    indent = re.match(r"[ \t]*", lines[branch_index]).group(0)
+
+    if opcode == "eqz":
+        insert_at = offsets[branch_index] + len(lines[branch_index])
+    else:
+        label_re = re.compile(
+            r"^\s*" + re.escape(target_label) + r"\s*(?:#.*)?$"
+        )
+        label_indexes = [
+            index
+            for index in range(branch_index + 1, len(lines))
+            if label_re.match(lines[index].rstrip("\r\n")) is not None
+        ]
+        if len(label_indexes) != 1:
+            raise injector.InjectError(
+                "Char.hit success target label is not uniquely identifiable: "
+                + target_label
+            )
+        label_index = label_indexes[0]
+        insert_at = offsets[label_index] + len(lines[label_index])
+
     injected = (
-        "\n"
         f"{indent}# SMM Instant Kill after confirmed hit, before defenseProc\n"
         f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
         f"{indent}move-result {reg}\n"
@@ -852,12 +920,12 @@ def patch_char_instant_kill(
         f"{indent}const/4 {reg}, 0x1\n"
         f"{indent}return {reg}\n"
         f"{indent}:smm_instant_kill_native\n"
-        # The native branch originally reaches this point with the hit-result
+        # The native success path reaches this point with the hit-result
         # register == true. Restore that value after reusing the register for
         # resolveSuccessfulAttack() so downstream bytecode sees identical state.
-        f"{indent}const/4 {reg}, 0x1"
+        f"{indent}const/4 {reg}, 0x1\n"
     )
-    patched = block[:match.end()] + injected + block[match.end():]
+    patched = block[:insert_at] + injected + block[insert_at:]
     return text[:start] + patched + text[end:]
 
 
