@@ -448,85 +448,56 @@ def configure(public_module) -> None:
         if public_module._current_abi_profile is None:
             raise injector.InjectError("Target ABI profile was not initialized")
 
-        optional_roots = []
-        attack_capability = public_module._current_abi_profile.get(
-            "char.incomingAttackHook"
-        )
-        if attack_capability.compatible and _INSTANT_KILL in donor_index:
-            optional_roots.append(_INSTANT_KILL)
-            public_module._ankh_instant_kill_enabled = True
-        else:
-            reason = (
-                attack_capability.detail
-                if not attack_capability.compatible
-                else "donor ModInstantKill is missing"
-            )
-            injector.log("Optional Instant Kill skipped: " + reason)
+        def collect(roots):
+            closure = {}
+            queue = list(roots)
+            unresolved = set()
 
-        force_capability = public_module._current_abi_profile.get(
-            "char.forceHitHook"
-        )
-        if force_capability.compatible and _FORCE_HIT in donor_index:
-            optional_roots.append(_FORCE_HIT)
-            public_module._ankh_force_hit_enabled = True
-        else:
-            reason = (
-                force_capability.detail
-                if not force_capability.compatible
-                else "donor ModForceHit is missing"
-            )
-            injector.log("Optional Force Hit skipped: " + reason)
-
-        closure = {}
-        queue = list(dict.fromkeys([*direct, *optional_roots]))
-        unresolved = set()
-
-        while queue:
-            descriptor = queue.pop()
-            if (
-                descriptor == injector.MOD_ANKH
-                or descriptor in closure
-                or _is_last_stand_overlay(descriptor)
-            ):
-                continue
-            if descriptor.startswith(injector.TARGET_API_PREFIXES):
-                continue
-
-            item = donor_index.get(descriptor)
-            if item is None:
-                unresolved.add(descriptor)
-                continue
-
-            closure[descriptor] = item
-            for dep in injector.smali_dependencies(item):
+            while queue:
+                descriptor = queue.pop()
                 if (
-                    dep == injector.MOD_ANKH
-                    or dep in closure
-                    or _is_last_stand_overlay(dep)
-                    or dep.startswith(injector.TARGET_API_PREFIXES)
+                    descriptor == injector.MOD_ANKH
+                    or descriptor in closure
+                    or _is_last_stand_overlay(descriptor)
                 ):
                     continue
-                queue.append(dep)
+                if descriptor.startswith(injector.TARGET_API_PREFIXES):
+                    continue
 
-        if unresolved:
+                item = donor_index.get(descriptor)
+                if item is None:
+                    unresolved.add(descriptor)
+                    continue
+
+                closure[descriptor] = item
+                for dep in injector.smali_dependencies(item):
+                    if (
+                        dep == injector.MOD_ANKH
+                        or dep in closure
+                        or _is_last_stand_overlay(dep)
+                        or dep.startswith(injector.TARGET_API_PREFIXES)
+                    ):
+                        continue
+                    queue.append(dep)
+
+            return closure, unresolved
+
+        core_closure, core_unresolved = collect(direct)
+        if core_unresolved:
             raise injector.InjectError(
-                "ModAnkh dependency closure has unresolved donor classes: "
-                + ", ".join(sorted(unresolved))
+                "ModAnkh core dependency closure has unresolved donor classes: "
+                + ", ".join(sorted(core_unresolved))
             )
 
         required_roots = {_LAST_STAND}
-        missing_roots = sorted(required_roots.difference(closure))
+        missing_roots = sorted(required_roots.difference(core_closure))
         if missing_roots:
             raise injector.InjectError(
                 "SMM donor is too old for --ankh-only injection; rebuild the "
-                "Injection Kit. Missing minimal payload root(s): "
+                "Injection Kit. Missing core payload root(s): "
                 + ", ".join(missing_roots)
             )
 
-        # The legacy class-to-interface adapter depends on the current donor's
-        # runtime compatibility helper. Reject a stale donor only for targets
-        # that actually need that legacy path; modern ankh-only targets stay
-        # compatible with ordinary dependency-closure validation.
         if public_module._current_game_prefix is not None:
             listener_descriptor = injector.game_descriptor(
                 public_module._current_game_prefix,
@@ -534,7 +505,7 @@ def configure(public_module) -> None:
             )
             listener = target_index.get(listener_descriptor)
             if listener is not None and _is_interface(listener):
-                required_roots = {
+                legacy_required = {
                     full_prefix + "items/WndModLoot;",
                     full_prefix + "mechanics/ModLootStorage;",
                     full_prefix + "mechanics/ModLoot;",
@@ -543,14 +514,56 @@ def configure(public_module) -> None:
                     full_prefix + "mechanics/ModLegacyCompat;",
                     full_prefix + "mechanics/ModLastStand;",
                 }
-                missing_roots = sorted(required_roots.difference(closure))
+                missing_roots = sorted(legacy_required.difference(core_closure))
                 if missing_roots:
                     raise injector.InjectError(
                         "SMM donor is too old for legacy --ankh-only injection; "
                         "rebuild the injection donor from current source. Missing "
-                        "ModAnkh dependency root(s): "
+                        "core ModAnkh dependency root(s): "
                         + ", ".join(missing_roots)
                     )
+
+        optional_specs = (
+            (
+                "instant",
+                _INSTANT_KILL,
+                "char.incomingAttackHook",
+                "Instant Kill",
+            ),
+            (
+                "force",
+                _FORCE_HIT,
+                "char.forceHitHook",
+                "Force Hit",
+            ),
+        )
+        optional_closures = {}
+
+        for feature, root, capability_key, label in optional_specs:
+            capability = public_module._current_abi_profile.get(capability_key)
+            if not capability.compatible:
+                injector.log(
+                    f"Optional {label} skipped: {capability.detail}"
+                )
+                continue
+            if root not in donor_index:
+                injector.log(
+                    f"Optional {label} skipped: donor class is missing"
+                )
+                continue
+
+            feature_closure, unresolved = collect([root])
+            if unresolved:
+                injector.log(
+                    f"Optional {label} skipped: unresolved donor classes: "
+                    + ", ".join(sorted(unresolved))
+                )
+                continue
+            optional_closures[feature] = feature_closure
+
+        closure = dict(core_closure)
+        for feature_closure in optional_closures.values():
+            closure.update(feature_closure)
 
         helpers = sorted(
             descriptor
@@ -583,14 +596,28 @@ def configure(public_module) -> None:
                 )
             payload[rewritten.descriptor] = rewritten
 
+        def mapped(descriptors):
+            return {
+                relocations.get(descriptor, descriptor)
+                for descriptor in descriptors
+            }
+
+        public_module._ankh_core_payload_descriptors = mapped(core_closure)
+        public_module._ankh_optional_payload_descriptors = {
+            feature: mapped(feature_closure)
+            for feature, feature_closure in optional_closures.items()
+        }
+        public_module._ankh_instant_kill_enabled = "instant" in optional_closures
+        public_module._ankh_force_hit_enabled = "force" in optional_closures
+
         public_module._full_donor_payload = {
             descriptor: item
             for descriptor, item in donor_index.items()
             if descriptor.startswith(full_prefix)
         }
         injector.log(
-            f"ModAnkh dependency closure: {len(payload)} class(es) "
-            "(Store + Loot + Console + Last Stand; optional Instant Kill/Force Hit by ABI)"
+            f"ModAnkh core dependency closure: {len(core_closure)} class(es) "
+            "(Store + Loot + Console + Last Stand)"
         )
         return payload, relocations
 
@@ -629,16 +656,6 @@ def configure(public_module) -> None:
                     + " CellSelector.Listener subclass(es) for legacy interface ABI"
                 )
 
-        # javac can emit nestmate/access bridge calls from ModAnkh$* classes
-        # back into ModAnkh itself (for example -$$Nest$msyncCount). The core
-        # injector validates the dependency payload before it separately adds
-        # the adapted ModAnkh root, so without this validation-only support class
-        # those internal calls look like external com.spd.mod references.
-        #
-        # Add only ModAnkh itself to the validation universe; do not whitelist the
-        # whole SMM namespace, because unrelated payload dependencies must still
-        # fail closed. ModAnkh's own executable target references are validated
-        # later by the core modankh_compatibility_errors() pass.
         validation_target = dict(target_index)
         donor_ankh = public_module._full_donor_payload.get(injector.MOD_ANKH)
         if donor_ankh is None:
@@ -650,11 +667,71 @@ def configure(public_module) -> None:
             injector.rebase_smali_text(donor_ankh.text, game_prefix),
         )
         validation_target[injector.MOD_ANKH] = rebased_ankh
+        allowed = allowed_target_prefixes + (injector.MOD_ANKH,)
+
+        core_keys = set(
+            getattr(public_module, "_ankh_core_payload_descriptors", set())
+        )
+        optional_sets = dict(
+            getattr(public_module, "_ankh_optional_payload_descriptors", {})
+        )
+
+        core_payload = {
+            descriptor: item
+            for descriptor, item in payload.items()
+            if descriptor in core_keys
+        }
+        core_errors = public_module._original_payload_compatibility_errors(
+            core_payload,
+            validation_target,
+            allowed,
+        )
+        if core_errors:
+            return core_errors
+
+        feature_flags = {
+            "instant": "_ankh_instant_kill_enabled",
+            "force": "_ankh_force_hit_enabled",
+        }
+        labels = {
+            "instant": "Instant Kill",
+            "force": "Force Hit",
+        }
+
+        for feature, descriptors in optional_sets.items():
+            if not bool(getattr(public_module, feature_flags[feature], False)):
+                continue
+            feature_payload = {
+                descriptor: item
+                for descriptor, item in payload.items()
+                if descriptor in descriptors
+            }
+            feature_errors = public_module._original_payload_compatibility_errors(
+                feature_payload,
+                validation_target,
+                allowed,
+            )
+            if feature_errors:
+                setattr(public_module, feature_flags[feature], False)
+                injector.log(
+                    f"Optional {labels[feature]} skipped: target API is incompatible"
+                )
+                for error in feature_errors:
+                    injector.log("  - " + error)
+
+        keep = set(core_keys)
+        for feature, descriptors in optional_sets.items():
+            if bool(getattr(public_module, feature_flags[feature], False)):
+                keep.update(descriptors)
+
+        for descriptor in list(payload):
+            if descriptor not in keep:
+                del payload[descriptor]
 
         return public_module._original_payload_compatibility_errors(
             payload,
             validation_target,
-            allowed_target_prefixes + (injector.MOD_ANKH,),
+            allowed,
         )
 
     def compile_smali_with_last_stand_click(
