@@ -31,9 +31,9 @@ import java.lang.reflect.Method;
  * the blessed-Ankh recovery effects. It also recovers any living bearer that
  * reaches exactly 1 HP through a mechanic which bypasses normal shielding.
  *
- * When attached to the Hero, the same buff also owns shared Loot storage. Tapping
- * its buff icon opens the Loot / Put / Take / Console panel when the optional
- * full-SMM overlay is available.
+ * When attached to the Hero, the same buff also owns shared Loot storage.
+ * Binary injectors patch the target BuffIndicator so tapping this buff opens the
+ * Loot / Put / Take / Console panel. Full SMM may also expose an optional edge Tag.
  *
  * This does not guarantee survival. Damage which bypasses normal shielding can
  * still kill if it skips directly past 1 HP, and direct die() calls or other
@@ -133,16 +133,16 @@ public class ModLastStand extends Buff {
     }
 
     /**
-     * The icon-click overlay is presentation-only and deliberately excluded from
-     * the narrow injection dependency closure. Full SMM loads it when available.
+     * The edge Tag is presentation-only and deliberately excluded from the narrow
+     * injection dependency closure. Full SMM loads it when available.
      */
-    private static void ensureOptionalOverlay() {
+    private static void ensureOptionalTag() {
         try {
             String className = ModLastStand.class.getName().replace(
-                    ".mechanics.ModLastStand", ".journal.ModLastStandOverlay");
-            Class<?> overlay = Class.forName(
+                    ".mechanics.ModLastStand", ".journal.ModLastStandTag");
+            Class<?> tag = Class.forName(
                     className, false, ModLastStand.class.getClassLoader());
-            Method method = overlay.getDeclaredMethod("ensureInstalled");
+            Method method = tag.getDeclaredMethod("ensureInstalled");
             method.setAccessible(true);
             method.invoke(null);
         } catch (ReflectiveOperationException | LinkageError ignored) {
@@ -161,7 +161,7 @@ public class ModLastStand extends Buff {
     @Override
     public void fx(boolean on) {
         if (on) {
-            ensureOptionalOverlay();
+            ensureOptionalTag();
 
             // Char.updateSpriteState() iterates the buff set while calling fx().
             // Do not attach another buff here; just schedule Last Stand to run
@@ -209,7 +209,7 @@ public class ModLastStand extends Buff {
         // Installing the hidden shield hook here avoids mutating the target's
         // buff collection while save restoration or sprite-state iteration runs.
         ensureLethalHook();
-        ensureOptionalOverlay();
+        ensureOptionalTag();
 
         if (target != null && target.isAlive() && target.HP == 1) {
             recoverFromOneHP();

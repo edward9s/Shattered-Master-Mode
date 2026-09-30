@@ -1,0 +1,525 @@
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+import zipfile
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import inject_jar as mod
+
+
+GAME_ROOT = "com/shatteredpixel/shatteredpixeldungeon"
+
+
+class AnkhJarUiTests(unittest.TestCase):
+
+    def test_legacy_wnduseitem_bridge_uses_virtual_action_name(self):
+        source = mod.WND_USE_ITEM_ACTION_HELPER
+        self.assertIn('ACTION_HELPER = "smm$actionName"', source)
+        self.assertIn('"actionName"', source)
+        self.assertIn('"startsWith"', source)
+        self.assertIn('"ac_"', source)
+        self.assertIn("MESSAGE_GET_DESC", source)
+        self.assertIn("MESSAGES", source)
+
+    def test_jar_injector_does_not_patch_item_message_resources(self):
+        self.assertFalse(hasattr(mod, "_ACTION_MESSAGE_BUNDLE_RE"))
+        self.assertFalse(hasattr(mod, "_ACTION_MESSAGES"))
+        self.assertFalse(hasattr(mod, "_append_action_messages"))
+
+    def test_last_stand_click_is_direct_target_patch(self):
+        source = mod.LAST_STAND_BUFF_CLICK_HELPER
+        self.assertIn('INFO_HELPER = "smm$lastStandInfo"', source)
+        self.assertIn('LONG_HELPER = "smm$nativeLongClick"', source)
+        self.assertIn('"onClick"', source)
+        self.assertIn('"onLongClick"', source)
+        self.assertIn('"open"', source)
+        self.assertIn("short click=Store, long click=native info", source)
+
+    def test_tag_has_only_store_tag_responsibility(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        old_name = "ModLastStand" + "Overlay"
+        old_path = root / f"core/src/main/java/com/spd/mod/journal/{old_name}.java"
+        tag = root / "core/src/main/java/com/spd/mod/journal/ModLastStandTag.java"
+        self.assertFalse(old_path.exists())
+        source = tag.read_text(encoding="utf-8")
+        for forbidden in (
+            "LastStandButton",
+            "WndInfoBuff",
+            "collectComponents",
+            "getDeclaredFields",
+        ):
+            self.assertNotIn(forbidden, source)
+
+    def test_apk_full_and_ankh_only_share_last_stand_patch_module(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        full = (root / "scripts/inject_apk.py").read_text(encoding="utf-8")
+        narrow = (root / "scripts/_inject_apk_ankh.py").read_text(encoding="utf-8")
+        shared = (root / "scripts/_inject_last_stand_click.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("import _inject_last_stand_click as last_stand_click", full)
+        self.assertIn("last_stand_click.find_target", full)
+        self.assertIn("write_last_stand_click_patch", full)
+        self.assertIn("last_stand_click.find_target", narrow)
+        self.assertIn("write_last_stand_click_patch", narrow)
+
+        for duplicate in (
+            "_find_buff_click_overlay",
+            "_patch_last_stand_buff_click",
+            "_add_legacy_last_stand_long_click",
+        ):
+            self.assertNotIn(duplicate, narrow)
+            self.assertNotIn(duplicate, full)
+            self.assertNotIn(duplicate, shared)
+
+    @staticmethod
+    def _tool(name: str) -> str:
+        value = shutil.which(name)
+        if value is None:
+            raise unittest.SkipTest(f"{name} is unavailable")
+        return value
+
+    @staticmethod
+    def _write(root: pathlib.Path, relative: str, text: str) -> None:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    @classmethod
+    def _compile_last_stand_target(
+        cls,
+        work: pathlib.Path,
+        *,
+        native_long_click: bool,
+        extra_candidate: bool = False,
+        info_click: bool = True,
+    ) -> tuple[pathlib.Path, pathlib.Path]:
+        src = work / "src"
+        classes = work / "classes"
+
+        cls._write(
+            src,
+            "com/watabou/noosa/ui/Button.java",
+            """
+package com.watabou.noosa.ui;
+public class Button {
+    public static int longClicks;
+    protected void onClick() {
+    }
+    protected boolean onLongClick() {
+        longClicks++;
+        return false;
+    }
+}
+""",
+        )
+        cls._write(
+            src,
+            f"{GAME_ROOT}/actors/buffs/Buff.java",
+            f"""
+package {GAME_ROOT.replace('/', '.')}.actors.buffs;
+public class Buff {{
+}}
+""",
+        )
+        cls._write(
+            src,
+            f"{GAME_ROOT}/windows/WndInfoBuff.java",
+            f"""
+package {GAME_ROOT.replace('/', '.')}.windows;
+import {GAME_ROOT.replace('/', '.')}.actors.buffs.Buff;
+public class WndInfoBuff {{
+    public static int opened;
+    public WndInfoBuff(Buff buff) {{
+        opened++;
+    }}
+}}
+""",
+        )
+        cls._write(
+            src,
+            "com/spd/mod/mechanics/ModLastStand.java",
+            f"""
+package com.spd.mod.mechanics;
+import {GAME_ROOT.replace('/', '.')}.actors.buffs.Buff;
+public class ModLastStand extends Buff {{
+    public static int opened;
+    public void open() {{
+        opened++;
+    }}
+}}
+""",
+        )
+
+        click_body = (
+            "new WndInfoBuff(buff);"
+            if info_click
+            else "int ignored = buff == null ? 0 : 1;"
+        )
+        long_method = (
+            """
+        @Override
+        protected boolean onLongClick() {
+            NativeLongProbe.calls++;
+            return true;
+        }
+"""
+            if native_long_click
+            else ""
+        )
+        second = (
+            """
+    public static class SecondBuffIcon extends Button {
+        private final Buff buff;
+        public SecondBuffIcon(Buff buff) {
+            this.buff = buff;
+        }
+        @Override
+        protected void onClick() {
+            new WndInfoBuff(buff);
+        }
+    }
+"""
+            if extra_candidate
+            else ""
+        )
+        cls._write(
+            src,
+            f"{GAME_ROOT}/ui/BuffIndicator.java",
+            f"""
+package {GAME_ROOT.replace('/', '.')}.ui;
+import com.watabou.noosa.ui.Button;
+import {GAME_ROOT.replace('/', '.')}.actors.buffs.Buff;
+import {GAME_ROOT.replace('/', '.')}.windows.WndInfoBuff;
+
+public class BuffIndicator {{
+    public static class BuffIcon extends Button {{
+        private final Buff buff;
+        public BuffIcon(Buff buff) {{
+            this.buff = buff;
+        }}
+        protected void onClick() {{
+            {click_body}
+        }}
+        public boolean invokeLongClick() {{
+            return onLongClick();
+        }}
+{long_method}
+    }}
+{second}
+}}
+""",
+        )
+        cls._write(
+            src,
+            f"{GAME_ROOT}/ui/NativeLongProbe.java",
+            f"""
+package {GAME_ROOT.replace('/', '.')}.ui;
+public class NativeLongProbe {{
+    public static int calls;
+}}
+""",
+        )
+        cls._write(
+            src,
+            f"{GAME_ROOT}/ui/Harness.java",
+            f"""
+package {GAME_ROOT.replace('/', '.')}.ui;
+
+import com.spd.mod.mechanics.ModLastStand;
+import com.watabou.noosa.ui.Button;
+import {GAME_ROOT.replace('/', '.')}.actors.buffs.Buff;
+import {GAME_ROOT.replace('/', '.')}.windows.WndInfoBuff;
+
+public class Harness {{
+    private static void check(boolean value, String label) {{
+        if (!value) throw new AssertionError(label);
+    }}
+
+    public static void main(String[] args) {{
+        ModLastStand.opened = 0;
+        WndInfoBuff.opened = 0;
+        NativeLongProbe.calls = 0;
+        Button.longClicks = 0;
+
+        BuffIndicator.BuffIcon lastStand =
+                new BuffIndicator.BuffIcon(new ModLastStand());
+        lastStand.onClick();
+        check(ModLastStand.opened == 1, "Last Stand short click did not open Store");
+        check(WndInfoBuff.opened == 0, "Last Stand short click opened info");
+
+        check(lastStand.invokeLongClick(), "Last Stand long click was not consumed");
+        check(WndInfoBuff.opened == 1, "Last Stand long click did not open native info");
+        check(NativeLongProbe.calls == 0, "Last Stand long click called native long handler");
+        check(Button.longClicks == 0, "Last Stand long click called superclass handler");
+
+        BuffIndicator.BuffIcon normal = new BuffIndicator.BuffIcon(new Buff());
+        normal.onClick();
+        check(WndInfoBuff.opened == 2, "Normal buff click did not keep native info");
+        boolean normalLong = normal.invokeLongClick();
+
+        if ({str(native_long_click).lower()}) {{
+            check(normalLong, "Native long-click result was not preserved");
+            check(NativeLongProbe.calls == 1, "Native long-click body was not preserved");
+        }} else {{
+            check(!normalLong, "Superclass long-click result was not preserved");
+            check(Button.longClicks == 1, "Superclass long-click was not called");
+        }}
+    }}
+}}
+""",
+        )
+
+        javac = cls._tool("javac")
+        java_files = [str(path) for path in src.rglob("*.java")]
+        subprocess.run(
+            [javac, "-d", str(classes), *java_files],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+
+        target = work / "target.jar"
+        with zipfile.ZipFile(target, "w") as jar:
+            for class_file in classes.rglob("*.class"):
+                jar.write(class_file, class_file.relative_to(classes).as_posix())
+        return target, classes
+
+    def _run_last_stand_synthetic(self, *, native_long_click: bool) -> None:
+        java = pathlib.Path(self._tool("java"))
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            target, classes = self._compile_last_stand_target(
+                work,
+                native_long_click=native_long_click,
+            )
+            entry, patched = mod.patch_last_stand_buff_click_jar(
+                java, target, work, GAME_ROOT
+            )
+            target_class = classes / entry
+            target_class.write_bytes(patched.read_bytes())
+
+            result = subprocess.run(
+                [
+                    str(java),
+                    "-cp",
+                    str(classes),
+                    f"{GAME_ROOT.replace('/', '.')}.ui.Harness",
+                ],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            self.assertEqual(0, result.returncode, result.stdout)
+
+    def test_last_stand_synthetic_target_without_native_long_click(self):
+        self._run_last_stand_synthetic(native_long_click=False)
+
+    def test_last_stand_synthetic_target_with_native_long_click(self):
+        self._run_last_stand_synthetic(native_long_click=True)
+
+    def test_last_stand_multiple_candidates_fail_early(self):
+        java = pathlib.Path(self._tool("java"))
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            target, _classes = self._compile_last_stand_target(
+                work,
+                native_long_click=False,
+                extra_candidate=True,
+            )
+            with self.assertRaises(mod.injector.InjectError):
+                mod.patch_last_stand_buff_click_jar(
+                    java, target, work, GAME_ROOT
+                )
+
+    def test_last_stand_zero_candidates_fail_early(self):
+        java = pathlib.Path(self._tool("java"))
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            target, _classes = self._compile_last_stand_target(
+                work,
+                native_long_click=False,
+                info_click=False,
+            )
+            with self.assertRaises(mod.injector.InjectError):
+                mod.patch_last_stand_buff_click_jar(
+                    java, target, work, GAME_ROOT
+                )
+
+    def test_legacy_wnduseitem_synthetic_bridge(self):
+        java = pathlib.Path(self._tool("java"))
+        javac = self._tool("javac")
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            src = work / "src"
+            classes = work / "classes"
+            package = GAME_ROOT.replace("/", ".")
+
+            self._write(
+                src,
+                f"{GAME_ROOT}/actors/hero/Hero.java",
+                f"package {package}.actors.hero; public class Hero {{}}\n",
+            )
+            self._write(
+                src,
+                f"{GAME_ROOT}/Dungeon.java",
+                f"""
+package {package};
+import {package}.actors.hero.Hero;
+public class Dungeon {{
+    public static Hero hero = new Hero();
+}}
+""",
+            )
+            self._write(
+                src,
+                f"{GAME_ROOT}/items/Item.java",
+                f"""
+package {package}.items;
+import {package}.actors.hero.Hero;
+public class Item {{
+    public String actionName(String action, Hero hero) {{
+        return action;
+    }}
+}}
+""",
+            )
+            self._write(
+                src,
+                f"{GAME_ROOT}/messages/Messages.java",
+                f"""
+package {package}.messages;
+public class Messages {{
+    public static String get(Object object, String key, Object[] args) {{
+        return "MSG:" + key;
+    }}
+}}
+""",
+            )
+            self._write(
+                src,
+                f"{GAME_ROOT}/windows/WndUseItem.java",
+                f"""
+package {package}.windows;
+import {package}.items.Item;
+import {package}.messages.Messages;
+public class WndUseItem {{
+    public static String actionLabel;
+    public static String title;
+    public WndUseItem(Item item, String action) {{
+        actionLabel = Messages.get(item, "ac_" + action, new Object[0]);
+        title = Messages.get(item, "title", new Object[0]);
+    }}
+}}
+""",
+            )
+            self._write(
+                src,
+                f"{GAME_ROOT}/windows/ActionHarness.java",
+                f"""
+package {package}.windows;
+import {package}.items.Item;
+public class ActionHarness {{
+    public static void main(String[] args) {{
+        new WndUseItem(new Item(), "Store");
+        if (!"Store".equals(WndUseItem.actionLabel)) {{
+            throw new AssertionError(WndUseItem.actionLabel);
+        }}
+        if (!"MSG:title".equals(WndUseItem.title)) {{
+            throw new AssertionError(WndUseItem.title);
+        }}
+    }}
+}}
+""",
+            )
+
+            subprocess.run(
+                [javac, "-d", str(classes), *[str(p) for p in src.rglob("*.java")]],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            target = work / "target.jar"
+            with zipfile.ZipFile(target, "w") as jar:
+                for class_file in classes.rglob("*.class"):
+                    jar.write(class_file, class_file.relative_to(classes).as_posix())
+
+            patched = mod.patch_wnd_use_item_action_names(
+                java, target, work, GAME_ROOT
+            )
+            self.assertIsNotNone(patched)
+            entry, patched_path = patched
+            (classes / entry).write_bytes(patched_path.read_bytes())
+
+            result = subprocess.run(
+                [
+                    str(java),
+                    "-cp",
+                    str(classes),
+                    f"{package}.windows.ActionHarness",
+                ],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            self.assertEqual(0, result.returncode, result.stdout)
+
+            self._write(
+                src,
+                f"{GAME_ROOT}/windows/WndUseItem.java",
+                f"""
+package {package}.windows;
+import {package}.Dungeon;
+import {package}.items.Item;
+import {package}.messages.Messages;
+public class WndUseItem {{
+    public static String actionLabel;
+    public static String title;
+    public WndUseItem(Item item, String action) {{
+        actionLabel = item.actionName(action, Dungeon.hero);
+        title = Messages.get(item, "title", new Object[0]);
+    }}
+}}
+""",
+            )
+            subprocess.run(
+                [javac, "-d", str(classes), *[str(p) for p in src.rglob("*.java")]],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            with zipfile.ZipFile(target, "w") as jar:
+                for class_file in classes.rglob("*.class"):
+                    jar.write(class_file, class_file.relative_to(classes).as_posix())
+
+            self.assertIsNone(
+                mod.patch_wnd_use_item_action_names(
+                    java, target, work, GAME_ROOT
+                )
+            )
+            native_result = subprocess.run(
+                [
+                    str(java),
+                    "-cp",
+                    str(classes),
+                    f"{package}.windows.ActionHarness",
+                ],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            self.assertEqual(0, native_result.returncode, native_result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -16,6 +16,8 @@ from typing import Callable, Sequence
 
 from _attack_hook_common import select_unique_terminal
 import _inject_apk_core as injector
+import _inject_action_name as action_name
+import _inject_last_stand_click as last_stand_click
 
 # The source buff was renamed without a compatibility alias. Keep the mature
 # core injector implementation and retarget its payload-family globals here.
@@ -225,7 +227,7 @@ injector.LOOT_PAYLOAD_FAMILIES = tuple(
     }
 ) + (
     ("Lcom/spd/mod/mechanics/ModLastStand;", "Lcom/spd/mod/mechanics/ModLastStand$"),
-    ("Lcom/spd/mod/journal/ModLastStandOverlay;", "Lcom/spd/mod/journal/ModLastStandOverlay$"),
+    ("Lcom/spd/mod/journal/ModLastStandTag;", "Lcom/spd/mod/journal/ModLastStandTag$"),
 )
 injector.LOOT_REQUIRED_ROOTS = tuple(
     root for root, _ in injector.LOOT_PAYLOAD_FAMILIES
@@ -241,6 +243,8 @@ _full_donor_payload: dict[str, injector.SmaliClass] = {}
 _current_abi_profile: AbiProfile | None = None
 _current_game_prefix: str | None = None
 _pending_char_overlay: tuple[str, str] | None = None
+_pending_last_stand_click_patch: tuple[str, str] | None = None
+_pending_action_name_overlay: tuple[str, str] | None = None
 _ankh_only_mode = False
 
 
@@ -818,10 +822,18 @@ def detect_target_abi(
 def detect_target_game_prefix(
     target_index: dict[str, injector.SmaliClass],
 ) -> str:
-    global _current_abi_profile, _current_game_prefix, _pending_char_overlay
+    global _current_abi_profile, _current_game_prefix
+    global _pending_char_overlay, _pending_last_stand_click_patch
+    global _pending_action_name_overlay
     game_prefix = _original_detect_target_game_prefix(target_index)
     _current_game_prefix = game_prefix
     _pending_char_overlay = None
+    _pending_last_stand_click_patch = last_stand_click.find_target(
+        injector, target_index, game_prefix
+    )
+    _pending_action_name_overlay = action_name.find_target(
+        injector, target_index, game_prefix
+    )
     _current_abi_profile = detect_target_abi(target_index, game_prefix)
     _current_abi_profile.log()
     _current_abi_profile.require_compatible()
@@ -951,7 +963,7 @@ def adapt_modankh(
 
 
 def find_wndgame_instead_of_dungeon(root: Path, descriptor: str):
-    global _pending_char_overlay
+    global _pending_char_overlay, _pending_last_stand_click_patch
     if descriptor.endswith("/Dungeon;"):
         game_prefix = descriptor[:-len("Dungeon;")]
         char_descriptor = game_prefix + "actors/Char;"
@@ -1259,6 +1271,50 @@ def patch_char_hit(
     return text[:start] + patched + text[end:]
 
 
+def write_action_name_overlay(directory: Path) -> None:
+    global _pending_action_name_overlay
+    if _pending_action_name_overlay is None:
+        return
+    if _current_game_prefix is None:
+        raise injector.InjectError("Target game package was not initialized")
+
+    descriptor, original_text = _pending_action_name_overlay
+    patched = action_name.patch(
+        injector, original_text, descriptor, _current_game_prefix
+    )
+    output = directory / Path(descriptor[1:-1] + ".smali")
+    if output.exists():
+        raise injector.InjectError(
+            "Overlay already contains target WndUseItem class: " + descriptor
+        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(patched, encoding="utf-8")
+
+
+def write_last_stand_click_patch(directory: Path) -> None:
+    global _pending_last_stand_click_patch
+    if _pending_last_stand_click_patch is None:
+        raise injector.InjectError(
+            "Last Stand BuffIndicator click patch source was not captured"
+        )
+    if _current_game_prefix is None:
+        raise injector.InjectError("Target game package was not initialized")
+
+    descriptor, original_text = _pending_last_stand_click_patch
+    patched = last_stand_click.patch(
+        injector, original_text, descriptor, _current_game_prefix
+    )
+    output = directory / Path(descriptor[1:-1] + ".smali")
+    if output.exists():
+        raise injector.InjectError(
+            "Injection staging already contains target BuffIndicator button class: "
+            + descriptor
+        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(patched, encoding="utf-8")
+    injector.log("Last Stand BuffIndicator click hook: OK")
+
+
 def compile_smali_with_char_hook(
     java: Path,
     smali_jar: Path,
@@ -1266,7 +1322,8 @@ def compile_smali_with_char_hook(
     output: Path,
     api: int,
 ) -> None:
-    global _pending_char_overlay
+    global _pending_char_overlay, _pending_last_stand_click_patch
+    global _pending_action_name_overlay
     if _pending_char_overlay is None:
         raise injector.InjectError("Char.attack overlay source was not captured")
     if _current_abi_profile is None:
@@ -1333,10 +1390,15 @@ def compile_smali_with_char_hook(
         f"{force_method}{force_proto} ({force_capability.strategy}): OK"
     )
 
+    write_action_name_overlay(directory)
+    write_last_stand_click_patch(directory)
+
     try:
         _original_compile_smali(java, smali_jar, directory, output, api)
     finally:
         _pending_char_overlay = None
+        _pending_last_stand_click_patch = None
+        _pending_action_name_overlay = None
 
 
 def _host_elf_machines() -> set[int] | None:
