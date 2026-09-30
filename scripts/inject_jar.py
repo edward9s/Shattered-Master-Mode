@@ -549,6 +549,8 @@ def rebuild_full_jar(
         raise injector.InjectError("Patched WndGame.class is invalid")
     if not char_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched Char.class is invalid")
+    if not char_bytes.startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError("Patched Char.class is invalid")
     if not modankh_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched ModAnkh.class is invalid")
     for name, data in payload.items():
@@ -841,6 +843,212 @@ public class SmmAnkhPayloadAdapter {
 '''
 
 
+
+ANKH_CHAR_HELPER = r'''
+import java.io.*;
+import java.nio.file.*;
+import java.util.jar.*;
+import jdk.internal.org.objectweb.asm.*;
+
+public class SmmAnkhCharAttackPatcher {
+    static final int API = Opcodes.ASM8;
+    static final String CHAR = "__CHAR__";
+    static final String MOD_INSTANT_KILL = "com/spd/mod/mechanics/ModInstantKill";
+    static final String ATTACK_DESC = "(L" + CHAR + ";FFF)Z";
+    static final String HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
+    static final String INSTANT_KILL_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
+
+    static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
+        try (JarFile jar = new JarFile(jarPath.toFile())) {
+            JarEntry entry = jar.getJarEntry(entryName);
+            if (entry == null) throw new IOException("Missing JAR entry: " + entryName);
+            try (InputStream in = jar.getInputStream(entry)) {
+                return in.readAllBytes();
+            }
+        }
+    }
+
+    static void validateHook(Path payloadJar) throws IOException {
+        byte[] bytes = readJarEntry(payloadJar, MOD_INSTANT_KILL + ".class");
+        final int[] hooks = {0};
+        final int[] validHooks = {0};
+        new ClassReader(bytes).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if ("resolveSuccessfulAttack".equals(name)
+                        && INSTANT_KILL_DESC.equals(desc)) {
+                    hooks[0]++;
+                    if ((access & Opcodes.ACC_PUBLIC) != 0
+                            && (access & Opcodes.ACC_STATIC) != 0) {
+                        validHooks[0]++;
+                    }
+                }
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        if (hooks[0] != 1 || validHooks[0] != 1) {
+            throw new IllegalStateException(
+                    "SMM donor ModInstantKill lacks public static resolveSuccessfulAttack(Char, Char)");
+        }
+        System.out.println("ModInstantKill successful-hit hook API: OK");
+    }
+
+    static byte[] patch(byte[] original) {
+        ClassReader reader = new ClassReader(original);
+        ClassWriter writer = new ClassWriter(0);
+        final int[] attackMethods = {0};
+        final int[] anchors = {0};
+        final boolean[] alreadyInjected = {false};
+
+        ClassVisitor visitor = new ClassVisitor(API, writer) {
+            @Override
+            public void visit(int version, int access, String name, String signature,
+                              String parent, String[] interfaces) {
+                if (!CHAR.equals(name)) {
+                    throw new IllegalStateException("Target class is not Char: " + name);
+                }
+                super.visit(version, access, name, signature, parent, interfaces);
+            }
+
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
+                if (!"attack".equals(name)
+                        || !ATTACK_DESC.equals(desc)
+                        || (access & Opcodes.ACC_STATIC) != 0) {
+                    return base;
+                }
+
+                attackMethods[0]++;
+                return new MethodVisitor(API, base) {
+                    private boolean awaitingHitBranch;
+
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean isInterface) {
+                        if (MOD_INSTANT_KILL.equals(owner)
+                                && "resolveSuccessfulAttack".equals(methodName)
+                                && INSTANT_KILL_DESC.equals(methodDesc)) {
+                            alreadyInjected[0] = true;
+                        }
+
+                        super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+
+                        if (opcode == Opcodes.INVOKESTATIC
+                                && CHAR.equals(owner)
+                                && "hit".equals(methodName)
+                                && HIT_DESC.equals(methodDesc)) {
+                            if (awaitingHitBranch) {
+                                throw new IllegalStateException(
+                                        "Char.attack contains consecutive unresolved hit checks");
+                            }
+                            awaitingHitBranch = true;
+                        }
+                    }
+
+                    @Override
+                    public void visitJumpInsn(int opcode, Label label) {
+                        super.visitJumpInsn(opcode, label);
+                        if (!awaitingHitBranch) return;
+                        if (opcode != Opcodes.IFEQ) {
+                            throw new IllegalStateException(
+                                    "Char.attack hit result is not followed by IFEQ success branch");
+                        }
+
+                        awaitingHitBranch = false;
+                        anchors[0]++;
+
+                        Label nativeAttack = new Label();
+                        super.visitVarInsn(Opcodes.ALOAD, 0);
+                        super.visitVarInsn(Opcodes.ALOAD, 1);
+                        super.visitMethodInsn(
+                                Opcodes.INVOKESTATIC,
+                                MOD_INSTANT_KILL,
+                                "resolveSuccessfulAttack",
+                                INSTANT_KILL_DESC,
+                                false);
+                        super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
+                        super.visitInsn(Opcodes.ICONST_1);
+                        super.visitInsn(Opcodes.IRETURN);
+                        super.visitLabel(nativeAttack);
+                        super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                    }
+
+                    @Override
+                    public void visitMaxs(int maxStack, int maxLocals) {
+                        if (awaitingHitBranch) {
+                            throw new IllegalStateException(
+                                    "Char.attack hit result has no branch");
+                        }
+                        super.visitMaxs(maxStack + 2, maxLocals);
+                    }
+                };
+            }
+        };
+        reader.accept(visitor, 0);
+
+        if (alreadyInjected[0]) {
+            throw new IllegalStateException("Char.attack already contains SMM Instant Kill hook");
+        }
+        if (attackMethods[0] != 1) {
+            throw new IllegalStateException(
+                    "Expected one Char.attack(Char,float,float,float), found " + attackMethods[0]);
+        }
+        if (anchors[0] != 1) {
+            throw new IllegalStateException(
+                    "Expected one successful Char.hit branch in Char.attack, found " + anchors[0]);
+        }
+
+        System.out.println("Char.attack Instant Kill pre-defense patch: OK");
+        return writer.toByteArray();
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length != 3) {
+            throw new IllegalArgumentException(
+                    "Usage: SmmAnkhCharAttackPatcher <target.jar> <payload.jar> <out-Char.class>");
+        }
+
+        Path target = Paths.get(args[0]);
+        Path payload = Paths.get(args[1]);
+        Path output = Paths.get(args[2]);
+
+        validateHook(payload);
+        byte[] original = readJarEntry(target, CHAR + ".class");
+        Files.write(output, patch(original));
+    }
+}
+'''
+
+
+def patch_ankh_char(
+    java: Path,
+    target: Path,
+    payload_jar: Path,
+    work: Path,
+    target_game_root: str,
+) -> Path:
+    char_name = target_game_root + "/actors/Char"
+    helper = work / "SmmAnkhCharAttackPatcher.java"
+    helper.write_text(
+        ANKH_CHAR_HELPER.replace("__CHAR__", char_name),
+        encoding="utf-8",
+    )
+    output = work / "AnkhChar.class"
+    injector.run([
+        java,
+        "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
+        helper, target, payload_jar, output,
+    ])
+    if not output.is_file() or not output.read_bytes().startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError(
+            "Ankh-only Char bytecode helper did not produce a valid class"
+        )
+    return output
+
+
 def adapt_ankh_payload(
     java: Path,
     target: Path,
@@ -874,12 +1082,14 @@ def adapt_ankh_payload(
 def rebuild_ankh_jar(
     target: Path,
     patched_dungeon: Path,
+    patched_char: Path,
     patched_modankh: Path,
     payload: dict[str, bytes],
     output: Path,
     dungeon_entry: str,
 ) -> None:
     dungeon_bytes = patched_dungeon.read_bytes()
+    char_bytes = patched_char.read_bytes()
     modankh_bytes = patched_modankh.read_bytes()
     if not dungeon_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched Dungeon.class is invalid")
@@ -895,6 +1105,10 @@ def rebuild_ankh_jar(
         names = set(zin.namelist())
         if dungeon_entry not in names:
             raise injector.InjectError(f"Target JAR has no {dungeon_entry}")
+        root = dungeon_entry[:-len("Dungeon.class")]
+        char_entry = root + "actors/Char.class"
+        if char_entry not in names:
+            raise injector.InjectError(f"Target JAR has no {char_entry}")
         if injector.MOD_ANKH_ENTRY in names:
             raise injector.InjectError("Target JAR already contains ModAnkh; refusing a second injection")
         collisions = sorted((set(payload) | {injector.MOD_ANKH_ENTRY}) & names)
@@ -908,7 +1122,12 @@ def rebuild_ankh_jar(
             for info in zin.infolist():
                 if injector.stale_meta_entry(info.filename):
                     continue
-                data = dungeon_bytes if info.filename == dungeon_entry else zin.read(info.filename)
+                if info.filename == dungeon_entry:
+                    data = dungeon_bytes
+                elif info.filename == char_entry:
+                    data = char_bytes
+                else:
+                    data = zin.read(info.filename)
                 if _ACTION_MESSAGE_BUNDLE_RE.fullmatch(info.filename):
                     matched_bundles += 1
                     data, count = _append_action_messages(data)
@@ -962,15 +1181,25 @@ def run_ankh_only(
     patched_modankh, patched_dungeon = _original_patch_classes(
         java, target, helper_payload, donor_modankh, work, target_game_root
     )
+    patched_char = patch_ankh_char(
+        java, target, helper_payload, work, target_game_root
+    )
 
     injector.step("Repacking target JAR")
     output.parent.mkdir(parents=True, exist_ok=True)
     tmp = work / "output-ankh.jar"
     rebuild_ankh_jar(
-        target, patched_dungeon, patched_modankh, payload, tmp, dungeon_entry
+        target,
+        patched_dungeon,
+        patched_char,
+        patched_modankh,
+        payload,
+        tmp,
+        dungeon_entry,
     )
+    char_entry = target_game_root + "/actors/Char.class"
     injector.validate_jar(
-        tmp, [dungeon_entry, injector.MOD_ANKH_ENTRY, *sorted(payload)]
+        tmp, [dungeon_entry, char_entry, injector.MOD_ANKH_ENTRY, *sorted(payload)]
     )
     shutil.copy2(tmp, output)
 
