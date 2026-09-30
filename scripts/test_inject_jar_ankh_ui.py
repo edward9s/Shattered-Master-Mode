@@ -370,7 +370,11 @@ package {package}.actors;
 public class Char {{
     public static boolean nativeHit = true;
     public boolean attack(Char enemy) {{
-        return hit(this, enemy, false);
+        if (enemy == null) return false;
+        if (hit(this, enemy, false)) {{
+            return true;
+        }}
+        return false;
     }}
     public static boolean hit(Char attacker, Char defender, boolean magic) {{
         return nativeHit;
