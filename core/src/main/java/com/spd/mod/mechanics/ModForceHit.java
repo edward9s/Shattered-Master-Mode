@@ -115,9 +115,18 @@ public class ModForceHit extends Buff {
         }
         try {
             method.invoke(null);
+        } catch (LinkageError e) {
+            disableOptionalUi();
+            return;
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Unable to invoke optional Force Hit UI integration", e);
         }
+    }
+
+    private static void disableOptionalUi() {
+        ensureOptionalUiMethod = null;
+        refreshOptionalUiMethod = null;
+        optionalUiResolved = true;
     }
 
     private static synchronized void resolveOptionalUi() {
