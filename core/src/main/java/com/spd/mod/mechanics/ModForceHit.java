@@ -144,8 +144,11 @@ public class ModForceHit extends Buff {
                     ModForceHit.class.getClassLoader());
             ensureOptionalUiMethod = uiClass.getMethod("ensureInstalled");
             refreshOptionalUiMethod = uiClass.getMethod("refreshIndicators");
-        } catch (ClassNotFoundException ignored) {
-            // Expected in --ankh-only: Force Hit works without full-SMM UI.
+        } catch (ClassNotFoundException | LinkageError ignored) {
+            // Expected in --ankh-only when the full UI class or one of its
+            // transitive UI dependencies is unavailable in the target fork.
+            disableOptionalUi();
+            return;
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Incompatible optional Force Hit UI integration", e);
         }
