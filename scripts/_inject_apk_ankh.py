@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mode adapter for the small ModAnkh tools + Last Stand + Instant Kill APK payload."""
+"""Mode adapter for the small ModAnkh tools + Last Stand + Instant Kill + Force Hit APK payload."""
 from __future__ import annotations
 
 import re
@@ -18,6 +18,7 @@ _ACTION_MESSAGES = (
 )
 _LAST_STAND = "Lcom/spd/mod/mechanics/ModLastStand;"
 _INSTANT_KILL = "Lcom/spd/mod/mechanics/ModInstantKill;"
+_FORCE_HIT = "Lcom/spd/mod/mechanics/ModForceHit;"
 _LAST_STAND_OVERLAY = "Lcom/spd/mod/journal/ModLastStandOverlay;"
 _LAST_STAND_OVERLAY_INNER_PREFIX = "Lcom/spd/mod/journal/ModLastStandOverlay$"
 
@@ -454,7 +455,7 @@ def configure(public_module) -> None:
                 + ", ".join(sorted(unresolved))
             )
 
-        required_roots = {_LAST_STAND, _INSTANT_KILL}
+        required_roots = {_LAST_STAND, _INSTANT_KILL, _FORCE_HIT}
         missing_roots = sorted(required_roots.difference(closure))
         if missing_roots:
             raise injector.InjectError(
@@ -483,6 +484,7 @@ def configure(public_module) -> None:
                     full_prefix + "mechanics/ModLegacyCompat;",
                     full_prefix + "mechanics/ModLastStand;",
                     full_prefix + "mechanics/ModInstantKill;",
+                    full_prefix + "mechanics/ModForceHit;",
                 }
                 missing_roots = sorted(required_roots.difference(closure))
                 if missing_roots:
@@ -531,7 +533,7 @@ def configure(public_module) -> None:
         }
         injector.log(
             f"ModAnkh dependency closure: {len(payload)} class(es) "
-            "(Store + Loot + Console + Last Stand + Instant Kill)"
+            "(Store + Loot + Console + Last Stand + Instant Kill + Force Hit)"
         )
         return payload, relocations
 
@@ -612,7 +614,7 @@ def configure(public_module) -> None:
         if pending_click is None:
             raise injector.InjectError("Last Stand BuffIndicator click overlay source was not captured")
         if pending_char is None:
-            raise injector.InjectError("Instant Kill Char.attack overlay source was not captured")
+            raise injector.InjectError("Instant Kill/Force Hit Char overlay source was not captured")
         if public_module._current_game_prefix is None:
             raise injector.InjectError("Target game prefix was not initialized")
         if public_module._current_abi_profile is None:
@@ -641,6 +643,9 @@ def configure(public_module) -> None:
         patched_char = public_module.patch_char_instant_kill(
             original_char, char_descriptor, proto
         )
+        patched_char = public_module.patch_char_hit(
+            patched_char, char_descriptor
+        )
         char_path = directory / Path(char_descriptor[1:-1] + ".smali")
         if char_path.exists():
             raise injector.InjectError(
@@ -649,6 +654,7 @@ def configure(public_module) -> None:
         char_path.parent.mkdir(parents=True, exist_ok=True)
         char_path.write_text(patched_char, encoding="utf-8")
         injector.log(f"Char.attack Instant Kill pre-defense hook ({proto}): OK")
+        injector.log("Char.hit Force Hit pre-defense hook: OK")
 
         try:
             public_module._original_compile_smali(
@@ -674,8 +680,8 @@ def configure(public_module) -> None:
         )
 
     # Ankh-only keeps the narrow injector mechanics: patch Dungeon.init(), the
-    # Last Stand BuffIndicator click, and only the Char.attack hook required by
-    # Instant Kill. It does not install the full SMM menu, Riposte, or Force Hit.
+    # Last Stand BuffIndicator click, and only the Char hooks required by Instant
+    # Kill and Force Hit. It does not install the full SMM menu or Riposte.
     injector.detect_target_game_prefix = detect_target_game_prefix
     injector.build_debug_payload = build_ankh_payload
     injector.payload_compatibility_errors = payload_compatibility_errors
