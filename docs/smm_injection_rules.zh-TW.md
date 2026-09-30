@@ -57,6 +57,7 @@ JAR 注入不使用這把 APK 簽章金鑰。
 - 不複製任意 donor-only 或混淆 class 來掩蓋 compatibility error。
 - `--ankh-only` 必須保持精簡；ModAnkh + ModLastStand 與 Store / Loot / Debug Console 是保證核心，Instant Kill 與 Force Hit 是選配，不能因選配失敗拖垮核心注入。
 - 「選配」不代表消極放棄。Injector 必須先嘗試安全的結構式適配再決定跳過。Instant Kill 可退回 `attackProc()`；Force Hit 必須從 terminal attack 結構追蹤命中判定，而不是只接受精確的 vanilla `Char.hit(Char, Char, float, boolean)` signature。
+- 選配的 full-SMM UI bridge 不得讓 ankh-only target 當機。若 UI class 本身或其任一 target UI 傳遞相依在 runtime 無法 linkage，應只停用該 optional UI bridge，保留底層戰鬥 Buff 正常運作。
 - 完整注入可以使用既有 SMM 選單與 Riposte `Char.attack()` hook。JAR 注入會選擇唯一的 terminal `Char.attack()` overload，不再假設一定是 vanilla 四參數 wrapper。Instant Kill 能安全辨識 pre-defense 命中分支時就安裝該 hook；無法安全辨識時仍保留並使用 `attackProc()` fallback。Force Hit 則使用結構式辨識出的命中判定方法。最小注入不得安裝 Riposte 或完整選單，但可以安裝上述狹窄用途的 Instant Kill / Force Hit hook。
 - Debug Console 指令可能觸發 target 本身既有的 bug；不要為了讓指令表面成功而順便修改無關的 target 遊戲邏輯。
 
