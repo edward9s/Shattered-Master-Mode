@@ -13,12 +13,35 @@ import com.spd.mod.journal.WndInstantKillInfo;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
+import java.util.ArrayDeque;
+
 
 /** Permanent Char combat buff with a configurable Instant Kill effect. */
 public class ModInstantKill extends Buff {
 
     private static final String INSTANT_KILL = "instant_kill";
+    private static final ThreadLocal<ArrayDeque<AttackContext>> ATTACK_CONTEXTS =
+            new ThreadLocal<>();
     private boolean instantKill = true;
+
+    private static final class AttackContext {
+        final Char attacker;
+        final Char defender;
+
+        AttackContext(Char attacker, Char defender) {
+            this.attacker = attacker;
+            this.defender = defender;
+        }
+    }
+
+    private static ArrayDeque<AttackContext> attackContexts() {
+        ArrayDeque<AttackContext> contexts = ATTACK_CONTEXTS.get();
+        if (contexts == null) {
+            contexts = new ArrayDeque<>();
+            ATTACK_CONTEXTS.set(contexts);
+        }
+        return contexts;
+    }
 
     {
         type = buffType.POSITIVE;
@@ -102,6 +125,32 @@ public class ModInstantKill extends Buff {
                 + "native hit and invulnerability checks.";
     }
 
+
+    /**
+     * Captures the original attacker/defender at Char.attack entry. R8 may reuse
+     * parameter registers later in the method, so return hooks must not read p0/p1.
+     */
+    public static void beginAttack(Char attacker, Char defender) {
+        attackContexts().push(new AttackContext(attacker, defender));
+    }
+
+    /**
+     * Completes one captured Char.attack invocation. Every normal return calls
+     * this exactly once so nested attacks remain stack-safe.
+     */
+    public static void finishAttack(boolean successful) {
+        ArrayDeque<AttackContext> contexts = ATTACK_CONTEXTS.get();
+        if (contexts == null || contexts.isEmpty()) {
+            return;
+        }
+        AttackContext context = contexts.pop();
+        if (contexts.isEmpty()) {
+            ATTACK_CONTEXTS.remove();
+        }
+        if (successful) {
+            resolveSuccessfulAttack(context.attacker, context.defender);
+        }
+    }
 
     /**
      * Resolves Instant Kill for an attack that the native Char.attack path is
