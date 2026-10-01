@@ -374,6 +374,42 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(1, hit.count(force_hook))
 
 
+    def test_force_hit_precedes_parry_in_shared_hit_hook(self):
+        hit_proto = f"({self.char}{self.char}Z)Z"
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public static hit{hit_proto}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+
+        patched = mod.patch_char_hit(
+            text,
+            self.char,
+            "hit",
+            hit_proto,
+            force=True,
+            parry=True,
+        )
+        _, _, hit = mod.injector.method_block(patched, "hit", hit_proto)
+        force_hook = (
+            "Lcom/spd/mod/mechanics/ModForceHit;->forceHitCheck("
+            + self.char + self.char + ")Z"
+        )
+        parry_hook = (
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->shouldParry("
+            + self.char + self.char + ")Z"
+        )
+        self.assertIn(force_hook, hit)
+        self.assertIn(parry_hook, hit)
+        self.assertLess(hit.index(force_hook), hit.index(parry_hook))
+        self.assertLess(hit.index("const/4 v0, 0x1"), hit.index(parry_hook))
+        self.assertIn("const/4 v0, 0x0", hit)
+
+
     def test_instant_kill_can_patch_without_force_hit_dependency(self):
         attack_proto = f"({self.char}FFF)Z"
         text = (
