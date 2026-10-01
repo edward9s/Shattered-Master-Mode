@@ -206,6 +206,26 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(3, block.count(completion))
 
 
+    def test_instant_kill_force_entry_supports_high_parameter_registers(self):
+        proto = f"({self.char}FFF)Z"
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public attack{proto}\n"
+            "    .locals 17\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        patched = mod.patch_char_instant_kill(text, self.char, proto)
+        _, _, block = mod.injector.method_block(patched, "attack", proto)
+        self.assertIn(
+            "invoke-static/range {p0 .. p0}, "
+            "Lcom/spd/mod/mechanics/ModForceHit;->isForceHitEnabled",
+            block,
+        )
+        self.assertNotIn("invoke-static {p0},", block)
+
     def test_instant_kill_does_not_depend_on_mlpd_hit_branch_shape(self):
         terminal = f"({self.char}FFF{self.damage_type})Z"
         hit_proto = f"({self.char}{self.char}FZ)Z"
