@@ -91,7 +91,7 @@ public class ModAssassin {
             if (hero.subClass == HeroSubClass.GLADIATOR) {
                 Buff.affect(hero, Combo.class).hit(target);
             }
-            if ("DUELIST".equals(hero.heroClass.name())) {
+            if ("DUELIST".equals(((Enum<?>) hero.heroClass).name())) {
                 ModCombatCompat.addDuelistComboHit(hero, target);
             }
         }
