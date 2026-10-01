@@ -1076,8 +1076,6 @@ def patch_char_instant_kill(
     text: str,
     char_descriptor: str,
     proto: str | None = None,
-    hit_method: str | None = None,
-    hit_proto: str | None = None,
     force_combo: bool = True,
 ) -> str:
     if proto is None:
@@ -1086,18 +1084,6 @@ def patch_char_instant_kill(
         if proto is None:
             raise injector.InjectError(
                 "Unable to identify terminal Char.attack overload: " + detail
-            )
-
-    if hit_method is None or hit_proto is None:
-        game_prefix = char_descriptor[:-len("actors/Char;")]
-        char_class = injector.SmaliClass.from_text(Path("Char.smali"), text)
-        hit_capability = _probe_hit_hook({char_descriptor: char_class}, game_prefix)
-        hit_method = hit_capability.data.get("method")
-        hit_proto = hit_capability.data.get("proto")
-        if not hit_capability.compatible or not hit_method or not hit_proto:
-            raise injector.InjectError(
-                "No compatible selected hit-check is available for Instant Kill: "
-                + hit_capability.detail
             )
 
     start, end, block = injector.method_block(text, "attack", proto)
@@ -1112,8 +1098,8 @@ def patch_char_instant_kill(
     if (
         hook in block
         or force_hook in block
-        or ":smm_instant_kill_native" in block
         or ":smm_instant_kill_force_native" in block
+        or ":smm_instant_kill_return_" in block
     ):
         raise injector.InjectError(
             "Char.attack already contains SMM Instant Kill hook"
@@ -1140,117 +1126,33 @@ def patch_char_instant_kill(
         )
         block = block[:entry_at] + forced_entry + block[entry_at:]
 
-    hit_desc = (
-        re.escape(char_descriptor)
-        + r"->"
-        + re.escape(hit_method)
-        + re.escape(hit_proto)
+    return_re = re.compile(
+        r"(?m)^(?P<indent>[ \\t]*)return (?P<reg>[vp]\\d+)(?P<tail>[ \\t]*(?:#.*)?)$"
     )
-    invoke_re = re.compile(
-        r"^\s*invoke-static(?:/range)?\s+\{[^}]+\},\s*"
-        + hit_desc
-        + r"\s*(?:#.*)?$"
-    )
-    move_re = re.compile(r"^\s*move-result\s+([vp]\d+)\s*(?:#.*)?$")
-    branch_re = re.compile(
-        r"^\s*if-(eqz|nez)\s+([vp]\d+),\s*(:[A-Za-z0-9_$.-]+)\s*(?:#.*)?$"
-    )
+    return_count = 0
 
-    lines = block.splitlines(keepends=True)
-    offsets = []
-    offset = 0
-    for line in lines:
-        offsets.append(offset)
-        offset += len(line)
-
-    def next_instruction(index: int) -> int | None:
-        for candidate in range(index + 1, len(lines)):
-            stripped = lines[candidate].strip()
-            if (
-                not stripped
-                or stripped.startswith("#")
-                or stripped.startswith(".")
-                or stripped.startswith(":")
-            ):
-                continue
-            return candidate
-        return None
-
-    candidates = []
-    for invoke_index, line in enumerate(lines):
-        if invoke_re.match(line.rstrip("\r\n")) is None:
-            continue
-
-        move_index = next_instruction(invoke_index)
-        if move_index is None:
-            continue
-        move_match = move_re.match(lines[move_index].rstrip("\r\n"))
-        if move_match is None:
-            continue
-
-        branch_index = next_instruction(move_index)
-        if branch_index is None:
-            continue
-        branch_match = branch_re.match(lines[branch_index].rstrip("\r\n"))
-        if branch_match is None or branch_match.group(2) != move_match.group(1):
-            continue
-
-        candidates.append(
-            (
-                move_match.group(1),
-                branch_match.group(1),
-                branch_match.group(3),
-                branch_index,
-            )
+    def add_success_hook(match: re.Match[str]) -> str:
+        nonlocal return_count
+        return_count += 1
+        indent = match.group("indent")
+        reg = match.group("reg")
+        tail = match.group("tail")
+        label = f":smm_instant_kill_return_{return_count}"
+        return (
+            f"{indent}# SMM Instant Kill on successful Char.attack result\n"
+            f"{indent}if-eqz {reg}, {label}\n"
+            f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
+            f"{indent}{label}\n"
+            f"{indent}return {reg}{tail}"
         )
 
-    if len(candidates) != 1:
+    block = return_re.sub(add_success_hook, block)
+    if return_count == 0:
         raise injector.InjectError(
-            "Expected exactly one successful selected hit-check branch in terminal "
-            f"Char.attack, found {len(candidates)}"
+            "Terminal Char.attack has no normal boolean return for Instant Kill"
         )
 
-    reg, opcode, target_label, branch_index = candidates[0]
-    indent = re.match(r"[ \t]*", lines[branch_index]).group(0)
-    branch_start = offsets[branch_index]
-    branch_end = branch_start + len(lines[branch_index])
-
-    native_tail = (
-        f"{indent}# SMM Instant Kill after confirmed hit, before defenseProc\n"
-        f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
-        f"{indent}move-result {reg}\n"
-        f"{indent}if-eqz {reg}, :smm_instant_kill_native\n"
-        f"{indent}const/4 {reg}, 0x1\n"
-        f"{indent}return {reg}\n"
-        f"{indent}:smm_instant_kill_native\n"
-        # The native success path reaches this point with the hit-result
-        # register == true. Restore that value after reusing the register for
-        # resolveSuccessfulAttack() so downstream bytecode sees identical state.
-        f"{indent}const/4 {reg}, 0x1\n"
-    )
-
-    if opcode == "eqz":
-        patched = block[:branch_end] + native_tail + block[branch_end:]
-    else:
-        if ":smm_instant_kill_miss" in block:
-            raise injector.InjectError(
-                "Char.attack already contains SMM Instant Kill miss trampoline"
-            )
-        rewritten_branch = (
-            f"{indent}if-eqz {reg}, :smm_instant_kill_miss\n"
-        )
-        trampoline = (
-            native_tail
-            + f"{indent}goto {target_label}\n"
-            + f"{indent}:smm_instant_kill_miss\n"
-        )
-        patched = (
-            block[:branch_start]
-            + rewritten_branch
-            + trampoline
-            + block[branch_end:]
-        )
-    return text[:start] + patched + text[end:]
+    return text[:start] + block + text[end:]
 
 
 def patch_char_attack(
@@ -1447,8 +1349,7 @@ def compile_smali_with_char_hook(
         patched_char,
         char_descriptor,
         proto,
-        hit_method,
-        hit_proto,
+        force_combo=True,
     )
 
     # Add Riposte hooks after the Instant Kill guards. patch_char_attack places
@@ -1470,7 +1371,7 @@ def compile_smali_with_char_hook(
     char_output.parent.mkdir(parents=True, exist_ok=True)
     char_output.write_text(patched_char, encoding="utf-8")
     injector.log(
-        f"Char.attack Instant Kill force-entry + confirmed-hit hooks ({proto}): OK"
+        f"Char.attack Instant Kill force-entry + successful-return hooks ({proto}): OK"
     )
     injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
     injector.log(
