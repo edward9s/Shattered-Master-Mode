@@ -172,12 +172,18 @@ class TerminalAttackHookTest(unittest.TestCase):
         )
 
         patched = mod.patch_char_instant_kill(text, self.char, proto)
+        forced_hook = (
+            "Lcom/spd/mod/mechanics/ModInstantKill;->resolveForcedAttack("
+            + self.char + self.char + ")Z"
+        )
         hook = (
             "Lcom/spd/mod/mechanics/ModInstantKill;->resolveSuccessfulAttack("
             + self.char + self.char + ")Z"
         )
         _, _, block = mod.injector.method_block(patched, "attack", proto)
+        self.assertEqual(1, block.count(forced_hook))
         self.assertEqual(1, block.count(hook))
+        self.assertLess(block.index(forced_hook), block.index("->hit"))
         self.assertLess(block.index("if-eqz v0, :miss"), block.index(hook))
         self.assertLess(block.index(hook), block.index("->defenseProc("))
         self.assertIn(":smm_instant_kill_native\n    const/4 v0, 0x1", block)
@@ -186,6 +192,11 @@ class TerminalAttackHookTest(unittest.TestCase):
         # early return has been inserted, so every return remains covered.
         patched = mod.patch_char_attack(patched, self.char, proto)
         _, _, block = mod.injector.method_block(patched, "attack", proto)
+        pre_hook = (
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack("
+            + self.char + self.char + ")V"
+        )
+        self.assertLess(block.index(forced_hook), block.index(pre_hook))
         completion = (
             "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete("
             + self.char + self.char + ")V"
