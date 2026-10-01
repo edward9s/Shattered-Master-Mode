@@ -58,6 +58,7 @@ class ApkUiCompatTests(unittest.TestCase):
             instant=True,
             force=True,
             assassinate=True,
+            enemy_surge=True,
         )
         patched = buff_click.patch(
             injector, button_text(), BUFF_BUTTON, GAME, handlers
@@ -69,6 +70,7 @@ class ApkUiCompatTests(unittest.TestCase):
             "Lcom/spd/mod/mechanics/ModInstantKill;->openInfo()V",
             "Lcom/spd/mod/mechanics/ModForceHit;->openInfo()V",
             "Lcom/spd/mod/mechanics/ModAssassinate;->openInfo()V",
+            "Lcom/spd/mod/mechanics/ModEnemySurge;->openInfo()V",
         ):
             self.assertIn(hook, patched)
 
@@ -90,6 +92,7 @@ class ApkUiCompatTests(unittest.TestCase):
             instant=True,
             force=False,
             assassinate=True,
+            enemy_surge=True,
         )
         patched = buff_click.patch(
             injector, button_text(), BUFF_BUTTON, GAME, handlers
@@ -119,6 +122,7 @@ class ApkUiCompatTests(unittest.TestCase):
             instant=False,
             force=False,
             assassinate=False,
+            enemy_surge=False,
         )
         patched = buff_click.patch(
             injector,
@@ -252,11 +256,13 @@ class ApkUiCompatTests(unittest.TestCase):
         last_stand_tag = full_prefix + "journal/ModLastStandTag;"
         parry = full_prefix + "mechanics/ModParryRiposte;"
         assassinate = full_prefix + "mechanics/ModAssassinate;"
+        enemy_surge = full_prefix + "mechanics/ModEnemySurge;"
         ankh_item = object()
         last_stand_item = SimpleNamespace(descriptor=last_stand)
         last_stand_tag_item = SimpleNamespace(descriptor=last_stand_tag)
         parry_item = SimpleNamespace(descriptor=parry)
         assassinate_item = SimpleNamespace(descriptor=assassinate)
+        enemy_surge_item = SimpleNamespace(descriptor=enemy_surge)
 
         def dependencies(item):
             if item is ankh_item:
@@ -289,6 +295,7 @@ class ApkUiCompatTests(unittest.TestCase):
                 last_stand_tag: last_stand_tag_item,
                 parry: parry_item,
                 assassinate: assassinate_item,
+                enemy_surge: enemy_surge_item,
             },
             {},
         )
@@ -301,6 +308,7 @@ class ApkUiCompatTests(unittest.TestCase):
         )
         self.assertTrue(public_module._ankh_parry_riposte_enabled)
         self.assertTrue(public_module._ankh_assassinate_enabled)
+        self.assertTrue(public_module._ankh_enemy_surge_enabled)
         self.assertEqual(
             {parry},
             public_module._ankh_optional_payload_descriptors["parry"],
@@ -308,6 +316,10 @@ class ApkUiCompatTests(unittest.TestCase):
         self.assertEqual(
             {assassinate},
             public_module._ankh_optional_payload_descriptors["assassinate"],
+        )
+        self.assertEqual(
+            {enemy_surge},
+            public_module._ankh_optional_payload_descriptors["enemy_surge"],
         )
 
 
