@@ -372,9 +372,9 @@ public class SmmCharAttackPatcher {
         LinkedHashSet<String> calledHits = attackHitCalls.get(plan.terminalAttackDesc);
         String modernDirect = "hit\n" + MODERN_HIT_DESC;
         String legacyDirect = "hit\n" + LEGACY_HIT_DESC;
-        String selected = calledHits.contains(modernDirect)
+        String selected = structuralHits.contains(modernDirect)
                 ? modernDirect
-                : (calledHits.contains(legacyDirect) ? legacyDirect : null);
+                : (structuralHits.contains(legacyDirect) ? legacyDirect : null);
 
         if (selected != null) {
             plan.hitDetail = "direct hit-check ";
@@ -1753,9 +1753,9 @@ public class SmmAnkhCharAttackPatcher {
         LinkedHashSet<String> calledHits = attackHitCalls.get(scan.terminalDesc);
         String modernDirect = "hit\n" + MODERN_HIT_DESC;
         String legacyDirect = "hit\n" + LEGACY_HIT_DESC;
-        String selected = calledHits.contains(modernDirect)
+        String selected = hitCandidates.contains(modernDirect)
                 ? modernDirect
-                : (calledHits.contains(legacyDirect) ? legacyDirect : null);
+                : (hitCandidates.contains(legacyDirect) ? legacyDirect : null);
 
         if (selected != null) {
             scan.hitDetail = "direct hit-check ";
