@@ -38,6 +38,10 @@ public final class ModRuntimeTagStack {
     private static Method tagFlipMethod;
     private static Method showingWindowMethod;
     private static boolean showingWindowResolved;
+    private static Method directPointerPriorityMethod;
+    private static Field hotAreaField;
+    private static Method hotAreaPointerPriorityMethod;
+    private static boolean pointerPriorityResolved;
 
     private ModRuntimeTagStack() {
     }
@@ -330,6 +334,77 @@ public final class ModRuntimeTagStack {
             return result instanceof Boolean && (Boolean) result;
         } catch (ReflectiveOperationException | RuntimeException ignored) {
             return false;
+        }
+    }
+
+    public static void givePointerPriority(Tag tag) {
+        if (tag == null) {
+            return;
+        }
+
+        if (!pointerPriorityResolved) {
+            pointerPriorityResolved = true;
+
+            for (Class<?> cls = tag.getClass(); cls != null; cls = cls.getSuperclass()) {
+                try {
+                    Method method = cls.getDeclaredMethod("givePointerPriority");
+                    method.setAccessible(true);
+                    directPointerPriorityMethod = method;
+                    break;
+                } catch (NoSuchMethodException ignored) {
+                    // Older Button implementations keep priority control on hotArea.
+                } catch (SecurityException ignored) {
+                    break;
+                }
+            }
+
+            if (directPointerPriorityMethod == null) {
+                for (Class<?> cls = tag.getClass(); cls != null; cls = cls.getSuperclass()) {
+                    try {
+                        Field field = cls.getDeclaredField("hotArea");
+                        field.setAccessible(true);
+                        hotAreaField = field;
+                        break;
+                    } catch (NoSuchFieldException ignored) {
+                        // Continue through Tag/Button ancestry.
+                    } catch (SecurityException ignored) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        try {
+            if (directPointerPriorityMethod != null) {
+                directPointerPriorityMethod.invoke(tag);
+                return;
+            }
+
+            if (hotAreaField != null) {
+                Object hotArea = hotAreaField.get(tag);
+                if (hotArea == null) {
+                    return;
+                }
+
+                if (hotAreaPointerPriorityMethod == null) {
+                    for (Class<?> cls = hotArea.getClass(); cls != null; cls = cls.getSuperclass()) {
+                        try {
+                            Method method = cls.getDeclaredMethod("givePointerPriority");
+                            method.setAccessible(true);
+                            hotAreaPointerPriorityMethod = method;
+                            break;
+                        } catch (NoSuchMethodException ignored) {
+                            // Continue through the PointerArea hierarchy.
+                        }
+                    }
+                }
+
+                if (hotAreaPointerPriorityMethod != null) {
+                    hotAreaPointerPriorityMethod.invoke(hotArea);
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // Rendering the tag is still preferable to failing the runtime UI.
         }
     }
 
