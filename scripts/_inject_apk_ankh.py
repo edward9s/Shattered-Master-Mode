@@ -468,53 +468,8 @@ def configure(public_module) -> None:
             patched_char = original_char
             char_changed = False
 
-            if instant_enabled:
-                attack_capability = public_module._current_abi_profile.get(
-                    "char.incomingAttackHook"
-                )
-                hit_capability = public_module._current_abi_profile.get(
-                    "char.hitHook"
-                )
-                proto = attack_capability.data.get("proto")
-                hit_method = hit_capability.data.get("method")
-                hit_proto = hit_capability.data.get("proto")
-                if (
-                    attack_capability.compatible
-                    and hit_capability.compatible
-                    and proto
-                    and hit_method
-                    and hit_proto
-                ):
-                    try:
-                        patched_char = public_module.patch_char_instant_kill(
-                            patched_char,
-                            char_descriptor,
-                            proto,
-                            hit_method,
-                            hit_proto,
-                        )
-                        char_changed = True
-                        injector.log(
-                            "Char.attack Instant Kill force-entry + confirmed-hit hooks "
-                            f"({proto} via {hit_method}{hit_proto}): OK"
-                        )
-                    except injector.InjectError as exc:
-                        instant_enabled = False
-                        public_module._ankh_instant_kill_enabled = False
-                        injector.log(
-                            "Optional Instant Kill skipped after structural patch attempt: "
-                            + str(exc)
-                        )
-                else:
-                    detail = (
-                        attack_capability.detail
-                        if not attack_capability.compatible
-                        else hit_capability.detail
-                    )
-                    instant_enabled = False
-                    public_module._ankh_instant_kill_enabled = False
-                    injector.log("Optional Instant Kill skipped: " + detail)
-
+            # Resolve Force Hit first. Instant Kill's attack-entry combination hook
+            # is emitted only when Force Hit survived its own structural patch.
             if force_enabled:
                 try:
                     hit_capability = public_module._current_abi_profile.get(
@@ -545,6 +500,56 @@ def configure(public_module) -> None:
                         "Optional Force Hit skipped after structural patch attempt: "
                         + str(exc)
                     )
+
+            if instant_enabled:
+                attack_capability = public_module._current_abi_profile.get(
+                    "char.incomingAttackHook"
+                )
+                hit_capability = public_module._current_abi_profile.get(
+                    "char.hitHook"
+                )
+                proto = attack_capability.data.get("proto")
+                hit_method = hit_capability.data.get("method")
+                hit_proto = hit_capability.data.get("proto")
+                if (
+                    attack_capability.compatible
+                    and hit_capability.compatible
+                    and proto
+                    and hit_method
+                    and hit_proto
+                ):
+                    try:
+                        patched_char = public_module.patch_char_instant_kill(
+                            patched_char,
+                            char_descriptor,
+                            proto,
+                            hit_method,
+                            hit_proto,
+                            force_combo=force_enabled,
+                        )
+                        char_changed = True
+                        combo = " + Force Hit entry" if force_enabled else ""
+                        injector.log(
+                            "Char.attack Instant Kill confirmed-hit hook"
+                            + combo
+                            + f" ({proto} via {hit_method}{hit_proto}): OK"
+                        )
+                    except injector.InjectError as exc:
+                        instant_enabled = False
+                        public_module._ankh_instant_kill_enabled = False
+                        injector.log(
+                            "Optional Instant Kill skipped after structural patch attempt: "
+                            + str(exc)
+                        )
+                else:
+                    detail = (
+                        attack_capability.detail
+                        if not attack_capability.compatible
+                        else hit_capability.detail
+                    )
+                    instant_enabled = False
+                    public_module._ankh_instant_kill_enabled = False
+                    injector.log("Optional Instant Kill skipped: " + detail)
 
             if char_changed:
                 char_path = directory / Path(char_descriptor[1:-1] + ".smali")
