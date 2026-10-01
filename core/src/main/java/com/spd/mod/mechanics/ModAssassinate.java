@@ -10,7 +10,6 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
-import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.QuickSlotButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Tag;
@@ -395,7 +394,7 @@ public class ModAssassinate extends Buff {
             }
 
             heldTime += Game.elapsed;
-            if (heldTime < Button.longClick) {
+            if (heldTime < ModLegacyCompat.longClickThreshold()) {
                 return;
             }
 
