@@ -9,7 +9,7 @@ env:
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 18 * * *' # 台灣時間凌晨 2 點 (UTC18:00)
+    - cron: '0 4 * * *' # 台灣時間中午 12 點 (UTC 04:00)
 
 jobs:
   build:
