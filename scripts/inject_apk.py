@@ -1289,10 +1289,10 @@ def write_action_name_overlay(directory: Path) -> None:
 def write_buff_click_patch(
     directory: Path,
     *,
+    parry: bool,
     instant: bool,
     force: bool,
     assassinate: bool,
-    full: bool,
 ) -> None:
     global _pending_buff_click_patch
     if _pending_buff_click_patch is None:
@@ -1304,10 +1304,10 @@ def write_buff_click_patch(
 
     descriptor, original_text = _pending_buff_click_patch
     handlers = buff_click.selected_handlers(
+        parry=parry,
         instant=instant,
         force=force,
         assassinate=assassinate,
-        full=full,
     )
     patched = buff_click.patch(
         injector,
@@ -1391,7 +1391,7 @@ def compile_smali_with_char_hook(
 
     write_action_name_overlay(directory)
     write_buff_click_patch(
-        directory, instant=True, force=True, assassinate=True, full=True
+        directory, parry=True, instant=True, force=True, assassinate=True
     )
 
     try:
