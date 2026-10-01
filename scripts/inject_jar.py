@@ -852,11 +852,13 @@ def build_ankh_payload(
         )
 
     optional_roots = {
+        "parry": "com/spd/mod/mechanics/ModParryRiposte.class",
         "instant": "com/spd/mod/mechanics/ModInstantKill.class",
         "force": "com/spd/mod/mechanics/ModForceHit.class",
         "assassinate": "com/spd/mod/mechanics/ModAssassinate.class",
     }
     optional_labels = {
+        "parry": "Parry/Riposte",
         "instant": "Instant Kill",
         "force": "Force Hit",
         "assassinate": "Assassinate",
@@ -902,10 +904,10 @@ public class SmmBuffClickPatcher {
     static final String WND_INFO_BUFF = "__WND_INFO_BUFF__";
     static final String BUFF_INDICATOR_PREFIX = "__BUFF_INDICATOR_PREFIX__";
 
+    static final boolean ENABLE_PARRY = __ENABLE_PARRY__;
     static final boolean ENABLE_INSTANT = __ENABLE_INSTANT__;
     static final boolean ENABLE_FORCE = __ENABLE_FORCE__;
     static final boolean ENABLE_ASSASSINATE = __ENABLE_ASSASSINATE__;
-    static final boolean ENABLE_FULL = __ENABLE_FULL__;
 
     static final String LAST_STAND = "com/spd/mod/mechanics/ModLastStand";
     static final String PARRY_RIPOSTE = "com/spd/mod/mechanics/ModParryRiposte";
@@ -926,7 +928,7 @@ public class SmmBuffClickPatcher {
     static LinkedHashMap<String, String> handlers() {
         LinkedHashMap<String, String> result = new LinkedHashMap<>();
         result.put(LAST_STAND, "open");
-        if (ENABLE_FULL) result.put(PARRY_RIPOSTE, "openInfo");
+        if (ENABLE_PARRY) result.put(PARRY_RIPOSTE, "openInfo");
         if (ENABLE_INSTANT) result.put(INSTANT_KILL, "openInfo");
         if (ENABLE_FORCE) result.put(FORCE_HIT, "openInfo");
         if (ENABLE_ASSASSINATE) result.put(ASSASSINATE, "openInfo");
@@ -1958,10 +1960,10 @@ def patch_buff_click_jar(
     work: Path,
     target_game_root: str,
     *,
+    parry: bool,
     instant: bool,
     force: bool,
     assassinate: bool,
-    full: bool,
 ) -> tuple[str, Path]:
     helper = work / "SmmBuffClickPatcher.java"
     helper.write_text(
@@ -1969,10 +1971,10 @@ def patch_buff_click_jar(
         .replace("__BUFF__", target_game_root + "/actors/buffs/Buff")
         .replace("__WND_INFO_BUFF__", target_game_root + "/windows/WndInfoBuff")
         .replace("__BUFF_INDICATOR_PREFIX__", target_game_root + "/ui/BuffIndicator$")
+        .replace("__ENABLE_PARRY__", str(parry).lower())
         .replace("__ENABLE_INSTANT__", str(instant).lower())
         .replace("__ENABLE_FORCE__", str(force).lower())
-        .replace("__ENABLE_ASSASSINATE__", str(assassinate).lower())
-        .replace("__ENABLE_FULL__", str(full).lower()),
+        .replace("__ENABLE_ASSASSINATE__", str(assassinate).lower()),
         encoding="utf-8",
     )
 
@@ -2230,6 +2232,7 @@ def run_ankh_only(
 
     adapted_optional: dict[str, dict[str, bytes]] = {}
     feature_labels = {
+        "parry": "Parry/Riposte",
         "instant": "Instant Kill",
         "force": "Force Hit",
         "assassinate": "Assassinate",
@@ -2283,10 +2286,10 @@ def run_ankh_only(
         target,
         work,
         target_game_root,
+        parry="parry" in payload_features,
         instant="instant" in payload_features,
         force="force" in payload_features,
         assassinate="assassinate" in payload_features,
-        full=False,
     )
 
     payload = dict(core_payload)
@@ -2396,7 +2399,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     injector.log(
         "Injection mode: "
         + (
-            "ModAnkh only (core: Store + Loot + Console + Last Stand + Tag; optional: Instant Kill, Force Hit, Assassinate)"
+            "ModAnkh only (core: Store + Loot + Console + Last Stand + Tag; optional: Parry/Riposte, Instant Kill, Force Hit, Assassinate)"
             if parsed.ankh_only else "full SMM"
         )
     )
@@ -2466,10 +2469,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             target,
             work,
             target_game_root,
+            parry=True,
             instant=True,
             force=True,
             assassinate=True,
-            full=True,
         )
 
         injector.step("Repacking target JAR")
