@@ -3,7 +3,6 @@ package com.spd.mod.journal;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
-import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModEnemySurge;
 import com.watabou.noosa.ui.Component;
@@ -16,9 +15,6 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
 
     public WndEnemySurgeInfo(final ModEnemySurge buff) {
         super(buff);
-
-        final RenderedTextBlock currentMultiplier = PixelScene.renderTextBlock(currentText(buff), 10);
-        currentMultiplier.hardlight(TITLE_COLOR);
 
         final RedButton downButton = new RedButton(downText(buff), 8) {
             @Override
@@ -62,21 +58,16 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
         final Component controls = new Component() {
             @Override
             protected void layout() {
-                currentMultiplier.setPos(x + (width - currentMultiplier.width()) / 2f, y);
-
                 float halfWidth = (width - GAP) / 2f;
-                downButton.setRect(x, currentMultiplier.bottom() + GAP, halfWidth, BUTTON_HEIGHT);
-                upButton.setRect(downButton.right() + GAP, downButton.top(), halfWidth, BUTTON_HEIGHT);
+                downButton.setRect(x, y, halfWidth, BUTTON_HEIGHT);
+                upButton.setRect(downButton.right() + GAP, y, halfWidth, BUTTON_HEIGHT);
                 attractButton.setRect(x, downButton.bottom() + GAP, width, BUTTON_HEIGHT);
             }
         };
-        controls.add(currentMultiplier);
         controls.add(downButton);
         controls.add(upButton);
         controls.add(attractButton);
-        controls.setSize(
-                width,
-                currentMultiplier.height() + GAP + BUTTON_HEIGHT + GAP + BUTTON_HEIGHT);
+        controls.setSize(width, BUTTON_HEIGHT + GAP + BUTTON_HEIGHT);
 
         if (!ModWindowCompat.addToBottom(this, controls, GAP, 2)) {
             controls.setPos(0, height + GAP);
@@ -89,10 +80,6 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
         ModEnemySurgeInfoOverlay.refreshIndicators();
         hide();
         GameScene.show(new WndEnemySurgeInfo(buff));
-    }
-
-    private static String currentText(ModEnemySurge buff) {
-        return "SPAWN MULTIPLIER: " + buff.spawnMultiplier() + "x";
     }
 
     private static String downText(ModEnemySurge buff) {
