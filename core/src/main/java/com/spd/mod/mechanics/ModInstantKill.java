@@ -5,27 +5,20 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Preparation;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.TargetHealthIndicator;
+import com.spd.mod.journal.WndInstantKillInfo;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.HashSet;
 
 /** Permanent Char combat buff with a configurable Instant Kill effect. */
 public class ModInstantKill extends ChampionEnemy {
 
     private static final String INSTANT_KILL = "instant_kill";
-    private static final String OPTIONAL_UI_PACKAGE = "com.spd.mod.journal.";
-    private static final String OPTIONAL_UI_SIMPLE_NAME = "ModTotalInfoOverlay";
-
-    private static boolean optionalUiResolved;
-    private static Method ensureOptionalUiMethod;
-    private static Method refreshOptionalUiMethod;
-
     private boolean instantKill = true;
 
     {
@@ -56,29 +49,16 @@ public class ModInstantKill extends ChampionEnemy {
     public void toggleInstantKill() {
         instantKill = !instantKill;
         BuffIndicator.refreshHero();
-        refreshOptionalUi();
     }
 
-    @Override
-    public boolean attachTo(Char target) {
-        if (!super.attachTo(target)) {
-            return false;
-        }
-        ensureOptionalUi();
-        return true;
-    }
-
-    @Override
-    public void fx(boolean on) {
-        // Do not inherit ChampionEnemy's aura or actor tint.
-        if (on) {
-            ensureOptionalUi();
+    public void openInfo() {
+        if (target != null && find(target) == this) {
+            GameScene.show(new WndInstantKillInfo(this));
         }
     }
 
     @Override
     public boolean act() {
-        ensureOptionalUi();
         spend(TICK);
         return true;
     }
@@ -87,69 +67,6 @@ public class ModInstantKill extends ChampionEnemy {
     public void detach() {
         super.detach();
         BuffIndicator.refreshHero();
-        refreshOptionalUi();
-    }
-
-    private static void ensureOptionalUi() {
-        invokeOptionalUi(false);
-    }
-
-    private static void refreshOptionalUi() {
-        invokeOptionalUi(true);
-    }
-
-    private static void invokeOptionalUi(boolean refresh) {
-        resolveOptionalUi();
-        Method method = refresh ? refreshOptionalUiMethod : ensureOptionalUiMethod;
-        if (method == null) {
-            return;
-        }
-        try {
-            method.invoke(null);
-        } catch (LinkageError e) {
-            disableOptionalUi();
-            return;
-        } catch (InvocationTargetException e) {
-            if (e.getCause() instanceof LinkageError) {
-                disableOptionalUi();
-                return;
-            }
-            throw new IllegalStateException("Unable to invoke optional Instant Kill UI integration", e);
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Unable to invoke optional Instant Kill UI integration", e);
-        }
-    }
-
-    private static void disableOptionalUi() {
-        ensureOptionalUiMethod = null;
-        refreshOptionalUiMethod = null;
-        optionalUiResolved = true;
-    }
-
-    private static synchronized void resolveOptionalUi() {
-        if (optionalUiResolved) {
-            return;
-        }
-
-        String className = new StringBuilder(OPTIONAL_UI_PACKAGE)
-                .append(OPTIONAL_UI_SIMPLE_NAME)
-                .toString();
-        try {
-            Class<?> uiClass = Class.forName(
-                    className,
-                    false,
-                    ModInstantKill.class.getClassLoader());
-            ensureOptionalUiMethod = uiClass.getMethod("ensureInstalled");
-            refreshOptionalUiMethod = uiClass.getMethod("refreshIndicators");
-        } catch (ClassNotFoundException | LinkageError ignored) {
-            // Expected in --ankh-only when the full UI class or one of its
-            // transitive UI dependencies is unavailable in the target fork.
-            disableOptionalUi();
-            return;
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Incompatible optional Instant Kill UI integration", e);
-        }
-        optionalUiResolved = true;
     }
 
     @Override

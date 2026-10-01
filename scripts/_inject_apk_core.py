@@ -67,8 +67,6 @@ MOD_FLASH = "Lcom/spd/mod/mechanics/ModFlash;"
 MOD_FLASH_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModFlash$"
 MOD_PARRY_RIPOSTE = "Lcom/spd/mod/mechanics/ModParryRiposte;"
 MOD_PARRY_RIPOSTE_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModParryRiposte$"
-MOD_TOTAL_INFO_OVERLAY = "Lcom/spd/mod/journal/ModTotalInfoOverlay;"
-MOD_TOTAL_INFO_OVERLAY_INNER_PREFIX = "Lcom/spd/mod/journal/ModTotalInfoOverlay$"
 WND_TOTAL_BUFF_INFO = "Lcom/spd/mod/journal/WndTotalBuffInfo;"
 WND_TOTAL_BUFF_INFO_INNER_PREFIX = "Lcom/spd/mod/journal/WndTotalBuffInfo$"
 MOD_ENEMY_SURGE = "Lcom/spd/mod/mechanics/ModEnemySurge;"
@@ -750,8 +748,6 @@ def is_debug_root(descriptor: str) -> bool:
         or descriptor.startswith(MOD_FLASH_INNER_PREFIX)
         or descriptor == MOD_PARRY_RIPOSTE
         or descriptor.startswith(MOD_PARRY_RIPOSTE_INNER_PREFIX)
-        or descriptor == MOD_TOTAL_INFO_OVERLAY
-        or descriptor.startswith(MOD_TOTAL_INFO_OVERLAY_INNER_PREFIX)
         or descriptor == WND_TOTAL_BUFF_INFO
         or descriptor.startswith(WND_TOTAL_BUFF_INFO_INNER_PREFIX)
         or descriptor == MOD_ENEMY_SURGE
@@ -865,7 +861,6 @@ def build_debug_payload(
         MOD_ASSASSIN,
         MOD_FLASH,
         MOD_PARRY_RIPOSTE,
-        MOD_TOTAL_INFO_OVERLAY,
         WND_TOTAL_BUFF_INFO,
         MOD_ENEMY_SURGE,
         MOD_ENEMY_SURGE_INFO_OVERLAY,

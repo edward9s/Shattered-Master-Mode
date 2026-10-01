@@ -29,7 +29,7 @@ class InjectionKitPackagingTests(unittest.TestCase):
                 "_inject_apk_core.py",
                 "_inject_apk_ankh.py",
                 "_inject_action_name.py",
-                "_inject_last_stand_click.py",
+                "_inject_buff_click.py",
                 "inject_jar.py",
                 "_inject_jar_core.py",
             }

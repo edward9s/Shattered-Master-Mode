@@ -94,8 +94,8 @@ def configure(public_module) -> None:
             char_class.text,
         )
 
-        public_module._pending_last_stand_click_patch = (
-            public_module.last_stand_click.find_target(
+        public_module._pending_buff_click_patch = (
+            public_module.buff_click.find_target(
                 injector, target_index, game_prefix
             )
         )
@@ -418,7 +418,7 @@ def configure(public_module) -> None:
             allowed,
         )
 
-    def compile_smali_with_last_stand_click(
+    def compile_smali_with_buff_click(
         java: Path,
         smali_jar: Path,
         directory: Path,
@@ -438,7 +438,6 @@ def configure(public_module) -> None:
             raise injector.InjectError("Target ABI profile was not initialized")
 
         public_module.write_action_name_overlay(directory)
-        public_module.write_last_stand_click_patch(directory)
 
         if pending_char is None:
             if instant_enabled:
@@ -546,6 +545,13 @@ def configure(public_module) -> None:
                 char_path.parent.mkdir(parents=True, exist_ok=True)
                 char_path.write_text(patched_char, encoding="utf-8")
 
+        public_module.write_buff_click_patch(
+            directory,
+            instant=instant_enabled,
+            force=force_enabled,
+            full=False,
+        )
+
         core_keys = set(
             getattr(public_module, "_ankh_core_payload_descriptors", set())
         )
@@ -570,7 +576,7 @@ def configure(public_module) -> None:
                 java, smali_jar, directory, output, api
             )
         finally:
-            public_module._pending_last_stand_click_patch = None
+            public_module._pending_buff_click_patch = None
             public_module._pending_action_name_overlay = None
             public_module._pending_char_overlay = None
 
@@ -589,5 +595,5 @@ def configure(public_module) -> None:
     injector.payload_compatibility_errors = payload_compatibility_errors
     injector.find_class = public_module._original_find_class
     injector.patch_dungeon = public_module._original_patch_dungeon
-    injector.compile_smali = compile_smali_with_last_stand_click
+    injector.compile_smali = compile_smali_with_buff_click
     injector.output_path = output_path

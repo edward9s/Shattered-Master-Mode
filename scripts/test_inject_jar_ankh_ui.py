@@ -29,14 +29,17 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertFalse(hasattr(mod, "_ACTION_MESSAGES"))
         self.assertFalse(hasattr(mod, "_append_action_messages"))
 
-    def test_last_stand_click_is_direct_target_patch(self):
-        source = mod.LAST_STAND_BUFF_CLICK_HELPER
-        self.assertIn('INFO_HELPER = "smm$lastStandInfo"', source)
+    def test_buff_click_is_direct_target_patch(self):
+        source = mod.BUFF_CLICK_HELPER
+        self.assertIn('INFO_HELPER = "smm$nativeInfo"', source)
         self.assertIn('LONG_HELPER = "smm$nativeLongClick"', source)
         self.assertIn('"onClick"', source)
         self.assertIn('"onLongClick"', source)
-        self.assertIn('"open"', source)
-        self.assertIn("short click=Store, long click=native info", source)
+        self.assertIn('result.put(LAST_STAND, "open")', source)
+        self.assertIn('result.put(INSTANT_KILL, "openInfo")', source)
+        self.assertIn('result.put(FORCE_HIT, "openInfo")', source)
+        self.assertIn('result.put(PARRY_RIPOSTE, "openInfo")', source)
+        self.assertIn('result.put(ASSASSINATE, "openInfo")', source)
 
     def test_tag_has_only_store_tag_responsibility(self):
         root = pathlib.Path(__file__).resolve().parents[1]
@@ -53,19 +56,35 @@ class AnkhJarUiTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, source)
 
-    def test_apk_full_and_ankh_only_share_last_stand_patch_module(self):
+    def test_total_info_overlay_is_removed(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        overlay = root / "core/src/main/java/com/spd/mod/journal/ModTotalInfoOverlay.java"
+        self.assertFalse(overlay.exists())
+
+        for relative in (
+            "core/src/main/java/com/spd/mod/mechanics/ModParryRiposte.java",
+            "core/src/main/java/com/spd/mod/mechanics/ModInstantKill.java",
+            "core/src/main/java/com/spd/mod/mechanics/ModForceHit.java",
+            "core/src/main/java/com/spd/mod/mechanics/ModAssassinate.java",
+            "core/src/main/java/com/spd/mod/journal/WndTotalBuffInfo.java",
+            "core/src/main/java/com/spd/mod/journal/WndInstantKillInfo.java",
+        ):
+            source = (root / relative).read_text(encoding="utf-8")
+            self.assertNotIn("ModTotalInfoOverlay", source)
+
+    def test_apk_full_and_ankh_only_share_buff_patch_module(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         full = (root / "scripts/inject_apk.py").read_text(encoding="utf-8")
         narrow = (root / "scripts/_inject_apk_ankh.py").read_text(encoding="utf-8")
-        shared = (root / "scripts/_inject_last_stand_click.py").read_text(
+        shared = (root / "scripts/_inject_buff_click.py").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("import _inject_last_stand_click as last_stand_click", full)
-        self.assertIn("last_stand_click.find_target", full)
-        self.assertIn("write_last_stand_click_patch", full)
-        self.assertIn("last_stand_click.find_target", narrow)
-        self.assertIn("write_last_stand_click_patch", narrow)
+        self.assertIn("import _inject_buff_click as buff_click", full)
+        self.assertIn("buff_click.find_target", full)
+        self.assertIn("write_buff_click_patch", full)
+        self.assertIn("write_buff_click_patch", narrow)
+        self.assertIn("selected_handlers", shared)
 
         for duplicate in (
             "_find_buff_click_overlay",
@@ -298,9 +317,15 @@ public class Harness {{
                 work,
                 native_long_click=native_long_click,
             )
-            entry, patched = mod.patch_last_stand_buff_click_jar(
-                java, target, work, GAME_ROOT
-            )
+            entry, patched = mod.patch_buff_click_jar(
+                    java,
+                    target,
+                    work,
+                    GAME_ROOT,
+                    instant=False,
+                    force=False,
+                    full=False,
+                )
             target_class = classes / entry
             target_class.write_bytes(patched.read_bytes())
 
@@ -334,8 +359,14 @@ public class Harness {{
                 extra_candidate=True,
             )
             with self.assertRaises(mod.injector.InjectError):
-                mod.patch_last_stand_buff_click_jar(
-                    java, target, work, GAME_ROOT
+                mod.patch_buff_click_jar(
+                    java,
+                    target,
+                    work,
+                    GAME_ROOT,
+                    instant=False,
+                    force=False,
+                    full=False,
                 )
 
     def test_last_stand_zero_candidates_fail_early(self):
@@ -348,8 +379,14 @@ public class Harness {{
                 info_click=False,
             )
             with self.assertRaises(mod.injector.InjectError):
-                mod.patch_last_stand_buff_click_jar(
-                    java, target, work, GAME_ROOT
+                mod.patch_buff_click_jar(
+                    java,
+                    target,
+                    work,
+                    GAME_ROOT,
+                    instant=False,
+                    force=False,
+                    full=False,
                 )
 
     @classmethod

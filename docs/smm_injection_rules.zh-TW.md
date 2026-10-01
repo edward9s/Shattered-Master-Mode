@@ -57,9 +57,9 @@ JAR 注入不使用這把 APK 簽章金鑰。
 - 不複製任意 donor-only 或混淆 class 來掩蓋 compatibility error。
 - `--ankh-only` 必須保持精簡；ModAnkh + ModLastStand 與 Store / Loot / Debug Console 是保證核心，Instant Kill 與 Force Hit 是選配，不能因選配失敗拖垮核心注入。
 - 「選配」不代表消極放棄。APK 與 JAR 都必須先讓 Instant Kill / Force Hit 使用同一套 modern direct → legacy direct → structural fallback；Instant Kill 若找不到安全的命中成功分支仍可退回 `attackProc()`，Force Hit 則只有在找不到安全的 selected hit-check 時才跳過。
-- 選配的 full-SMM UI bridge 不得讓 ankh-only target 當機。若 UI class 本身或其任一 target UI 傳遞相依在 runtime 無法 linkage，應只停用該 optional UI bridge，保留底層戰鬥 Buff 正常運作。
+- `--ankh-only` 會把 Instant Kill 與 Force Hit（包含各自的 checkbox info window）視為完整的選配 dependency closure 驗證。若某功能的 UI 或 target API 相依不相容，就在 patch `BuffIndicator` 前跳過整個選配功能；不得讓 click bridge 引用已被省略的 payload class。
 - Mod 系列 action 文字維持直接由程式碼提供。APK/JAR 若遇到舊版 `WndUseItem` 繞過 `Item.actionName()`、直接呼叫 `Messages.get(...)`，應只對該 legacy call site 做 ABI bridge，讓 `ac_*` 重新走 target 已存在的虛擬 `Item.actionName(action, hero)`；不要為 ModAnkh 修改 `items*.properties`。
-- Last Stand 的 BuffIndicator 行為在 APK/JAR、full/ankh-only 都直接 patch target：短按開啟 Store window；長按保留 target 原本的 buff info 行為。舊的混合式 click/tag UI layer 已移除；full SMM 的側邊入口獨立成 `ModLastStandTag`，且不進入 ankh-only dependency closure。
+- 可設定的 SMM buff 在 source build、APK injection、JAR injection 都共用直接 `BuffIndicator` bridge：短按呼叫該 buff 自己的 `open()` / `openInfo()`，長按保留 target 原本的 buff info 行為。Full SMM 處理 Last Stand、Parry/Riposte、Instant Kill、Force Hit、Assassinate；`--ankh-only` 固定處理 Last Stand，並只加入通過相容性檢查的 Instant Kill / Force Hit。`ModTotalInfoOverlay` 已移除；full SMM 的側邊入口仍由獨立的 `ModLastStandTag` 負責。
 - 完整注入可以使用既有 SMM 選單與 Riposte `Char.attack()` hook。APK/JAR 都會選擇唯一的 terminal `Char.attack()` overload，並共用 modern direct → legacy direct → structural 的 selected hit-check。Instant Kill 能安全辨識該 selected hit-check 的成功分支時就安裝 pre-defense hook；無法安全辨識時仍保留 `attackProc()` fallback。Force Hit 則直接 patch 同一個 selected hit-check。最小注入不得安裝 Riposte 或完整選單，但可以安裝上述狹窄用途的 Instant Kill / Force Hit hook。
 - 存檔匯入匯出不得硬連結會隨 SPD 世代變動的 desktop 檔案 API；`FileUtils.getFileHandle(...)`、舊式 `FileUtils.getDir(...)` 與 backing `File` 應在 runtime 解析，避免 APK 根本不會執行的 desktop 路徑先讓 payload compatibility validation 失敗。
 - Debug Console 指令可能觸發 target 本身既有的 bug；不要為了讓指令表面成功而順便修改無關的 target 遊戲邏輯。

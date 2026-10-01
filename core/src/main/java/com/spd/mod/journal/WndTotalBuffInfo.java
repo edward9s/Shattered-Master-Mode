@@ -25,7 +25,6 @@ public class WndTotalBuffInfo extends WndInfoBuff {
                 super.onClick();
                 buff.toggleParry();
                 checked(buff.parryEnabled());
-                ModTotalInfoOverlay.refreshIndicators();
             }
         };
         parryCheck.checked(buff.parryEnabled());
@@ -41,7 +40,6 @@ public class WndTotalBuffInfo extends WndInfoBuff {
                 super.onClick();
                 buff.toggleRiposte();
                 checked(buff.riposteEnabled());
-                ModTotalInfoOverlay.refreshIndicators();
             }
         };
         riposteCheck.checked(buff.riposteEnabled());

@@ -17,7 +17,7 @@ from typing import Callable, Sequence
 from _attack_hook_common import select_unique_terminal
 import _inject_apk_core as injector
 import _inject_action_name as action_name
-import _inject_last_stand_click as last_stand_click
+import _inject_buff_click as buff_click
 
 # The source buff was renamed without a compatibility alias. Keep the mature
 # core injector implementation and retarget its payload-family globals here.
@@ -244,7 +244,7 @@ _full_donor_payload: dict[str, injector.SmaliClass] = {}
 _current_abi_profile: AbiProfile | None = None
 _current_game_prefix: str | None = None
 _pending_char_overlay: tuple[str, str] | None = None
-_pending_last_stand_click_patch: tuple[str, str] | None = None
+_pending_buff_click_patch: tuple[str, str] | None = None
 _pending_action_name_overlay: tuple[str, str] | None = None
 _ankh_only_mode = False
 
@@ -847,12 +847,12 @@ def detect_target_game_prefix(
     target_index: dict[str, injector.SmaliClass],
 ) -> str:
     global _current_abi_profile, _current_game_prefix
-    global _pending_char_overlay, _pending_last_stand_click_patch
+    global _pending_char_overlay, _pending_buff_click_patch
     global _pending_action_name_overlay
     game_prefix = _original_detect_target_game_prefix(target_index)
     _current_game_prefix = game_prefix
     _pending_char_overlay = None
-    _pending_last_stand_click_patch = last_stand_click.find_target(
+    _pending_buff_click_patch = buff_click.find_target(
         injector, target_index, game_prefix
     )
     _pending_action_name_overlay = action_name.find_target(
@@ -994,7 +994,7 @@ def adapt_modankh(
 
 
 def find_wndgame_instead_of_dungeon(root: Path, descriptor: str):
-    global _pending_char_overlay, _pending_last_stand_click_patch
+    global _pending_char_overlay, _pending_buff_click_patch
     if descriptor.endswith("/Dungeon;"):
         game_prefix = descriptor[:-len("Dungeon;")]
         char_descriptor = game_prefix + "actors/Char;"
@@ -1335,18 +1335,33 @@ def write_action_name_overlay(directory: Path) -> None:
     output.write_text(patched, encoding="utf-8")
 
 
-def write_last_stand_click_patch(directory: Path) -> None:
-    global _pending_last_stand_click_patch
-    if _pending_last_stand_click_patch is None:
+def write_buff_click_patch(
+    directory: Path,
+    *,
+    instant: bool,
+    force: bool,
+    full: bool,
+) -> None:
+    global _pending_buff_click_patch
+    if _pending_buff_click_patch is None:
         raise injector.InjectError(
-            "Last Stand BuffIndicator click patch source was not captured"
+            "SMM BuffIndicator click patch source was not captured"
         )
     if _current_game_prefix is None:
         raise injector.InjectError("Target game package was not initialized")
 
-    descriptor, original_text = _pending_last_stand_click_patch
-    patched = last_stand_click.patch(
-        injector, original_text, descriptor, _current_game_prefix
+    descriptor, original_text = _pending_buff_click_patch
+    handlers = buff_click.selected_handlers(
+        instant=instant,
+        force=force,
+        full=full,
+    )
+    patched = buff_click.patch(
+        injector,
+        original_text,
+        descriptor,
+        _current_game_prefix,
+        handlers,
     )
     output = directory / Path(descriptor[1:-1] + ".smali")
     if output.exists():
@@ -1356,7 +1371,6 @@ def write_last_stand_click_patch(directory: Path) -> None:
         )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(patched, encoding="utf-8")
-    injector.log("Last Stand BuffIndicator click hook: OK")
 
 
 def compile_smali_with_char_hook(
@@ -1366,7 +1380,7 @@ def compile_smali_with_char_hook(
     output: Path,
     api: int,
 ) -> None:
-    global _pending_char_overlay, _pending_last_stand_click_patch
+    global _pending_char_overlay, _pending_buff_click_patch
     global _pending_action_name_overlay
     if _pending_char_overlay is None:
         raise injector.InjectError("Char.attack overlay source was not captured")
@@ -1439,13 +1453,13 @@ def compile_smali_with_char_hook(
     )
 
     write_action_name_overlay(directory)
-    write_last_stand_click_patch(directory)
+    write_buff_click_patch(directory, instant=True, force=True, full=True)
 
     try:
         _original_compile_smali(java, smali_jar, directory, output, api)
     finally:
         _pending_char_overlay = None
-        _pending_last_stand_click_patch = None
+        _pending_buff_click_patch = None
         _pending_action_name_overlay = None
 
 

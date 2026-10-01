@@ -7,7 +7,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import _inject_action_name as action_name
 import _inject_apk_core as injector
-import _inject_last_stand_click as last_stand_click
+import _inject_buff_click as buff_click
 import _inject_apk_ankh as ankh_mode
 
 
@@ -52,20 +52,28 @@ def button_text(descriptor=BUFF_BUTTON, *, native_long=False, info_click=True):
 
 class ApkUiCompatTests(unittest.TestCase):
 
-    def test_last_stand_direct_patch_preserves_click_body_and_adds_long_click(self):
-        patched = last_stand_click.patch(
-            injector, button_text(), BUFF_BUTTON, GAME
+    def test_full_buff_click_patch_dispatches_all_mod_buffs(self):
+        handlers = buff_click.selected_handlers(
+            instant=True,
+            force=True,
+            full=True,
         )
-        self.assertIn(
+        patched = buff_click.patch(
+            injector, button_text(), BUFF_BUTTON, GAME, handlers
+        )
+
+        for hook in (
             "Lcom/spd/mod/mechanics/ModLastStand;->open()V",
-            patched,
-        )
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->openInfo()V",
+            "Lcom/spd/mod/mechanics/ModInstantKill;->openInfo()V",
+            "Lcom/spd/mod/mechanics/ModForceHit;->openInfo()V",
+            "Lcom/spd/mod/mechanics/ModAssassinate;->openInfo()V",
+        ):
+            self.assertIn(hook, patched)
+
+        self.assertIn(".method private smmNativeInfo()V", patched)
         self.assertIn(
-            ".method private smmLastStandInfo()V",
-            patched,
-        )
-        self.assertIn(
-            f"invoke-direct {{p0}}, {BUFF_BUTTON}->smmLastStandInfo()V",
+            f"invoke-direct {{p0}}, {BUFF_BUTTON}->smmNativeInfo()V",
             patched,
         )
         self.assertIn(".method protected onClick()V", patched)
@@ -75,12 +83,40 @@ class ApkUiCompatTests(unittest.TestCase):
             patched,
         )
 
-    def test_last_stand_existing_long_click_is_preserved_for_normal_buffs(self):
-        patched = last_stand_click.patch(
+    def test_narrow_buff_click_patch_only_references_kept_features(self):
+        handlers = buff_click.selected_handlers(
+            instant=True,
+            force=False,
+            full=False,
+        )
+        patched = buff_click.patch(
+            injector, button_text(), BUFF_BUTTON, GAME, handlers
+        )
+
+        self.assertIn(
+            "Lcom/spd/mod/mechanics/ModLastStand;->open()V",
+            patched,
+        )
+        self.assertIn(
+            "Lcom/spd/mod/mechanics/ModInstantKill;->openInfo()V",
+            patched,
+        )
+        self.assertNotIn("Lcom/spd/mod/mechanics/ModForceHit;", patched)
+        self.assertNotIn("Lcom/spd/mod/mechanics/ModParryRiposte;", patched)
+        self.assertNotIn("Lcom/spd/mod/mechanics/ModAssassinate;", patched)
+
+    def test_existing_long_click_is_preserved_for_normal_buffs(self):
+        handlers = buff_click.selected_handlers(
+            instant=False,
+            force=False,
+            full=False,
+        )
+        patched = buff_click.patch(
             injector,
             button_text(native_long=True),
             BUFF_BUTTON,
             GAME,
+            handlers,
         )
         self.assertIn(
             ".method private smmNativeLongClick()Z",
@@ -91,13 +127,13 @@ class ApkUiCompatTests(unittest.TestCase):
             patched,
         )
         self.assertIn(
-            f"invoke-direct {{p0}}, {BUFF_BUTTON}->smmLastStandInfo()V",
+            f"invoke-direct {{p0}}, {BUFF_BUTTON}->smmNativeInfo()V",
             patched,
         )
 
-    def test_last_stand_target_selection_fails_on_zero_or_multiple_candidates(self):
+    def test_buff_click_target_selection_fails_on_zero_or_multiple_candidates(self):
         with self.assertRaises(injector.InjectError):
-            last_stand_click.find_target(injector, {}, GAME)
+            buff_click.find_target(injector, {}, GAME)
 
         first = injector.SmaliClass.from_text(
             pathlib.Path("BuffIcon.smali"),
@@ -108,7 +144,7 @@ class ApkUiCompatTests(unittest.TestCase):
             button_text(SECOND_BUTTON),
         )
         with self.assertRaises(injector.InjectError):
-            last_stand_click.find_target(
+            buff_click.find_target(
                 injector,
                 {
                     first.descriptor: first,
@@ -117,13 +153,13 @@ class ApkUiCompatTests(unittest.TestCase):
                 GAME,
             )
 
-    def test_last_stand_target_selection_ignores_non_info_click(self):
+    def test_buff_click_target_selection_ignores_non_info_click(self):
         non_info = injector.SmaliClass.from_text(
             pathlib.Path("BuffIcon.smali"),
             button_text(info_click=False),
         )
         with self.assertRaises(injector.InjectError):
-            last_stand_click.find_target(
+            buff_click.find_target(
                 injector,
                 {non_info.descriptor: non_info},
                 GAME,

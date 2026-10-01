@@ -99,8 +99,6 @@ def patch_proguard(file_path, game_package):
         '-keep class com.spd.mod.mechanics.ModFlash$* { *; }',
         '-keep class com.spd.mod.mechanics.ModParryRiposte { *; }',
         '-keep class com.spd.mod.mechanics.ModParryRiposte$* { *; }',
-        '-keep class com.spd.mod.journal.ModTotalInfoOverlay { *; }',
-        '-keep class com.spd.mod.journal.ModTotalInfoOverlay$* { *; }',
         '-keep class com.spd.mod.journal.WndTotalBuffInfo { *; }',
         '-keep class com.spd.mod.journal.WndTotalBuffInfo$* { *; }',
         '-keep class com.spd.mod.mechanics.ModEnemySurge { *; }',

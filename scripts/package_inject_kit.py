@@ -38,7 +38,7 @@ def populate_kit(
         "scripts/_inject_apk_core.py",
         "scripts/_inject_apk_ankh.py",
         "scripts/_inject_action_name.py",
-        "scripts/_inject_last_stand_click.py",
+        "scripts/_inject_buff_click.py",
         "scripts/inject_jar.py",
         "scripts/_inject_jar_core.py",
     ):

@@ -981,26 +981,47 @@ def build_ankh_payload(
     )
 
 
-LAST_STAND_BUFF_CLICK_HELPER = r'''
+BUFF_CLICK_HELPER = r'''
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 import java.util.jar.*;
 import jdk.internal.org.objectweb.asm.*;
 
-public class SmmLastStandBuffClickPatcher {
+public class SmmBuffClickPatcher {
     static final int API = Opcodes.ASM8;
     static final String BUFF = "__BUFF__";
     static final String WND_INFO_BUFF = "__WND_INFO_BUFF__";
     static final String BUFF_INDICATOR_PREFIX = "__BUFF_INDICATOR_PREFIX__";
+
+    static final boolean ENABLE_INSTANT = __ENABLE_INSTANT__;
+    static final boolean ENABLE_FORCE = __ENABLE_FORCE__;
+    static final boolean ENABLE_FULL = __ENABLE_FULL__;
+
     static final String LAST_STAND = "com/spd/mod/mechanics/ModLastStand";
-    static final String INFO_HELPER = "smm$lastStandInfo";
+    static final String PARRY_RIPOSTE = "com/spd/mod/mechanics/ModParryRiposte";
+    static final String INSTANT_KILL = "com/spd/mod/mechanics/ModInstantKill";
+    static final String FORCE_HIT = "com/spd/mod/mechanics/ModForceHit";
+    static final String ASSASSINATE = "com/spd/mod/mechanics/ModAssassinate";
+
+    static final String INFO_HELPER = "smm$nativeInfo";
     static final String LONG_HELPER = "smm$nativeLongClick";
+    static final String LEGACY_INFO_HELPER = "smm$lastStandInfo";
 
     static byte[] read(JarFile jar, JarEntry entry) throws IOException {
         try (InputStream in = jar.getInputStream(entry)) {
             return in.readAllBytes();
         }
+    }
+
+    static LinkedHashMap<String, String> handlers() {
+        LinkedHashMap<String, String> result = new LinkedHashMap<>();
+        result.put(LAST_STAND, "open");
+        if (ENABLE_FULL) result.put(PARRY_RIPOSTE, "openInfo");
+        if (ENABLE_INSTANT) result.put(INSTANT_KILL, "openInfo");
+        if (ENABLE_FORCE) result.put(FORCE_HIT, "openInfo");
+        if (ENABLE_FULL) result.put(ASSASSINATE, "openInfo");
+        return result;
     }
 
     static final class Shape {
@@ -1043,7 +1064,9 @@ public class SmmLastStandBuffClickPatcher {
             @Override
             public MethodVisitor visitMethod(int access, String name, String desc,
                                              String signature, String[] exceptions) {
-                if (INFO_HELPER.equals(name) || LONG_HELPER.equals(name)) {
+                if (INFO_HELPER.equals(name)
+                        || LONG_HELPER.equals(name)
+                        || LEGACY_INFO_HELPER.equals(name)) {
                     shape.alreadyPatched = true;
                 }
                 if ("onLongClick".equals(name)
@@ -1071,7 +1094,9 @@ public class SmmLastStandBuffClickPatcher {
                         if (WND_INFO_BUFF.equals(owner) && "<init>".equals(methodName)) {
                             shape.infoRefs++;
                         }
-                        if (LAST_STAND.equals(owner) && "open".equals(methodName)) {
+                        String expected = handlers().get(owner);
+                        if (expected != null && expected.equals(methodName)
+                                && "()V".equals(methodDesc)) {
                             shape.alreadyPatched = true;
                         }
                     }
@@ -1086,10 +1111,62 @@ public class SmmLastStandBuffClickPatcher {
                 | Opcodes.ACC_PRIVATE;
     }
 
+    static void emitShortHandler(
+            MethodVisitor click, Shape shape, String type, String method) {
+        Label next = new Label();
+        click.visitVarInsn(Opcodes.ALOAD, 0);
+        click.visitFieldInsn(
+                Opcodes.GETFIELD,
+                shape.className,
+                shape.buffField,
+                "L" + BUFF + ";");
+        click.visitTypeInsn(Opcodes.INSTANCEOF, type);
+        click.visitJumpInsn(Opcodes.IFEQ, next);
+        click.visitVarInsn(Opcodes.ALOAD, 0);
+        click.visitFieldInsn(
+                Opcodes.GETFIELD,
+                shape.className,
+                shape.buffField,
+                "L" + BUFF + ";");
+        click.visitTypeInsn(Opcodes.CHECKCAST, type);
+        click.visitMethodInsn(
+                Opcodes.INVOKEVIRTUAL,
+                type,
+                method,
+                "()V",
+                false);
+        click.visitInsn(Opcodes.RETURN);
+        click.visitLabel(next);
+        click.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+    }
+
+    static void emitLongHandler(MethodVisitor click, Shape shape, String type) {
+        Label next = new Label();
+        click.visitVarInsn(Opcodes.ALOAD, 0);
+        click.visitFieldInsn(
+                Opcodes.GETFIELD,
+                shape.className,
+                shape.buffField,
+                "L" + BUFF + ";");
+        click.visitTypeInsn(Opcodes.INSTANCEOF, type);
+        click.visitJumpInsn(Opcodes.IFEQ, next);
+        click.visitVarInsn(Opcodes.ALOAD, 0);
+        click.visitMethodInsn(
+                Opcodes.INVOKESPECIAL,
+                shape.className,
+                INFO_HELPER,
+                "()V",
+                false);
+        click.visitInsn(Opcodes.ICONST_1);
+        click.visitInsn(Opcodes.IRETURN);
+        click.visitLabel(next);
+        click.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+    }
+
     static byte[] patch(byte[] original, Shape shape) {
         if (shape.alreadyPatched) {
             throw new IllegalStateException(
-                    "BuffIndicator button already contains Last Stand click patch");
+                    "BuffIndicator button already contains an SMM click bridge");
         }
 
         ClassReader reader = new ClassReader(original);
@@ -1127,31 +1204,9 @@ public class SmmLastStandBuffClickPatcher {
                 MethodVisitor click = super.visitMethod(
                         Opcodes.ACC_PROTECTED, "onClick", "()V", null, null);
                 click.visitCode();
-                Label nativeClick = new Label();
-                click.visitVarInsn(Opcodes.ALOAD, 0);
-                click.visitFieldInsn(
-                        Opcodes.GETFIELD,
-                        shape.className,
-                        shape.buffField,
-                        "L" + BUFF + ";");
-                click.visitTypeInsn(Opcodes.INSTANCEOF, LAST_STAND);
-                click.visitJumpInsn(Opcodes.IFEQ, nativeClick);
-                click.visitVarInsn(Opcodes.ALOAD, 0);
-                click.visitFieldInsn(
-                        Opcodes.GETFIELD,
-                        shape.className,
-                        shape.buffField,
-                        "L" + BUFF + ";");
-                click.visitTypeInsn(Opcodes.CHECKCAST, LAST_STAND);
-                click.visitMethodInsn(
-                        Opcodes.INVOKEVIRTUAL,
-                        LAST_STAND,
-                        "open",
-                        "()V",
-                        false);
-                click.visitInsn(Opcodes.RETURN);
-                click.visitLabel(nativeClick);
-                click.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                for (Map.Entry<String, String> handler : handlers().entrySet()) {
+                    emitShortHandler(click, shape, handler.getKey(), handler.getValue());
+                }
                 click.visitVarInsn(Opcodes.ALOAD, 0);
                 click.visitMethodInsn(
                         Opcodes.INVOKESPECIAL,
@@ -1166,26 +1221,9 @@ public class SmmLastStandBuffClickPatcher {
                 MethodVisitor longClick = super.visitMethod(
                         Opcodes.ACC_PROTECTED, "onLongClick", "()Z", null, null);
                 longClick.visitCode();
-                Label nativeLong = new Label();
-                longClick.visitVarInsn(Opcodes.ALOAD, 0);
-                longClick.visitFieldInsn(
-                        Opcodes.GETFIELD,
-                        shape.className,
-                        shape.buffField,
-                        "L" + BUFF + ";");
-                longClick.visitTypeInsn(Opcodes.INSTANCEOF, LAST_STAND);
-                longClick.visitJumpInsn(Opcodes.IFEQ, nativeLong);
-                longClick.visitVarInsn(Opcodes.ALOAD, 0);
-                longClick.visitMethodInsn(
-                        Opcodes.INVOKESPECIAL,
-                        shape.className,
-                        INFO_HELPER,
-                        "()V",
-                        false);
-                longClick.visitInsn(Opcodes.ICONST_1);
-                longClick.visitInsn(Opcodes.IRETURN);
-                longClick.visitLabel(nativeLong);
-                longClick.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                for (String type : handlers().keySet()) {
+                    emitLongHandler(longClick, shape, type);
+                }
                 longClick.visitVarInsn(Opcodes.ALOAD, 0);
                 if (shape.hasLongClick) {
                     longClick.visitMethodInsn(
@@ -1217,7 +1255,7 @@ public class SmmLastStandBuffClickPatcher {
     public static void main(String[] args) throws Exception {
         if (args.length != 3) {
             throw new IllegalArgumentException(
-                    "Usage: SmmLastStandBuffClickPatcher <target.jar> <out-class> <status.txt>");
+                    "Usage: SmmBuffClickPatcher <target.jar> <out-class> <status.txt>");
         }
 
         Path target = Paths.get(args[0]);
@@ -1259,12 +1297,11 @@ public class SmmLastStandBuffClickPatcher {
         Files.writeString(status, entry + "\n");
 
         System.out.println(
-                "Last Stand BuffIndicator click hook: OK (" + entry
-                        + "; short click=Store, long click=native info)");
+                "SMM BuffIndicator click hook: OK (" + entry
+                        + "; handlers=" + handlers().keySet() + ")");
     }
 }
 '''
-
 
 WND_USE_ITEM_ACTION_HELPER = r'''
 import java.io.*;
@@ -2111,23 +2148,30 @@ public class SmmAnkhCharAttackPatcher {
 '''
 
 
-def patch_last_stand_buff_click_jar(
+def patch_buff_click_jar(
     java: Path,
     target: Path,
     work: Path,
     target_game_root: str,
+    *,
+    instant: bool,
+    force: bool,
+    full: bool,
 ) -> tuple[str, Path]:
-    helper = work / "SmmLastStandBuffClickPatcher.java"
+    helper = work / "SmmBuffClickPatcher.java"
     helper.write_text(
-        LAST_STAND_BUFF_CLICK_HELPER
+        BUFF_CLICK_HELPER
         .replace("__BUFF__", target_game_root + "/actors/buffs/Buff")
         .replace("__WND_INFO_BUFF__", target_game_root + "/windows/WndInfoBuff")
-        .replace("__BUFF_INDICATOR_PREFIX__", target_game_root + "/ui/BuffIndicator$"),
+        .replace("__BUFF_INDICATOR_PREFIX__", target_game_root + "/ui/BuffIndicator$")
+        .replace("__ENABLE_INSTANT__", str(instant).lower())
+        .replace("__ENABLE_FORCE__", str(force).lower())
+        .replace("__ENABLE_FULL__", str(full).lower()),
         encoding="utf-8",
     )
 
-    output = work / "LastStandBuffButton.class"
-    status = work / "last-stand-buff-click-entry.txt"
+    output = work / "SmmBuffButton.class"
+    status = work / "smm-buff-click-entry.txt"
     injector.run([
         java,
         "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
@@ -2136,18 +2180,18 @@ def patch_last_stand_buff_click_jar(
 
     if not output.is_file() or not output.read_bytes().startswith(injector.CLASS_MAGIC):
         raise injector.InjectError(
-            "Last Stand BuffIndicator helper did not produce a valid class"
+            "SMM BuffIndicator helper did not produce a valid class"
         )
     if not status.is_file():
         raise injector.InjectError(
-            "Last Stand BuffIndicator helper did not report the patched entry"
+            "SMM BuffIndicator helper did not report the patched entry"
         )
 
     entry = status.read_text(encoding="utf-8").strip()
     prefix = target_game_root + "/ui/BuffIndicator$"
     if not entry.startswith(prefix) or not entry.endswith(".class"):
         raise injector.InjectError(
-            "Last Stand BuffIndicator helper reported an invalid entry: " + entry
+            "SMM BuffIndicator helper reported an invalid entry: " + entry
         )
     return entry, output
 
@@ -2411,9 +2455,6 @@ def run_ankh_only(
     patched_wnd_use_item = patch_wnd_use_item_action_names(
         java, target, work, target_game_root
     )
-    patched_buff_click = patch_last_stand_buff_click_jar(
-        java, target, work, target_game_root
-    )
     try:
         patched_char, enabled_features = patch_ankh_char(
             java, target, probe_payload_jar, work, target_game_root
@@ -2434,6 +2475,16 @@ def run_ankh_only(
                 "keeping ModInstantKill with attackProc fallback"
             )
         payload_features.add("instant")
+
+    patched_buff_click = patch_buff_click_jar(
+        java,
+        target,
+        work,
+        target_game_root,
+        instant="instant" in payload_features,
+        force="force" in payload_features,
+        full=False,
+    )
 
     payload = dict(core_payload)
     for feature in sorted(payload_features):
@@ -2607,8 +2658,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         patched_wnd_use_item = patch_wnd_use_item_action_names(
             java, target, work, target_game_root
         )
-        patched_buff_click = patch_last_stand_buff_click_jar(
-            java, target, work, target_game_root
+        patched_buff_click = patch_buff_click_jar(
+            java,
+            target,
+            work,
+            target_game_root,
+            instant=True,
+            force=True,
+            full=True,
         )
 
         injector.step("Repacking target JAR")

@@ -1,12 +1,37 @@
 #!/usr/bin/env python3
-"""Shared structural Last Stand BuffIndicator patch for APK injection."""
+"""Shared structural SMM BuffIndicator click patch for APK injection."""
 from __future__ import annotations
 
 import re
 
 LAST_STAND = "Lcom/spd/mod/mechanics/ModLastStand;"
-INFO_HELPER = "smmLastStandInfo"
+INSTANT_KILL = "Lcom/spd/mod/mechanics/ModInstantKill;"
+FORCE_HIT = "Lcom/spd/mod/mechanics/ModForceHit;"
+PARRY_RIPOSTE = "Lcom/spd/mod/mechanics/ModParryRiposte;"
+ASSASSINATE = "Lcom/spd/mod/mechanics/ModAssassinate;"
+
+LAST_STAND_HANDLER = (LAST_STAND, "open")
+INSTANT_KILL_HANDLER = (INSTANT_KILL, "openInfo")
+FORCE_HIT_HANDLER = (FORCE_HIT, "openInfo")
+PARRY_RIPOSTE_HANDLER = (PARRY_RIPOSTE, "openInfo")
+ASSASSINATE_HANDLER = (ASSASSINATE, "openInfo")
+
+INFO_HELPER = "smmNativeInfo"
 LONG_HELPER = "smmNativeLongClick"
+_LEGACY_HELPERS = ("smmLastStandInfo", "smm$lastStandInfo")
+
+
+def selected_handlers(*, instant: bool, force: bool, full: bool):
+    handlers = [LAST_STAND_HANDLER]
+    if full:
+        handlers.append(PARRY_RIPOSTE_HANDLER)
+    if instant:
+        handlers.append(INSTANT_KILL_HANDLER)
+    if force:
+        handlers.append(FORCE_HIT_HANDLER)
+    if full:
+        handlers.append(ASSASSINATE_HANDLER)
+    return tuple(handlers)
 
 
 def _method_flags(block: str, name: str, proto: str) -> list[str]:
@@ -112,23 +137,36 @@ def find_target(injector, target_index, game_prefix):
     if len(candidates) != 1:
         detail = ", ".join(descriptor for descriptor, _ in candidates) or "none"
         raise injector.InjectError(
-            "Unable to identify exactly one BuffIndicator onClick target for "
-            "Last Stand; candidates: " + detail
+            "Unable to identify exactly one BuffIndicator onClick target; "
+            "candidates: " + detail
         )
     return candidates[0]
 
 
-def patch(injector, text: str, descriptor: str, game_prefix: str) -> str:
+def patch(
+    injector,
+    text: str,
+    descriptor: str,
+    game_prefix: str,
+    handlers,
+) -> str:
+    handlers = tuple(handlers)
+    if not handlers:
+        raise injector.InjectError("SMM BuffIndicator click bridge has no handlers")
+    if len({buff for buff, _method in handlers}) != len(handlers):
+        raise injector.InjectError("SMM BuffIndicator click bridge has duplicate buff handlers")
+
     click_start, click_end, click_block = injector.method_block(
         text, "onClick", "()V"
     )
-    hook = LAST_STAND + "->open()V"
-    if hook in click_block:
-        return text
 
-    if INFO_HELPER in text or LONG_HELPER in text:
+    bridge_markers = [INFO_HELPER, LONG_HELPER, *_LEGACY_HELPERS]
+    bridge_markers.extend(
+        f"{buff}->{method}()V" for buff, method in handlers
+    )
+    if any(marker in text for marker in bridge_markers):
         raise injector.InjectError(
-            "BuffIndicator already contains a Last Stand click helper: " + descriptor
+            "BuffIndicator already contains an SMM buff click bridge: " + descriptor
         )
 
     buff_descriptor = injector.game_descriptor(game_prefix, "actors/buffs/Buff")
@@ -191,21 +229,31 @@ def patch(injector, text: str, descriptor: str, game_prefix: str) -> str:
     click_access = _visible_flags(click_flags)
     long_access = _visible_flags(long_flags) if has_native_long else "protected"
 
-    click_wrapper = (
-        f".method {click_access} onClick()V\n"
-        "    .locals 1\n\n"
-        f"    iget-object v0, p0, {field_owner}->{field_name}:{buff_descriptor}\n"
-        f"    instance-of v0, v0, {LAST_STAND}\n"
-        "    if-eqz v0, :smm_last_stand_click_native\n\n"
-        f"    iget-object v0, p0, {field_owner}->{field_name}:{buff_descriptor}\n"
-        f"    check-cast v0, {LAST_STAND}\n"
-        f"    invoke-virtual {{v0}}, {hook}\n"
-        "    return-void\n\n"
-        "    :smm_last_stand_click_native\n"
-        f"    invoke-direct {{p0}}, {descriptor}->{INFO_HELPER}()V\n"
-        "    return-void\n"
-        ".end method"
-    )
+    click_lines = [
+        f".method {click_access} onClick()V",
+        "    .locals 1",
+        "",
+    ]
+    for index, (buff_type, method) in enumerate(handlers):
+        next_label = f":smm_buff_click_next_{index}"
+        click_lines.extend([
+            f"    iget-object v0, p0, {field_owner}->{field_name}:{buff_descriptor}",
+            f"    instance-of v0, v0, {buff_type}",
+            f"    if-eqz v0, {next_label}",
+            "",
+            f"    iget-object v0, p0, {field_owner}->{field_name}:{buff_descriptor}",
+            f"    check-cast v0, {buff_type}",
+            f"    invoke-virtual {{v0}}, {buff_type}->{method}()V",
+            "    return-void",
+            "",
+            f"    {next_label}",
+        ])
+    click_lines.extend([
+        f"    invoke-direct {{p0}}, {descriptor}->{INFO_HELPER}()V",
+        "    return-void",
+        ".end method",
+    ])
+    click_wrapper = "\n".join(click_lines)
 
     if has_native_long:
         native_long = (
@@ -220,22 +268,33 @@ def patch(injector, text: str, descriptor: str, game_prefix: str) -> str:
             "    return v0\n"
         )
 
-    long_wrapper = (
-        f".method {long_access} onLongClick()Z\n"
-        "    .locals 1\n\n"
-        f"    iget-object v0, p0, {field_owner}->{field_name}:{buff_descriptor}\n"
-        f"    instance-of v0, v0, {LAST_STAND}\n"
-        "    if-eqz v0, :smm_last_stand_long_click_native\n\n"
-        f"    invoke-direct {{p0}}, {descriptor}->{INFO_HELPER}()V\n"
-        "    const/4 v0, 0x1\n"
-        "    return v0\n\n"
-        "    :smm_last_stand_long_click_native\n"
-        + native_long
-        + ".end method"
-    )
+    long_lines = [
+        f".method {long_access} onLongClick()Z",
+        "    .locals 1",
+        "",
+    ]
+    for index, (buff_type, _method) in enumerate(handlers):
+        next_label = f":smm_buff_long_next_{index}"
+        long_lines.extend([
+            f"    iget-object v0, p0, {field_owner}->{field_name}:{buff_descriptor}",
+            f"    instance-of v0, v0, {buff_type}",
+            f"    if-eqz v0, {next_label}",
+            "",
+            f"    invoke-direct {{p0}}, {descriptor}->{INFO_HELPER}()V",
+            "    const/4 v0, 0x1",
+            "    return v0",
+            "",
+            f"    {next_label}",
+        ])
+    long_lines.append(native_long.rstrip())
+    long_lines.append(".end method")
+    long_wrapper = "\n".join(long_lines)
 
+    names = ", ".join(buff.rsplit("/", 1)[-1].rstrip(";") for buff, _ in handlers)
     injector.log(
-        "Last Stand BuffIndicator click bridge: "
+        "SMM BuffIndicator click bridge: "
+        + names
+        + "; "
         + ("preserved native onLongClick" if has_native_long else "added long-click override")
     )
     return text.rstrip() + "\n\n" + click_wrapper + "\n\n" + long_wrapper + "\n"

@@ -9,8 +9,9 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.MonkEnergy;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
-import com.spd.mod.journal.ModTotalInfoOverlay;
+import com.spd.mod.journal.WndTotalBuffInfo;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
@@ -136,6 +137,12 @@ public class ModParryRiposte extends ChampionEnemy {
         setRiposteEnabled(!riposteEnabled);
     }
 
+    public void openInfo() {
+        if (target != null && find(target) == this) {
+            GameScene.show(new WndTotalBuffInfo(this));
+        }
+    }
+
     /**
      * Pre-resolution incoming-attack hook. The terminal Char.attack() injector
      * pairs this with onIncomingAttackComplete() at every normal return. Riposte
@@ -179,17 +186,7 @@ public class ModParryRiposte extends ChampionEnemy {
         if (!restoringFromBundle && parryEnabled) {
             ensureParryFocus();
         }
-        ModTotalInfoOverlay.ensureInstalled();
         return true;
-    }
-
-    @Override
-    public void fx(boolean on) {
-        // Char.updateSpriteState() calls fx() while iterating the live buff set,
-        // so this method must not attach helper buffs or mutate that collection.
-        if (on) {
-            ModTotalInfoOverlay.ensureInstalled();
-        }
     }
 
     @Override

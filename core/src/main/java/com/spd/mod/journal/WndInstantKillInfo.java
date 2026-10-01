@@ -25,7 +25,6 @@ public class WndInstantKillInfo extends WndInfoBuff {
                 super.onClick();
                 buff.toggleInstantKill();
                 checked(buff.instantKillEnabled());
-                ModTotalInfoOverlay.refreshIndicators();
             }
         };
         instantKillCheck.checked(buff.instantKillEnabled());

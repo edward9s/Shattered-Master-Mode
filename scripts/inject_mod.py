@@ -237,6 +237,65 @@ def patch_char_hit(file_path: Path) -> None:
     print(f"Force Hit hook injected successfully into {file_path}")
 
 
+
+def patch_buff_indicator(file_path: Path) -> None:
+    content = file_path.read_text(encoding='utf-8')
+    marker = '// MASTER_MODE_BUFF_INFO'
+
+    if marker in content:
+        print(f"BuffIndicator click bridge already injected into {file_path}")
+        return
+
+    pattern = re.compile(
+        r'(?P<indent>^[ \t]*)@Override\s*\n'
+        r'(?P=indent)protected void onClick\(\)\s*\{\s*\n'
+        r'(?P=indent)[ \t]+if\s*\(\s*buff\.icon\(\)\s*!=\s*NONE\s*\)\s*'
+        r'GameScene\.show\(new WndInfoBuff\(buff\)\);\s*\n'
+        r'(?P=indent)\}',
+        re.MULTILINE,
+    )
+    match = pattern.search(content)
+    if match is None:
+        raise RuntimeError(
+            f"Expected native BuffIndicator BuffButton.onClick() info handler: {file_path}"
+        )
+
+    indent = match.group('indent')
+    body = f"""{indent}@Override
+{indent}protected void onClick() {{
+{indent}\t// MASTER_MODE_BUFF_INFO
+{indent}\tif (buff instanceof com.spd.mod.mechanics.ModLastStand) {{
+{indent}\t\t((com.spd.mod.mechanics.ModLastStand) buff).open();
+{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModParryRiposte) {{
+{indent}\t\t((com.spd.mod.mechanics.ModParryRiposte) buff).openInfo();
+{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModInstantKill) {{
+{indent}\t\t((com.spd.mod.mechanics.ModInstantKill) buff).openInfo();
+{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModForceHit) {{
+{indent}\t\t((com.spd.mod.mechanics.ModForceHit) buff).openInfo();
+{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModAssassinate) {{
+{indent}\t\t((com.spd.mod.mechanics.ModAssassinate) buff).openInfo();
+{indent}\t}} else if (buff.icon() != NONE) {{
+{indent}\t\tGameScene.show(new WndInfoBuff(buff));
+{indent}\t}}
+{indent}}}
+
+{indent}@Override
+{indent}protected boolean onLongClick() {{
+{indent}\tif (buff instanceof com.spd.mod.mechanics.ModLastStand
+{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModParryRiposte
+{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModInstantKill
+{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModForceHit
+{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModAssassinate) {{
+{indent}\t\tif (buff.icon() != NONE) GameScene.show(new WndInfoBuff(buff));
+{indent}\t\treturn true;
+{indent}\t}}
+{indent}\treturn super.onLongClick();
+{indent}}}"""
+
+    content = content[:match.start()] + body + content[match.end():]
+    file_path.write_text(content, encoding='utf-8')
+    print(f"SMM BuffIndicator click bridge injected successfully into {file_path}")
+
 def patch_wndgame(file_path: Path) -> None:
     content = file_path.read_text(encoding='utf-8')
     marker = '// MASTER_MODE_MENU'
@@ -350,3 +409,10 @@ if not char_path.is_file():
     raise RuntimeError(f"Char.java not found beside WndGame package root: {char_path}")
 patch_char(char_path)
 patch_char_hit(char_path)
+
+buff_indicator_path = package_root / 'ui' / 'BuffIndicator.java'
+if not buff_indicator_path.is_file():
+    raise RuntimeError(
+        f"BuffIndicator.java not found beside game package root: {buff_indicator_path}"
+    )
+patch_buff_indicator(buff_indicator_path)

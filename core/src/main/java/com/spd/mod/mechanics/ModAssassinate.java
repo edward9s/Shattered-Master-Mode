@@ -17,7 +17,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.QuickSlotButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Tag;
 import com.spd.mod.journal.ModRuntimeTagStack;
-import com.spd.mod.journal.ModTotalInfoOverlay;
+import com.spd.mod.journal.WndAssassinBuffInfo;
 import com.watabou.input.PointerEvent;
 import com.watabou.noosa.Camera;
 import com.watabou.noosa.Game;
@@ -94,7 +94,6 @@ public class ModAssassinate extends Buff {
             }
         }
         BuffIndicator.refreshHero();
-        ModTotalInfoOverlay.refreshIndicators();
     }
 
     public void toggleMapLongPress() {
@@ -109,12 +108,17 @@ public class ModAssassinate extends Buff {
         }
     }
 
+    public void openInfo() {
+        if (target != null && find(target) == this) {
+            GameScene.show(new WndAssassinBuffInfo(this));
+        }
+    }
+
     private boolean ownsPlayerUi() {
         return target != null && target == Dungeon.hero;
     }
 
     private void refreshRuntimeUi() {
-        ModTotalInfoOverlay.ensureInstalled();
         if (!ownsPlayerUi() || !assassinEnabled) {
             return;
         }
@@ -157,7 +161,6 @@ public class ModAssassinate extends Buff {
             removeInputLayer();
         }
         BuffIndicator.refreshHero();
-        ModTotalInfoOverlay.refreshIndicators();
     }
 
     @Override

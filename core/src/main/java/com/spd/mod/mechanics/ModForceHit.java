@@ -2,24 +2,17 @@ package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
+import com.spd.mod.journal.WndForceHitInfo;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 
 /** Permanent Char buff with a configurable forced-hit effect. */
 public class ModForceHit extends Buff {
 
     private static final String FORCE_HIT_ENABLED = "force_hit_enabled";
-    private static final String OPTIONAL_UI_PACKAGE = "com.spd.mod.journal.";
-    private static final String OPTIONAL_UI_SIMPLE_NAME = "ModTotalInfoOverlay";
-
-    private static boolean optionalUiResolved;
-    private static Method ensureOptionalUiMethod;
-    private static Method refreshOptionalUiMethod;
-
     private boolean forceHitEnabled = true;
 
     {
@@ -67,28 +60,16 @@ public class ModForceHit extends Buff {
     public void toggleForceHit() {
         forceHitEnabled = !forceHitEnabled;
         BuffIndicator.refreshHero();
-        refreshOptionalUi();
     }
 
-    @Override
-    public boolean attachTo(Char target) {
-        if (!super.attachTo(target)) {
-            return false;
-        }
-        ensureOptionalUi();
-        return true;
-    }
-
-    @Override
-    public void fx(boolean on) {
-        if (on) {
-            ensureOptionalUi();
+    public void openInfo() {
+        if (target != null && findAttached(target) == this) {
+            GameScene.show(new WndForceHitInfo(this));
         }
     }
 
     @Override
     public boolean act() {
-        ensureOptionalUi();
         spend(TICK);
         return true;
     }
@@ -97,69 +78,6 @@ public class ModForceHit extends Buff {
     public void detach() {
         super.detach();
         BuffIndicator.refreshHero();
-        refreshOptionalUi();
-    }
-
-    private static void ensureOptionalUi() {
-        invokeOptionalUi(false);
-    }
-
-    private static void refreshOptionalUi() {
-        invokeOptionalUi(true);
-    }
-
-    private static void invokeOptionalUi(boolean refresh) {
-        resolveOptionalUi();
-        Method method = refresh ? refreshOptionalUiMethod : ensureOptionalUiMethod;
-        if (method == null) {
-            return;
-        }
-        try {
-            method.invoke(null);
-        } catch (LinkageError e) {
-            disableOptionalUi();
-            return;
-        } catch (InvocationTargetException e) {
-            if (e.getCause() instanceof LinkageError) {
-                disableOptionalUi();
-                return;
-            }
-            throw new IllegalStateException("Unable to invoke optional Force Hit UI integration", e);
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Unable to invoke optional Force Hit UI integration", e);
-        }
-    }
-
-    private static void disableOptionalUi() {
-        ensureOptionalUiMethod = null;
-        refreshOptionalUiMethod = null;
-        optionalUiResolved = true;
-    }
-
-    private static synchronized void resolveOptionalUi() {
-        if (optionalUiResolved) {
-            return;
-        }
-
-        String className = new StringBuilder(OPTIONAL_UI_PACKAGE)
-                .append(OPTIONAL_UI_SIMPLE_NAME)
-                .toString();
-        try {
-            Class<?> uiClass = Class.forName(
-                    className,
-                    false,
-                    ModForceHit.class.getClassLoader());
-            ensureOptionalUiMethod = uiClass.getMethod("ensureInstalled");
-            refreshOptionalUiMethod = uiClass.getMethod("refreshIndicators");
-        } catch (ClassNotFoundException | LinkageError ignored) {
-            // Expected in --ankh-only when the full UI class or one of its
-            // transitive UI dependencies is unavailable in the target fork.
-            disableOptionalUi();
-            return;
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Incompatible optional Force Hit UI integration", e);
-        }
-        optionalUiResolved = true;
     }
 
     @Override
