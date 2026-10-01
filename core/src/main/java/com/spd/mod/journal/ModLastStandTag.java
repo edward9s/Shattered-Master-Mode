@@ -2,14 +2,13 @@ package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
-import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
-import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Tag;
 import com.spd.mod.mechanics.ModLastStand;
 import com.watabou.noosa.BitmapText;
 import com.watabou.noosa.ColorBlock;
+import com.watabou.noosa.Game;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
@@ -21,7 +20,6 @@ public final class ModLastStandTag extends Gizmo {
 
     private static final int TAG_NEUTRAL = 0x7B8073;
     private static final int BADGE_RED = 0xFFC03838;
-    private static final int HEART_YELLOW = 0xFFD54A;
     private static final float BADGE_SIZE = 9f;
 
     private static ModLastStandTag instance;
@@ -31,11 +29,11 @@ public final class ModLastStandTag extends Gizmo {
     private LastStandTag storeTag;
 
     public static void ensureInstalled() {
-        if (!(ShatteredPixelDungeon.scene() instanceof GameScene) || !hasLastStandBuff()) {
+        if (!(Game.scene() instanceof GameScene) || !hasLastStandBuff()) {
             return;
         }
 
-        Group scene = (Group) ShatteredPixelDungeon.scene();
+        Group scene = (Group) Game.scene();
         if (instance != null && instance.exists && instance.parent == scene) {
             return;
         }
@@ -49,8 +47,8 @@ public final class ModLastStandTag extends Gizmo {
     public void update() {
         super.update();
 
-        if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
-                || parent != ShatteredPixelDungeon.scene()
+        if (!(Game.scene() instanceof GameScene)
+                || parent != Game.scene()
                 || !hasLastStandBuff()) {
             removeStoreTag();
             killAndErase();
@@ -60,7 +58,7 @@ public final class ModLastStandTag extends Gizmo {
             return;
         }
 
-        Group scene = (Group) ShatteredPixelDungeon.scene();
+        Group scene = (Group) Game.scene();
         ensureStoreTag(scene);
         ModRuntimeTagStack.layout();
     }
@@ -142,7 +140,6 @@ public final class ModLastStandTag extends Gizmo {
     private static final class LastStandTag extends Tag {
 
         private final Image icon;
-        private final Image heart;
         private final ColorBlock[] badgeBorder = new ColorBlock[4];
         private final BitmapText count;
         private int lastCount = -1;
@@ -158,11 +155,6 @@ public final class ModLastStandTag extends Gizmo {
                 badgeBorder[i] = new ColorBlock(1, 1, BADGE_RED);
                 add(badgeBorder[i]);
             }
-
-            heart = new BuffIcon(new ModLastStand(), true);
-            heart.hardlight(HEART_YELLOW);
-            heart.scale.set(PixelScene.align(0.42f));
-            add(heart);
 
             count = new BitmapText(PixelScene.pixelFont);
             count.hardlight(0xFFFFFF);
@@ -205,8 +197,8 @@ public final class ModLastStandTag extends Gizmo {
 
         @Override
         public void update() {
-            if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
-                    || parent != ShatteredPixelDungeon.scene()
+            if (!(Game.scene() instanceof GameScene)
+                    || parent != Game.scene()
                     || !hasLastStandBuff()) {
                 ModRuntimeTagStack.unregister(this);
                 killAndErase();
@@ -219,7 +211,6 @@ public final class ModLastStandTag extends Gizmo {
             boolean available = Dungeon.hero != null && Dungeon.hero.ready;
             float contentAlpha = available ? 1f : 0.4f;
             icon.alpha(contentAlpha);
-            heart.alpha(contentAlpha);
             count.alpha(contentAlpha);
             for (ColorBlock border : badgeBorder) {
                 border.alpha(contentAlpha);
@@ -261,10 +252,6 @@ public final class ModLastStandTag extends Gizmo {
             badgeBorder[3].x = badgeLeft + BADGE_SIZE - 1f;
             badgeBorder[3].y = badgeTop;
             badgeBorder[3].size(1f, BADGE_SIZE);
-
-            heart.x = badgeLeft + (BADGE_SIZE - heart.width()) / 2f;
-            heart.y = badgeTop + (BADGE_SIZE - heart.height()) / 2f;
-            PixelScene.align(heart);
 
             if (count.visible) {
                 count.x = icon.x - 1f;

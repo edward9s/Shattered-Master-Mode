@@ -1,7 +1,6 @@
 package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
-import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
@@ -10,7 +9,6 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap;
-import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
@@ -193,7 +191,7 @@ public class ModAssassinate extends Buff {
     }
 
     private static boolean assassinEnabledForHero() {
-        if (!(ShatteredPixelDungeon.scene() instanceof GameScene) || Dungeon.hero == null) {
+        if (!(Game.scene() instanceof GameScene) || Dungeon.hero == null) {
             return false;
         }
         ModAssassinate buff = find(Dungeon.hero);
@@ -215,7 +213,7 @@ public class ModAssassinate extends Buff {
 
         if (inputLayer != null
                 && inputLayer.exists
-                && inputLayer.parent == ShatteredPixelDungeon.scene()) {
+                && inputLayer.parent == Game.scene()) {
             return;
         }
 
@@ -224,7 +222,7 @@ public class ModAssassinate extends Buff {
         }
         installPending = true;
 
-        ShatteredPixelDungeon.runOnRenderThread(new Callback() {
+        Game.runOnRenderThread(new Callback() {
             @Override
             public void call() {
                 installPending = false;
@@ -237,7 +235,7 @@ public class ModAssassinate extends Buff {
                     return;
                 }
 
-                Group scene = (Group) ShatteredPixelDungeon.scene();
+                Group scene = (Group) Game.scene();
                 if (inputLayer == null || !inputLayer.exists || inputLayer.parent != scene) {
                     inputLayer = new LongPressLayer(selector);
                     scene.addToFront(inputLayer);
@@ -252,7 +250,7 @@ public class ModAssassinate extends Buff {
             return;
         }
 
-        ShatteredPixelDungeon.runOnRenderThread(new Callback() {
+        Game.runOnRenderThread(new Callback() {
             @Override
             public void call() {
                 if (inputLayer == layer) {
@@ -381,7 +379,7 @@ public class ModAssassinate extends Buff {
             super.update();
 
             if (!mapLongPressEnabledForHero()
-                    || parent != ShatteredPixelDungeon.scene()
+                    || parent != Game.scene()
                     || currentCellSelector() != selector) {
                 killAndErase();
                 return;
@@ -564,10 +562,10 @@ public class ModAssassinate extends Buff {
                 }
             } catch (Exception ignored) {
                 // Old or heavily modified forks may lack the action-specific
-                // HeroIcon frame. Keep the feature usable with the buff icon.
+                // HeroIcon frame. Fall back to the already-required target icon.
             }
 
-            BuffIcon fallback = new BuffIcon(new ModAssassinate(), true);
+            Image fallback = Icons.TARGET.get();
             fallback.hardlight(ASSASSIN_PURPLE);
             return fallback;
         }
@@ -579,7 +577,7 @@ public class ModAssassinate extends Buff {
 
             if (instance != null
                     && instance.exists
-                    && instance.parent == ShatteredPixelDungeon.scene()) {
+                    && instance.parent == Game.scene()) {
                 return;
             }
 
@@ -588,7 +586,7 @@ public class ModAssassinate extends Buff {
             }
             installPending = true;
 
-            ShatteredPixelDungeon.runOnRenderThread(new Callback() {
+            Game.runOnRenderThread(new Callback() {
                 @Override
                 public void call() {
                     installPending = false;
@@ -596,7 +594,7 @@ public class ModAssassinate extends Buff {
                         return;
                     }
 
-                    Group scene = (Group) ShatteredPixelDungeon.scene();
+                    Group scene = (Group) Game.scene();
                     if (instance == null || !instance.exists || instance.parent != scene) {
                         instance = new AssassinateTag();
                         instance.camera = PixelScene.uiCamera;
@@ -608,7 +606,7 @@ public class ModAssassinate extends Buff {
         }
 
         static void disable() {
-            ShatteredPixelDungeon.runOnRenderThread(new Callback() {
+            Game.runOnRenderThread(new Callback() {
                 @Override
                 public void call() {
                     AssassinateTag tag = instance;
@@ -617,7 +615,7 @@ public class ModAssassinate extends Buff {
                         return;
                     }
 
-                    if (tag.parent == ShatteredPixelDungeon.scene()) {
+                    if (tag.parent == Game.scene()) {
                         cancelSelection();
                     } else {
                         clearSelectionState(null);
@@ -637,9 +635,9 @@ public class ModAssassinate extends Buff {
         @Override
         public void update() {
             if (!assassinEnabledForHero()
-                    || parent != ShatteredPixelDungeon.scene()
+                    || parent != Game.scene()
                     || PixelScene.uiCamera == null) {
-                if (parent == ShatteredPixelDungeon.scene()) {
+                if (parent == Game.scene()) {
                     cancelSelection();
                 } else {
                     clearSelectionState(null);

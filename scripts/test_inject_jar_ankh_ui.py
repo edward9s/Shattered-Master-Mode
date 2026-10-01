@@ -55,6 +55,25 @@ class AnkhJarUiTests(unittest.TestCase):
             source,
         )
 
+        root = pathlib.Path(__file__).resolve().parents[1]
+        runtime_sources = [
+            root / "core/src/main/java/com/spd/mod/journal/ModLastStandTag.java",
+            root / "core/src/main/java/com/spd/mod/journal/ModRuntimeTagStack.java",
+            root / "core/src/main/java/com/spd/mod/mechanics/ModAssassinate.java",
+        ]
+        for runtime_source in runtime_sources:
+            text = runtime_source.read_text(encoding="utf-8")
+            self.assertNotIn("ShatteredPixelDungeon.scene()", text)
+        self.assertNotIn(
+            "ShatteredPixelDungeon.runOnRenderThread",
+            runtime_sources[2].read_text(encoding="utf-8"),
+        )
+        for runtime_source in (runtime_sources[0], runtime_sources[2]):
+            self.assertNotIn(
+                "com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon",
+                runtime_source.read_text(encoding="utf-8"),
+            )
+
     def test_tag_has_only_store_tag_responsibility(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         old_name = "ModLastStand" + "Overlay"

@@ -1,10 +1,10 @@
 package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
-import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Tag;
+import com.watabou.noosa.Game;
 import com.watabou.noosa.ui.Component;
 
 import java.lang.reflect.Field;
@@ -69,12 +69,12 @@ public final class ModRuntimeTagStack {
     }
 
     public static synchronized void layout() {
-        if (!(ShatteredPixelDungeon.scene() instanceof GameScene)
+        if (!(Game.scene() instanceof GameScene)
                 || PixelScene.uiCamera == null) {
             return;
         }
 
-        Object scene = ShatteredPixelDungeon.scene();
+        Object scene = Game.scene();
         cleanup(scene);
         if (runtimeTags.isEmpty()) {
             return;
@@ -307,7 +307,7 @@ public final class ModRuntimeTagStack {
     }
 
     public static boolean hasOpenWindow() {
-        if (!(ShatteredPixelDungeon.scene() instanceof GameScene)) {
+        if (!(Game.scene() instanceof GameScene)) {
             return false;
         }
 
