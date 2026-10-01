@@ -54,10 +54,10 @@ class ApkUiCompatTests(unittest.TestCase):
 
     def test_full_buff_click_patch_dispatches_all_mod_buffs(self):
         handlers = buff_click.selected_handlers(
+            parry=True,
             instant=True,
             force=True,
             assassinate=True,
-            full=True,
         )
         patched = buff_click.patch(
             injector, button_text(), BUFF_BUTTON, GAME, handlers
@@ -86,10 +86,10 @@ class ApkUiCompatTests(unittest.TestCase):
 
     def test_narrow_buff_click_patch_only_references_kept_features(self):
         handlers = buff_click.selected_handlers(
+            parry=True,
             instant=True,
             force=False,
             assassinate=True,
-            full=False,
         )
         patched = buff_click.patch(
             injector, button_text(), BUFF_BUTTON, GAME, handlers
@@ -104,7 +104,10 @@ class ApkUiCompatTests(unittest.TestCase):
             patched,
         )
         self.assertNotIn("Lcom/spd/mod/mechanics/ModForceHit;", patched)
-        self.assertNotIn("Lcom/spd/mod/mechanics/ModParryRiposte;", patched)
+        self.assertIn(
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->openInfo()V",
+            patched,
+        )
         self.assertIn(
             "Lcom/spd/mod/mechanics/ModAssassinate;->openInfo()V",
             patched,
@@ -112,10 +115,10 @@ class ApkUiCompatTests(unittest.TestCase):
 
     def test_existing_long_click_is_preserved_for_normal_buffs(self):
         handlers = buff_click.selected_handlers(
+            parry=False,
             instant=False,
             force=False,
             assassinate=False,
-            full=False,
         )
         patched = buff_click.patch(
             injector,
@@ -241,10 +244,12 @@ class ApkUiCompatTests(unittest.TestCase):
         mod_ankh = full_prefix + "items/ModAnkh;"
         last_stand = full_prefix + "mechanics/ModLastStand;"
         last_stand_tag = full_prefix + "journal/ModLastStandTag;"
+        parry = full_prefix + "mechanics/ModParryRiposte;"
         assassinate = full_prefix + "mechanics/ModAssassinate;"
         ankh_item = object()
         last_stand_item = SimpleNamespace(descriptor=last_stand)
         last_stand_tag_item = SimpleNamespace(descriptor=last_stand_tag)
+        parry_item = SimpleNamespace(descriptor=parry)
         assassinate_item = SimpleNamespace(descriptor=assassinate)
 
         def dependencies(item):
@@ -276,6 +281,7 @@ class ApkUiCompatTests(unittest.TestCase):
                 mod_ankh: ankh_item,
                 last_stand: last_stand_item,
                 last_stand_tag: last_stand_tag_item,
+                parry: parry_item,
                 assassinate: assassinate_item,
             },
             {},
@@ -287,6 +293,7 @@ class ApkUiCompatTests(unittest.TestCase):
             {last_stand, last_stand_tag},
             public_module._ankh_core_payload_descriptors,
         )
+        self.assertFalse(public_module._ankh_parry_riposte_enabled)
         self.assertTrue(public_module._ankh_assassinate_enabled)
         self.assertEqual(
             {assassinate},
