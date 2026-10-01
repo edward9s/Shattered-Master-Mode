@@ -211,10 +211,7 @@ public class ModParryRiposte extends ChampionEnemy {
 
     /** Source-build compatibility overload. Injected hooks use the stack-safe form. */
     public static void onIncomingAttackComplete(Char attacker, Char defender) {
-        if (attacker == null || defender == null) {
-            return;
-        }
-        queueRiposte(defender, attacker, RiposteQueueMode.COMPLETE);
+        onIncomingAttackComplete();
     }
 
     @Override
