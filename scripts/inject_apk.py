@@ -1381,7 +1381,7 @@ def compile_smali_with_char_hook(
     char_output.parent.mkdir(parents=True, exist_ok=True)
     char_output.write_text(patched_char, encoding="utf-8")
     injector.log(
-        f"Char.attack Instant Kill force-entry + successful-return hooks ({proto}): OK"
+        f"Char.attack Instant Kill force-entry + attack-context return hooks ({proto}): OK"
     )
     injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
     injector.log(
