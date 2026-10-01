@@ -149,7 +149,7 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertIn("cycle", capability.detail)
 
 
-    def test_instant_kill_runs_on_successful_attack_returns(self):
+    def test_instant_kill_balances_attack_context_on_native_returns(self):
         proto = f"({self.char}FFF)Z"
         text = (
             f".class public {self.char}\n"
@@ -166,47 +166,39 @@ class TerminalAttackHookTest(unittest.TestCase):
         )
 
         patched = mod.patch_char_instant_kill(text, self.char, proto)
-        force_hook = (
-            "Lcom/spd/mod/mechanics/ModForceHit;->isForceHitEnabled("
-            + self.char + ")Z"
-        )
-        instant_hook = (
-            "Lcom/spd/mod/mechanics/ModInstantKill;->resolveSuccessfulAttack("
-            + self.char + self.char + ")Z"
-        )
         _, _, block = mod.injector.method_block(patched, "attack", proto)
-        self.assertEqual(1, block.count(force_hook))
-        self.assertEqual(3, block.count(instant_hook))
-        self.assertEqual(2, block.count("# SMM Instant Kill on successful Char.attack result"))
-        self.assertIn("if-eqz v0, :smm_instant_kill_return_1", block)
-        self.assertIn("if-eqz v0, :smm_instant_kill_return_2", block)
-        entry_start = block.index(
-            "# SMM Force Hit + Instant Kill attack-entry hook"
+        self.assertIn(".locals 1", block)
+        self.assertIn(
+            "ModInstantKill;->beginAttack(" + self.char + self.char + ")V",
+            block,
         )
-        entry_end = block.index(
-            "\n    :smm_instant_kill_force_native", entry_start
+        self.assertEqual(
+            2,
+            block.count("ModInstantKill;->finishAttack(Z)V"),
         )
-        entry = block[entry_start:entry_end]
-        self.assertEqual(1, entry.count(instant_hook))
-        self.assertNotIn("# SMM Instant Kill on successful Char.attack result", entry)
+        self.assertIn(
+            "invoke-static/range {v0 .. v0}, "
+            "Lcom/spd/mod/mechanics/ModInstantKill;->finishAttack(Z)V",
+            block,
+        )
+        self.assertEqual(
+            1,
+            block.count("ModInstantKill;->resolveSuccessfulAttack("),
+        )
 
-        # Full injection adds Riposte after Instant Kill. Its completion bridge
-        # must still cover every terminal return.
         patched = mod.patch_char_attack(patched, self.char, proto)
         _, _, block = mod.injector.method_block(patched, "attack", proto)
-        pre_hook = (
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack("
-            + self.char + self.char + ")V"
+        self.assertEqual(
+            1,
+            block.count("ModParryRiposte;->onIncomingAttack("),
         )
-        self.assertLess(block.index(force_hook), block.index(pre_hook))
-        completion = (
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete("
-            + self.char + self.char + ")V"
+        self.assertEqual(
+            3,
+            block.count("ModParryRiposte;->onIncomingAttackComplete()V"),
         )
-        self.assertEqual(3, block.count(completion))
 
 
-    def test_instant_kill_force_entry_supports_high_parameter_registers(self):
+    def test_instant_kill_does_not_grow_high_register_methods(self):
         proto = f"({self.char}FFF)Z"
         text = (
             f".class public {self.char}\n"
@@ -219,18 +211,21 @@ class TerminalAttackHookTest(unittest.TestCase):
         )
         patched = mod.patch_char_instant_kill(text, self.char, proto)
         _, _, block = mod.injector.method_block(patched, "attack", proto)
-        self.assertIn("# SMM stable attack registers: v17 v18 v19", block)
-        self.assertIn("move-object/16 v17, p0", block)
-        self.assertIn("move-object/16 v18, p1", block)
+        self.assertIn(".locals 17", block)
+        self.assertNotIn(".locals 18", block)
         self.assertIn(
-            "invoke-static/range {v17 .. v17}, "
+            "invoke-static/range {p0 .. p0}, "
             "Lcom/spd/mod/mechanics/ModForceHit;->isForceHitEnabled",
             block,
         )
-        self.assertNotIn("invoke-static/range {p0 .. p1}", block)
-        self.assertNotIn("move-result v0\n    if-eqz v0, :smm_instant_kill_force_native", block)
+        self.assertIn(
+            "invoke-static/range {p0 .. p1}, "
+            "Lcom/spd/mod/mechanics/ModInstantKill;->beginAttack",
+            block,
+        )
 
-    def test_combat_hooks_do_not_reuse_parameter_registers_at_return(self):
+
+    def test_return_hooks_do_not_read_reused_attack_parameters(self):
         proto = f"({self.char}FFF)Z"
         text = (
             f".class public {self.char}\n"
@@ -246,45 +241,20 @@ class TerminalAttackHookTest(unittest.TestCase):
         patched = mod.patch_char_attack(patched, self.char, proto)
         _, _, block = mod.injector.method_block(patched, "attack", proto)
 
-        self.assertIn("# SMM stable attack registers: v2 v3 v4", block)
-        self.assertIn("move-object/16 v2, p0", block)
-        self.assertIn("move-object/16 v3, p1", block)
-        self.assertIn(
-            "invoke-static/range {v2 .. v3}, "
-            "Lcom/spd/mod/mechanics/ModInstantKill;->resolveSuccessfulAttack",
-            block,
-        )
-        self.assertIn(
-            "invoke-static/range {v2 .. v3}, "
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete",
-            block,
+        self.assertIn(".locals 2", block)
+        tail = block[block.index("new-instance p1"):]
+        self.assertIn("ModInstantKill;->finishAttack(Z)V", tail)
+        self.assertIn("ModParryRiposte;->onIncomingAttackComplete()V", tail)
+        self.assertNotIn(
+            "ModInstantKill;->resolveSuccessfulAttack(",
+            tail,
         )
         self.assertNotIn(
-            "invoke-static/range {p0 .. p1}, "
-            "Lcom/spd/mod/mechanics/ModInstantKill;->resolveSuccessfulAttack",
-            block,
-        )
-        self.assertNotIn(
-            "invoke-static/range {p0 .. p1}, "
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete",
-            block,
+            "ModParryRiposte;->onIncomingAttack("
+            + self.char + self.char + ")V",
+            tail,
         )
 
-    def test_fresh_local_growth_rejects_raw_parameter_aliases(self):
-        proto = f"({self.char}FFF)Z"
-        text = (
-            f".class public {self.char}\n"
-            ".super Ljava/lang/Object;\n"
-            f".method public attack{proto}\n"
-            "    .locals 1\n"
-            "    move-object v1, p1\n"
-            "    const/4 v0, 0x1\n"
-            "    return v0\n"
-            ".end method\n"
-        )
-        with self.assertRaises(mod.injector.InjectError) as caught:
-            mod.patch_char_instant_kill(text, self.char, proto)
-        self.assertIn("raw parameter alias v1", str(caught.exception))
 
     def test_instant_kill_does_not_depend_on_mlpd_hit_branch_shape(self):
         terminal = f"({self.char}FFF{self.damage_type})Z"
@@ -539,11 +509,10 @@ class TerminalAttackHookTest(unittest.TestCase):
         )
         _, _, block = mod.injector.method_block(patched, "hit", proto)
         self.assertEqual(1, block.count(hook))
-        self.assertIn(".locals 2", block)
-        self.assertIn("move-result v1", block)
-        self.assertIn("if-eqz v1, :smm_force_hit_native", block)
-        self.assertIn("return v1", block)
-        self.assertLess(block.index(hook), block.index("const/4 v0, 0x0"))
+        self.assertIn(".locals 1", block)
+        self.assertIn("move-result v0", block)
+        self.assertIn("if-eqz v0, :smm_force_hit_native", block)
+        self.assertLess(block.index(hook), block.index(":smm_force_hit_native"))
         self.assertIn("return v0", block)
 
 
