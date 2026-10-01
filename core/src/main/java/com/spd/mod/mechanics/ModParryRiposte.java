@@ -3,12 +3,6 @@ package com.spd.mod.mechanics;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Combo;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.MonkEnergy;
-import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
-import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
-import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.WndTotalBuffInfo;
@@ -16,16 +10,16 @@ import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
 
-import java.lang.reflect.Field;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.WeakHashMap;
 
-/** Permanent Master Mode combat buff with independent Parry and Riposte controls. */
-public class ModParryRiposte extends ChampionEnemy {
+/** Permanent combat buff with independent Parry and Riposte controls. */
+public class ModParryRiposte extends Buff {
+
+    private static final String PARRY_ENABLED = "parry_enabled";
+    private static final String RIPOSTE_ENABLED = "riposte_enabled";
 
     private static final ThreadLocal<ArrayDeque<IncomingAttackContext>> INCOMING_ATTACK_CONTEXTS =
             new ThreadLocal<>();
@@ -49,50 +43,20 @@ public class ModParryRiposte extends ChampionEnemy {
         return contexts;
     }
 
-    private static final String PARRY_ENABLED = "parry_enabled";
-    private static final String RIPOSTE_ENABLED = "riposte_enabled";
-    private static final String OWNS_PARRY_FOCUS = "owns_parry_focus";
-
-    private static Field currentActorField;
-
     /*
-     * Char.buff(Class) deliberately matches exact classes, not subclasses. Hero
-     * Total Parry therefore has to keep a real Monk FocusBuff in the Hero's buff set.
-     * Riposte itself is Char-generic and does not depend on this Focus helper.
-     * Hero.defenseVerb() tries to consume that Focus by calling detach(), whose
-     * implementation removes the buff from buff.target. We point the helper's
-     * target at this out-of-world sink instead, so the exact Focus remains in the
-     * real Hero's buff set and the native parry path can be reused indefinitely.
-     */
-    private static final ParryDetachSink PARRY_DETACH_SINK = new ParryDetachSink();
-    private static final Map<Buff, ModParryRiposte> PARRY_FOCUS_OWNERS =
-            Collections.synchronizedMap(new WeakHashMap<Buff, ModParryRiposte>());
-
-    /*
-     * The Char.attack() hook and Char.hit()-based fallback paths can observe the
-     * same normal attack. Keep at most one queued riposte per attacker until that
-     * counterattack runs, so ordinary attacks still produce exactly one Riposte
-     * while direct Char.hit() special attacks remain covered.
+     * Char.attack entry/return hooks observe one normal attack. Keep one prepared
+     * Riposte per attacker until the completion hook schedules it.
      */
     private static final Map<Char, RiposteActor> PENDING_RIPOSTES =
             Collections.synchronizedMap(new WeakHashMap<Char, RiposteActor>());
 
-    private enum RiposteQueueMode {
-        PREPARE,
-        COMPLETE,
-        IMMEDIATE
-    }
-
     private boolean parryEnabled = true;
     private boolean riposteEnabled = true;
-    private boolean ownsParryFocus;
-    private boolean restoringFromBundle;
 
     {
+        type = buffType.POSITIVE;
         announced = true;
         revivePersists = true;
-        actPriority = VFX_PRIO;
-        color = 0xFFFFFF;
     }
 
     /** Stable across supported SPD forks; avoids Char.buff(Class) ABI variance. */
@@ -106,26 +70,6 @@ public class ModParryRiposte extends ChampionEnemy {
         return null;
     }
 
-    /** Returns only an exact native Monk FocusBuff, never a subclass. */
-    private static MonkEnergy.MonkAbility.Focus.FocusBuff findExactFocus(Char ch) {
-        if (ch == null) {
-            return null;
-        }
-        for (MonkEnergy.MonkAbility.Focus.FocusBuff focus
-                : ch.buffs(MonkEnergy.MonkAbility.Focus.FocusBuff.class)) {
-            if (focus != null
-                    && focus.getClass() == MonkEnergy.MonkAbility.Focus.FocusBuff.class) {
-                return focus;
-            }
-        }
-        return null;
-    }
-
-    /** True only for an exact native Focus instance currently maintained by Total Parry. */
-    public static boolean isParryFocus(Buff buff) {
-        return buff != null && PARRY_FOCUS_OWNERS.containsKey(buff);
-    }
-
     public boolean parryEnabled() {
         return parryEnabled;
     }
@@ -135,11 +79,6 @@ public class ModParryRiposte extends ChampionEnemy {
             return;
         }
         parryEnabled = enabled;
-        if (enabled) {
-            ensureParryFocus();
-        } else {
-            detachAllExactFocus();
-        }
         BuffIndicator.refreshHero();
     }
 
@@ -152,6 +91,9 @@ public class ModParryRiposte extends ChampionEnemy {
     }
 
     public void setRiposteEnabled(boolean enabled) {
+        if (riposteEnabled == enabled) {
+            return;
+        }
         riposteEnabled = enabled;
         BuffIndicator.refreshHero();
     }
@@ -167,32 +109,46 @@ public class ModParryRiposte extends ChampionEnemy {
     }
 
     /**
-     * Pre-resolution incoming-attack hook. The terminal Char.attack() injector
-     * pairs this with onIncomingAttackComplete() at every normal return. Riposte
-     * is armed before hit resolution, then queued at the same Actor.now only after
-     * the triggering attack has fully resolved so its animation can play naturally.
+     * Captures one incoming Char.attack and prepares its optional Riposte.
+     * Parry itself is resolved by shouldParry() from the selected Char.hit hook.
      */
     public static void onIncomingAttack(Char attacker, Char defender) {
         incomingAttackContexts().push(new IncomingAttackContext(attacker, defender));
 
-        if (defender == null
-                || attacker == null
+        if (attacker == null
+                || defender == null
                 || attacker == defender
                 || !attacker.isAlive()
                 || !defender.isAlive()) {
             return;
         }
 
-        // Riposte belongs to the buff owner, not specifically to Hero. This keeps
-        // the source/injection ABI generic so companions and fork-defined Char
-        // implementations can counterattack without any compile-time dependency.
-        ModParryRiposte total = find(defender);
-        if (total != null && total.riposteEnabled) {
-            queueRiposte(defender, attacker, RiposteQueueMode.PREPARE);
+        ModParryRiposte buff = find(defender);
+        if (buff != null && buff.riposteEnabled) {
+            prepareRiposte(defender, attacker);
         }
     }
 
-    /** Queues the prepared Riposte immediately after terminal Char.attack() resolves. */
+    /**
+     * Selected Char.hit calls this after Force Hit's early-success check.
+     * Returning true means the native hit result is forced to miss.
+     */
+    public static boolean shouldParry(Char attacker, Char defender) {
+        if (attacker == null
+                || defender == null
+                || attacker == defender
+                || !attacker.isAlive()
+                || !defender.isAlive()) {
+            return false;
+        }
+
+        ModParryRiposte buff = find(defender);
+        return buff != null
+                && buff.target == defender
+                && buff.parryEnabled;
+    }
+
+    /** Schedules the prepared Riposte after terminal Char.attack has completed. */
     public static void onIncomingAttackComplete() {
         ArrayDeque<IncomingAttackContext> contexts = INCOMING_ATTACK_CONTEXTS.get();
         if (contexts == null || contexts.isEmpty()) {
@@ -203,10 +159,10 @@ public class ModParryRiposte extends ChampionEnemy {
         if (contexts.isEmpty()) {
             INCOMING_ATTACK_CONTEXTS.remove();
         }
-        if (context.attacker == null || context.defender == null) {
-            return;
+
+        if (context.attacker != null && context.defender != null) {
+            completeRiposte(context.defender, context.attacker);
         }
-        queueRiposte(context.defender, context.attacker, RiposteQueueMode.COMPLETE);
     }
 
     /** Source-build compatibility overload. Injected hooks use the stack-safe form. */
@@ -215,115 +171,15 @@ public class ModParryRiposte extends ChampionEnemy {
     }
 
     @Override
-    public boolean attachTo(Char target) {
-        if (!super.attachTo(target)) {
-            return false;
-        }
-        timeToNow();
-        // Saved buffs are restored one-by-one. If this buff restores before its
-        // saved Focus helper, creating one here would add another Focus every load.
-        if (!restoringFromBundle && parryEnabled) {
-            ensureParryFocus();
-        }
-        return true;
-    }
-
-    @Override
     public boolean act() {
-        // By the time Actor processing resumes, Char.restoreFromBundle() has
-        // attached every saved buff. Reuse/rebind the restored Focus only when
-        // Parry is enabled. Parry OFF means no exact Focus may remain.
-        restoringFromBundle = false;
-        if (parryEnabled) {
-            ensureParryFocus();
-        } else {
-            detachAllExactFocus();
-        }
-        diactivate();
+        spend(TICK);
         return true;
     }
 
     @Override
     public void detach() {
-        releaseParryFocus();
         super.detach();
         BuffIndicator.refreshHero();
-    }
-
-    private void ensureParryFocus() {
-        if (!parryEnabled || !(target instanceof Hero) || !target.isAlive()) {
-            return;
-        }
-
-        MonkEnergy.MonkAbility.Focus.FocusBuff focus = findExactFocus(target);
-
-        if (focus == null) {
-            focus = new MonkEnergy.MonkAbility.Focus.FocusBuff();
-            focus.announced = false;
-            focus.revivePersists = true;
-            if (!focus.attachTo(target)) {
-                return;
-            }
-            ownsParryFocus = true;
-        }
-
-        focus.announced = false;
-        focus.revivePersists = true;
-        PARRY_FOCUS_OWNERS.put(focus, this);
-        focus.target = PARRY_DETACH_SINK;
-    }
-
-    /**
-     * Parry OFF is deliberately stronger than releaseParryFocus(): the user asked
-     * for every exact native Focus on the Hero to be detached, including a real
-     * Monk Focus that Total Parry may have borrowed.
-     */
-    private void detachAllExactFocus() {
-        if (!(target instanceof Hero)) {
-            ownsParryFocus = false;
-            return;
-        }
-
-        ArrayList<MonkEnergy.MonkAbility.Focus.FocusBuff> focuses = new ArrayList<>();
-        for (MonkEnergy.MonkAbility.Focus.FocusBuff focus
-                : target.buffs(MonkEnergy.MonkAbility.Focus.FocusBuff.class)) {
-            if (focus != null
-                    && focus.getClass() == MonkEnergy.MonkAbility.Focus.FocusBuff.class) {
-                focuses.add(focus);
-            }
-        }
-
-        for (MonkEnergy.MonkAbility.Focus.FocusBuff focus : focuses) {
-            PARRY_FOCUS_OWNERS.remove(focus);
-            focus.target = target;
-            focus.detach();
-        }
-        ownsParryFocus = false;
-    }
-
-    /** Used only when the Total buff itself is removed; borrowed natural Focus survives. */
-    private void releaseParryFocus() {
-        if (!(target instanceof Hero)) {
-            return;
-        }
-
-        MonkEnergy.MonkAbility.Focus.FocusBuff focus = findExactFocus(target);
-        if (focus == null || PARRY_FOCUS_OWNERS.get(focus) != this) {
-            return;
-        }
-
-        PARRY_FOCUS_OWNERS.remove(focus);
-        if (ownsParryFocus) {
-            // Remove from the actual Hero collection directly; focus.target points
-            // at the detach sink while Total Parry owns it.
-            focus.target = target;
-            focus.detach();
-        } else {
-            // A real Monk Focus that existed before Total Parry was attached is
-            // borrowed rather than destroyed when the Total buff itself goes away.
-            focus.target = target;
-        }
-        ownsParryFocus = false;
     }
 
     @Override
@@ -361,12 +217,17 @@ public class ModParryRiposte extends ChampionEnemy {
     }
 
     @Override
+    public String toString() {
+        return name();
+    }
+
+    @Override
     public String desc() {
         return "Parry: " + (parryEnabled ? "ON" : "OFF")
-                + ". When ON, incoming hit checks are parried. Riposte: "
+                + ". When ON, incoming hit checks are forced to miss. Riposte: "
                 + (riposteEnabled ? "ON" : "OFF")
                 + ". When ON, incoming attacks trigger a counterattack using normal hit rules. "
-                + "Force Hit overrides the Riposte hit check when that buff is active. Tap to configure.";
+                + "Force Hit is resolved before Parry and therefore overrides it. Tap to configure.";
     }
 
     @Override
@@ -374,127 +235,38 @@ public class ModParryRiposte extends ChampionEnemy {
         super.storeInBundle(bundle);
         bundle.put(PARRY_ENABLED, parryEnabled);
         bundle.put(RIPOSTE_ENABLED, riposteEnabled);
-        bundle.put(OWNS_PARRY_FOCUS, ownsParryFocus);
     }
 
     @Override
     public void restoreFromBundle(Bundle bundle) {
-        // Bundle collection restoration constructs/restores each buff before Char
-        // attaches it. Mark this instance so attachTo() waits for sibling Focus.
-        restoringFromBundle = true;
         super.restoreFromBundle(bundle);
-        // Missing toggle keys use the current default ON state. Saves that
-        // explicitly stored OFF still preserve the user's choice.
         parryEnabled = !bundle.contains(PARRY_ENABLED) || bundle.getBoolean(PARRY_ENABLED);
         riposteEnabled = !bundle.contains(RIPOSTE_ENABLED) || bundle.getBoolean(RIPOSTE_ENABLED);
-        ownsParryFocus = bundle.getBoolean(OWNS_PARRY_FOCUS);
     }
 
-    @Override
-    public float evasionAndAccuracyFactor() {
-        Char attacker = currentAttackSource();
-
-        // Direct Char.hit() special attacks do not pass through the injected
-        // Char.attack() hook. When no exact Focus short-circuits Char.hit(), this
-        // defender-factor callback supplies the missing Riposte trigger for any
-        // Char which owns this buff. Pending Ripostes deduplicate it against an
-        // ordinary Char.attack() observation.
-        queueRiposteFromCurrentAttack(attacker);
-
-        if (!parryEnabled) {
-            return 1f;
-        }
-
-        // If Total's owner is the current attack source, this is the attacker's
-        // accuracy pass. Total Parry must never modify its own outgoing accuracy.
-        if (attacker == null || attacker == target) {
-            return 1f;
-        }
-
-        if (target == null || !target.isAlive()) {
-            return 1f;
-        }
-
-        // Exact native Focus normally resolves the attack before ChampionEnemy
-        // factors are consulted. This remains only a defensive Parry fallback for
-        // forks or transient restore states where Focus has not yet been rebound.
-        return Float.POSITIVE_INFINITY;
-    }
-
-    /** Called when native Hero.defenseVerb() consumes Total's exact Focus helper. */
-    private void onFocusParry() {
-        queueRiposteFromCurrentAttack(currentAttackSource());
-    }
-
-    private void queueRiposteFromCurrentAttack(Char attacker) {
-        if (riposteEnabled
-                && target != null
-                && target.isAlive()
-                && attacker != null
-                && attacker != target
-                && attacker.isAlive()) {
-            queueRiposte(target, attacker, RiposteQueueMode.IMMEDIATE);
-        }
-    }
-
-    private static Char currentAttackSource() {
-        Actor current = currentActor();
-        if (current instanceof RiposteActor) {
-            return ((RiposteActor) current).riposter;
-        }
-        return current instanceof Char ? (Char) current : null;
-    }
-
-    private static Actor currentActor() {
-        try {
-            if (currentActorField == null) {
-                currentActorField = Actor.class.getDeclaredField("current");
-                currentActorField.setAccessible(true);
+    private static void prepareRiposte(Char riposter, Char attacker) {
+        synchronized (PENDING_RIPOSTES) {
+            RiposteActor pending = PENDING_RIPOSTES.get(attacker);
+            if (pending != null && pending.scheduled) {
+                return;
             }
-            return (Actor) currentActorField.get(null);
-        } catch (Exception ignored) {
-            return null;
+            PENDING_RIPOSTES.put(attacker, new RiposteActor(riposter, attacker));
         }
     }
 
-    private static void queueRiposte(
-            Char riposter,
-            Char attacker,
-            RiposteQueueMode mode) {
+    private static void completeRiposte(Char riposter, Char attacker) {
         RiposteActor prepared = null;
         synchronized (PENDING_RIPOSTES) {
             RiposteActor pending = PENDING_RIPOSTES.get(attacker);
-
-            if (mode == RiposteQueueMode.PREPARE) {
-                if (pending != null && pending.scheduled) {
-                    return;
-                }
-                PENDING_RIPOSTES.put(attacker, new RiposteActor(riposter, attacker));
+            if (pending == null
+                    || pending.riposter != riposter
+                    || pending.scheduled) {
                 return;
             }
-
-            if (mode == RiposteQueueMode.COMPLETE) {
-                if (pending == null
-                        || pending.riposter != riposter
-                        || pending.scheduled) {
-                    return;
-                }
-                pending.scheduled = true;
-                prepared = pending;
-            } else {
-                if (pending != null && pending.riposter == riposter) {
-                    return;
-                }
-                RiposteActor actor = new RiposteActor(riposter, attacker);
-                actor.scheduled = true;
-                PENDING_RIPOSTES.put(attacker, actor);
-                Actor.add(actor);
-                return;
-            }
+            pending.scheduled = true;
+            prepared = pending;
         }
 
-        // COMPLETE is intentionally scheduled after leaving the map lock, matching
-        // the terminal-attack completion path's original ordering.
         if (prepared != null) {
             Actor.add(prepared);
         }
@@ -514,45 +286,15 @@ public class ModParryRiposte extends ChampionEnemy {
                 && buff.riposteEnabled
                 && riposter.isAlive()
                 && attacker.isAlive()) {
-            // Intentionally no canAttack/range check. Total Riposte answers the
-            // incoming attack regardless of distance or Parry state. Force Hit is
-            // resolved centrally by the injected Char.hit hook for every Char.
-            boolean hit = riposter.attack(attacker, 1f, 0f, 1f);
-            Hero hero = riposter instanceof Hero ? (Hero) riposter : null;
-
-            // Direct Char.attack() calls bypass Hero.onAttackComplete(), so mirror
-            // the hit counters that normal hero attacks update there.
-            if (hit && hero != null) {
-                if (hero.subClass == HeroSubClass.GLADIATOR) {
-                    Buff.affect(hero, Combo.class).hit(attacker);
-                }
-                if (hero.heroClass == HeroClass.DUELIST) {
-                    ModCombatCompat.addDuelistComboHit(hero, attacker);
-                }
+            // attack(Char) is the stable SPD-family wrapper across old and new forks.
+            boolean hit = riposter.attack(attacker);
+            if (hit) {
+                ModCombatCompat.recordRiposteHit(riposter, attacker);
             }
         }
     }
 
-    /**
-     * Out-of-world target for the exact native Focus helper. FocusBuff.detach()
-     * calls target.remove(this); redirecting that call here leaves the same exact
-     * Focus object inside the real Hero's buff set. The callback also reports a
-     * native Focus parry to Riposte so direct Char.hit() attacks remain observable.
-     */
-    private static class ParryDetachSink extends Hero {
-        @Override
-        public synchronized boolean remove(Buff buff) {
-            ModParryRiposte total = PARRY_FOCUS_OWNERS.get(buff);
-            if (total != null) {
-                total.onFocusParry();
-                Actor.remove(buff);
-                return true;
-            }
-            return super.remove(buff);
-        }
-    }
-
-    /** Holds Actor processing until a visible riposte animation completes. */
+    /** Holds Actor processing until a visible Riposte animation completes. */
     private static class RiposteActor extends Actor {
 
         private final Char riposter;
@@ -600,9 +342,6 @@ public class ModParryRiposte extends ChampionEnemy {
                         }
                     }
                 });
-                // Match native Combo.RiposteTracker: once its animation starts,
-                // the VFX actor is no longer a scheduler candidate. Actor.current
-                // remains this object until the callback calls next().
                 removeSelf();
                 return false;
             }
@@ -614,16 +353,5 @@ public class ModParryRiposte extends ChampionEnemy {
             }
             return true;
         }
-    }
-
-    @Override
-    public HashSet<Class> immunities() {
-        // ChampionEnemy normally grants AllyBuff immunity; Total must not.
-        return new HashSet<>();
-    }
-
-    @Override
-    public HashSet<Class> resistances() {
-        return new HashSet<>();
     }
 }
