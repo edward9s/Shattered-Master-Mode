@@ -151,6 +151,24 @@ class AnkhJarUiTests(unittest.TestCase):
         )
 
 
+    def test_last_stand_tag_keeps_legacy_safe_badge_icon(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        source = (
+            root / "core/src/main/java/com/spd/mod/journal/ModLastStandTag.java"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("BADGE_RED", source)
+        self.assertIn("HEART_YELLOW", source)
+        self.assertIn("lastStandBadgeIcon()", source)
+        self.assertIn('"BUFFS_SMALL"', source)
+        self.assertIn("new TextureFilm(atlas, frameSize, frameSize)", source)
+        self.assertIn("heart.hardlight(HEART_YELLOW)", source)
+        self.assertNotIn(
+            "com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon",
+            source,
+        )
+
+
     def test_tag_has_only_store_tag_responsibility(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         old_name = "ModLastStand" + "Overlay"
