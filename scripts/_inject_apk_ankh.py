@@ -220,7 +220,7 @@ def configure(public_module) -> None:
                     )
 
         optional_specs = (
-            ("instant", instant_kill, None, "Instant Kill"),
+            ("instant", instant_kill, "char.incomingAttackHook", "Instant Kill"),
             ("force", force_hit, "char.hitHook", "Force Hit"),
             ("assassinate", assassinate, None, "Assassinate"),
         )
@@ -505,51 +505,36 @@ def configure(public_module) -> None:
                 attack_capability = public_module._current_abi_profile.get(
                     "char.incomingAttackHook"
                 )
-                hit_capability = public_module._current_abi_profile.get(
-                    "char.hitHook"
-                )
                 proto = attack_capability.data.get("proto")
-                hit_method = hit_capability.data.get("method")
-                hit_proto = hit_capability.data.get("proto")
-                if (
-                    attack_capability.compatible
-                    and hit_capability.compatible
-                    and proto
-                    and hit_method
-                    and hit_proto
-                ):
+                if attack_capability.compatible and proto:
                     try:
                         patched_char = public_module.patch_char_instant_kill(
                             patched_char,
                             char_descriptor,
                             proto,
-                            hit_method,
-                            hit_proto,
                             force_combo=force_enabled,
                         )
                         char_changed = True
                         combo = " + Force Hit entry" if force_enabled else ""
                         injector.log(
-                            "Char.attack Instant Kill confirmed-hit hook"
+                            "Char.attack Instant Kill successful-return hook"
                             + combo
-                            + f" ({proto} via {hit_method}{hit_proto}): OK"
+                            + f" ({proto}): OK"
                         )
                     except injector.InjectError as exc:
                         instant_enabled = False
                         public_module._ankh_instant_kill_enabled = False
                         injector.log(
-                            "Optional Instant Kill skipped after structural patch attempt: "
+                            "Optional Instant Kill skipped after attack patch attempt: "
                             + str(exc)
                         )
                 else:
-                    detail = (
-                        attack_capability.detail
-                        if not attack_capability.compatible
-                        else hit_capability.detail
-                    )
                     instant_enabled = False
                     public_module._ankh_instant_kill_enabled = False
-                    injector.log("Optional Instant Kill skipped: " + detail)
+                    injector.log(
+                        "Optional Instant Kill skipped: "
+                        + attack_capability.detail
+                    )
 
             if char_changed:
                 char_path = directory / Path(char_descriptor[1:-1] + ".smali")
@@ -589,23 +574,6 @@ def configure(public_module) -> None:
             payload_path = directory / Path(descriptor[1:-1] + ".smali")
             payload_path.unlink(missing_ok=True)
 
-        final_roots = (
-            ("Instant Kill", instant_enabled, instant_kill),
-            ("Force Hit", force_enabled, force_hit),
-            ("Assassinate", assassinate_enabled, assassinate),
-        )
-        for label, enabled, root in final_roots:
-            root_path = directory / Path(root[1:-1] + ".smali")
-            if enabled and not root_path.is_file():
-                raise injector.InjectError(
-                    f"Optional {label} was enabled but its root class is missing "
-                    f"from the final overlay: {root}"
-                )
-            injector.log(
-                f"Optional {label} final payload: "
-                + ("enabled" if enabled else "disabled")
-            )
-
         try:
             public_module._original_compile_smali(
                 java, smali_jar, directory, output, api
@@ -621,9 +589,9 @@ def configure(public_module) -> None:
         )
 
     # Ankh-only guarantees the ModAnkh + Last Stand core, including the runtime
-    # Last Stand Tag. Instant Kill requires a safe terminal attack + selected hit
-    # hook; Force Hit requires a safe selected hit-check. No attackProc fallback is
-    # kept, so optional features never silently degrade their combat semantics.
+    # Last Stand Tag. Instant Kill requires only a safe terminal Char.attack hook;
+    # Force Hit separately requires a safe selected hit-check. No attackProc
+    # fallback is kept, so optional features never silently degrade their semantics.
     # Assassinate is a separate optional closure and needs no extra Char hook.
     injector.detect_target_game_prefix = detect_target_game_prefix
     injector.build_debug_payload = build_ankh_payload
