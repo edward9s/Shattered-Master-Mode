@@ -184,7 +184,10 @@ public class ModParryRiposte extends Buff {
 
     @Override
     public int icon() {
-        return ModBuffIconCompat.get("DUEL_GUARD");
+        return ModBuffIconCompat.getFirst(
+                "DUEL_GUARD",
+                "ARMOR",
+                "HEART");
     }
 
     @Override
