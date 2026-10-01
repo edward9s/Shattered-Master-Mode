@@ -1077,26 +1077,11 @@ def patch_char_instant_kill(
             "Char.attack already contains SMM Instant Kill hook"
         )
 
-    if force_combo:
-        if _smali_local_register_count(block, proto, False) < 1:
-            raise injector.InjectError(
-                "Terminal Char.attack has no safe local register for Force Hit + "
-                "Instant Kill entry hook"
-            )
-        entry_at, entry_indent = _first_smali_instruction(block)
-        forced_entry = (
-            f"{entry_indent}# SMM Force Hit + Instant Kill attack-entry hook\n"
-            f"{entry_indent}invoke-static {{p0}}, {force_hook}\n"
-            f"{entry_indent}move-result v0\n"
-            f"{entry_indent}if-eqz v0, :smm_instant_kill_force_native\n"
-            f"{entry_indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
-            f"{entry_indent}move-result v0\n"
-            f"{entry_indent}if-eqz v0, :smm_instant_kill_force_native\n"
-            f"{entry_indent}const/4 v0, 0x1\n"
-            f"{entry_indent}return v0\n"
-            f"{entry_indent}:smm_instant_kill_force_native\n\n"
+    if force_combo and _smali_local_register_count(block, proto, False) < 1:
+        raise injector.InjectError(
+            "Terminal Char.attack has no safe local register for Force Hit + "
+            "Instant Kill entry hook"
         )
-        block = block[:entry_at] + forced_entry + block[entry_at:]
 
     return_re = re.compile(
         r"(?m)^(?P<indent>[ \\t]*)return (?P<reg>[vp]\\d+)(?P<tail>[ \\t]*(?:#.*)?)$"
@@ -1123,6 +1108,25 @@ def patch_char_instant_kill(
         raise injector.InjectError(
             "Terminal Char.attack has no normal boolean return for Instant Kill"
         )
+
+    # Patch only native returns above. Insert the Force Hit + Instant Kill
+    # short-circuit afterwards so its early return cannot re-enter Instant Kill
+    # and accidentally re-trigger side-effectful isAlive() implementations.
+    if force_combo:
+        entry_at, entry_indent = _first_smali_instruction(block)
+        forced_entry = (
+            f"{entry_indent}# SMM Force Hit + Instant Kill attack-entry hook\n"
+            f"{entry_indent}invoke-static {{p0}}, {force_hook}\n"
+            f"{entry_indent}move-result v0\n"
+            f"{entry_indent}if-eqz v0, :smm_instant_kill_force_native\n"
+            f"{entry_indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
+            f"{entry_indent}move-result v0\n"
+            f"{entry_indent}if-eqz v0, :smm_instant_kill_force_native\n"
+            f"{entry_indent}const/4 v0, 0x1\n"
+            f"{entry_indent}return v0\n"
+            f"{entry_indent}:smm_instant_kill_force_native\n\n"
+        )
+        block = block[:entry_at] + forced_entry + block[entry_at:]
 
     return text[:start] + block + text[end:]
 
