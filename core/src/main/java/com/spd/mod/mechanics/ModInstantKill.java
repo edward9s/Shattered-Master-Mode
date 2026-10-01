@@ -97,15 +97,17 @@ public class ModInstantKill extends Buff {
 
     @Override
     public String desc() {
-        return "Successful physical attacks kill their target while enabled. "
-                + "Force Hit may combine with this effect at the Char.attack hook.";
+        return "Successful attacks kill their target while enabled. "
+                + "With Force Hit enabled, the attack-entry hook can bypass "
+                + "native hit and invulnerability checks.";
     }
 
 
     /**
-     * Resolves Instant Kill after a physical hit has succeeded, before native
-     * damage resolution continues. Enemy-specific defense side effects are not
-     * part of this buff's contract.
+     * Resolves Instant Kill for an attack that the native Char.attack path is
+     * already returning as successful. Native defense side effects run first.
+     * The Force Hit + Instant Kill entry hook may call this earlier to bypass
+     * native hit and invulnerability checks.
      */
     public static boolean resolveSuccessfulAttack(Char attacker, Char defender) {
         ModInstantKill buff = find(attacker);
