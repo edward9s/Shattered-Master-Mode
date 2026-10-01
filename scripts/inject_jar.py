@@ -238,6 +238,12 @@ public class SmmCharAttackPatcher {
         validatePublicStatic(
                 payloadJar,
                 MOD_INSTANT_KILL,
+                "resolveForcedAttack",
+                INSTANT_KILL_DESC,
+                "ModInstantKill force-entry hook API");
+        validatePublicStatic(
+                payloadJar,
+                MOD_INSTANT_KILL,
                 "resolveSuccessfulAttack",
                 INSTANT_KILL_DESC,
                 "ModInstantKill successful-hit hook API");
@@ -483,6 +489,21 @@ public class SmmCharAttackPatcher {
                         @Override
                         public void visitCode() {
                             super.visitCode();
+                            Label nativeAttack = new Label();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitVarInsn(Opcodes.ALOAD, 1);
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_INSTANT_KILL,
+                                    "resolveForcedAttack",
+                                    INSTANT_KILL_DESC,
+                                    false);
+                            super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
+                            super.visitInsn(Opcodes.ICONST_1);
+                            super.visitInsn(Opcodes.IRETURN);
+                            super.visitLabel(nativeAttack);
+                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+
                             super.visitVarInsn(Opcodes.ALOAD, 0);
                             super.visitVarInsn(Opcodes.ALOAD, 1);
                             super.visitMethodInsn(
@@ -502,7 +523,8 @@ public class SmmCharAttackPatcher {
                                 alreadyRiposte[0] = true;
                             }
                             if (MOD_INSTANT_KILL.equals(owner)
-                                    && "resolveSuccessfulAttack".equals(methodName)
+                                    && ("resolveForcedAttack".equals(methodName)
+                                        || "resolveSuccessfulAttack".equals(methodName))
                                     && INSTANT_KILL_DESC.equals(methodDesc)) {
                                 alreadyInstant[0] = true;
                             }
@@ -677,15 +699,14 @@ public class SmmCharAttackPatcher {
                             + hitMethods[0]);
         }
 
-        if (plan.instantBranchOpcode != -1 && instantAnchors[0] == 1) {
-            System.out.println(
-                    "Char.attack Instant Kill pre-defense patch: OK ("
-                            + plan.terminalAttackDesc + ")");
-        } else {
-            System.out.println(
-                    "Char.attack Instant Kill pre-defense patch: fallback-only ("
-                            + plan.instantDetail + ")");
+        if (plan.instantBranchOpcode == -1 || instantAnchors[0] != 1) {
+            throw new IllegalStateException(
+                    "Instant Kill requires exactly one successful selected hit-check branch: "
+                            + plan.instantDetail);
         }
+        System.out.println(
+                "Char.attack Instant Kill force-entry + confirmed-hit patch: OK ("
+                        + plan.terminalAttackDesc + ")");
         System.out.println(
                 "Char.attack incoming-attack patch: OK (" + plan.terminalAttackDesc + ")");
         System.out.println(
@@ -1817,7 +1838,8 @@ public class SmmAnkhCharAttackPatcher {
                     public void visitMethodInsn(int opcode, String owner, String methodName,
                                                 String methodDesc, boolean isInterface) {
                         if (MOD_INSTANT_KILL.equals(owner)
-                                && "resolveSuccessfulAttack".equals(methodName)
+                                && ("resolveForcedAttack".equals(methodName)
+                                    || "resolveSuccessfulAttack".equals(methodName))
                                 && COMBAT_HOOK_DESC.equals(methodDesc)) {
                             scan.alreadyInstant = true;
                         }
@@ -1988,6 +2010,25 @@ public class SmmAnkhCharAttackPatcher {
                     return new MethodVisitor(API, base) {
                         private boolean awaitingHitBranch;
 
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            Label nativeAttack = new Label();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitVarInsn(Opcodes.ALOAD, 1);
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_INSTANT_KILL,
+                                    "resolveForcedAttack",
+                                    COMBAT_HOOK_DESC,
+                                    false);
+                            super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
+                            super.visitInsn(Opcodes.ICONST_1);
+                            super.visitInsn(Opcodes.IRETURN);
+                            super.visitLabel(nativeAttack);
+                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                        }
+
                         private void clear() {
                             awaitingHitBranch = false;
                         }
@@ -2114,7 +2155,9 @@ public class SmmAnkhCharAttackPatcher {
         }
 
         boolean donorInstant = hasPublicStaticHook(
-                payload, MOD_INSTANT_KILL, "resolveSuccessfulAttack");
+                payload, MOD_INSTANT_KILL, "resolveForcedAttack")
+                && hasPublicStaticHook(
+                        payload, MOD_INSTANT_KILL, "resolveSuccessfulAttack");
         boolean donorForce = hasPublicStaticHook(
                 payload, MOD_FORCE_HIT, "forceHitCheck");
         Scan scan = scan(original);
@@ -2137,8 +2180,7 @@ public class SmmAnkhCharAttackPatcher {
                     "Optional Instant Kill hit hook: supported - " + scan.hitDetail);
         } else {
             System.out.println(
-                    "Optional Instant Kill pre-defense hook unavailable; "
-                            + "attackProc fallback remains active: "
+                    "Optional Instant Kill skipped: "
                             + (scan.hitDetail == null ? "no compatible hit-check" : scan.hitDetail));
         }
         if (force) {
