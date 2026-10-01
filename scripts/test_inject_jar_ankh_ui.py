@@ -89,6 +89,19 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertNotIn("ChampionEnemy", instant_source)
         self.assertNotIn("onAttackProc", instant_source)
         self.assertNotIn("resolveBlockedAttack", instant_source)
+        self.assertNotIn("Swarm", instant_source)
+        self.assertIn(
+            "TargetHealthIndicator.instance.target(null)",
+            instant_source,
+        )
+
+        riposte_source = (
+            root / "core/src/main/java/com/spd/mod/mechanics/ModParryRiposte.java"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "boolean hit = riposter.attack(attacker, 1f, 0f, 1f);",
+            riposte_source,
+        )
 
         assassin_source = (
             root / "core/src/main/java/com/spd/mod/mechanics/ModAssassin.java"
