@@ -208,6 +208,7 @@ public class SmmCharAttackPatcher {
     static final String MOD_INSTANT_KILL = "com/spd/mod/mechanics/ModInstantKill";
     static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
     static final String FORCE_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
+    static final String FORCE_ACTIVE_DESC = "(L" + CHAR + ";)Z";
     static final String INSTANT_KILL_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
@@ -237,10 +238,10 @@ public class SmmCharAttackPatcher {
                 "ModForceHit hit-check hook API");
         validatePublicStatic(
                 payloadJar,
-                MOD_INSTANT_KILL,
-                "resolveForcedAttack",
-                INSTANT_KILL_DESC,
-                "ModInstantKill force-entry hook API");
+                MOD_FORCE_HIT,
+                "isForceHitEnabled",
+                FORCE_ACTIVE_DESC,
+                "ModForceHit active-state hook API");
         validatePublicStatic(
                 payloadJar,
                 MOD_INSTANT_KILL,
@@ -491,11 +492,19 @@ public class SmmCharAttackPatcher {
                             super.visitCode();
                             Label nativeAttack = new Label();
                             super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_FORCE_HIT,
+                                    "isForceHitEnabled",
+                                    FORCE_ACTIVE_DESC,
+                                    false);
+                            super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
                             super.visitVarInsn(Opcodes.ALOAD, 1);
                             super.visitMethodInsn(
                                     Opcodes.INVOKESTATIC,
                                     MOD_INSTANT_KILL,
-                                    "resolveForcedAttack",
+                                    "resolveSuccessfulAttack",
                                     INSTANT_KILL_DESC,
                                     false);
                             super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
@@ -523,10 +532,14 @@ public class SmmCharAttackPatcher {
                                 alreadyRiposte[0] = true;
                             }
                             if (MOD_INSTANT_KILL.equals(owner)
-                                    && ("resolveForcedAttack".equals(methodName)
-                                        || "resolveSuccessfulAttack".equals(methodName))
+                                    && "resolveSuccessfulAttack".equals(methodName)
                                     && INSTANT_KILL_DESC.equals(methodDesc)) {
                                 alreadyInstant[0] = true;
+                            }
+                            if (MOD_FORCE_HIT.equals(owner)
+                                    && "isForceHitEnabled".equals(methodName)
+                                    && FORCE_ACTIVE_DESC.equals(methodDesc)) {
+                                alreadyForce[0] = true;
                             }
 
                             super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
@@ -1744,6 +1757,7 @@ public class SmmAnkhCharAttackPatcher {
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
     static final String COMBAT_HOOK_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
+    static final String FORCE_ACTIVE_DESC = "(L" + CHAR + ";)Z";
 
     static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
         try (JarFile jar = new JarFile(jarPath.toFile())) {
@@ -1756,7 +1770,7 @@ public class SmmAnkhCharAttackPatcher {
     }
 
     static boolean hasPublicStaticHook(
-            Path payloadJar, String owner, String methodName) throws IOException {
+            Path payloadJar, String owner, String methodName, String expectedDesc) throws IOException {
         byte[] bytes = readJarEntry(payloadJar, owner + ".class");
         if (bytes == null) return false;
 
@@ -1766,7 +1780,7 @@ public class SmmAnkhCharAttackPatcher {
             @Override
             public MethodVisitor visitMethod(int access, String name, String desc,
                                              String signature, String[] exceptions) {
-                if (methodName.equals(name) && COMBAT_HOOK_DESC.equals(desc)) {
+                if (methodName.equals(name) && expectedDesc.equals(desc)) {
                     matches[0]++;
                     if ((access & Opcodes.ACC_PUBLIC) != 0
                             && (access & Opcodes.ACC_STATIC) != 0) {
@@ -1838,10 +1852,14 @@ public class SmmAnkhCharAttackPatcher {
                     public void visitMethodInsn(int opcode, String owner, String methodName,
                                                 String methodDesc, boolean isInterface) {
                         if (MOD_INSTANT_KILL.equals(owner)
-                                && ("resolveForcedAttack".equals(methodName)
-                                    || "resolveSuccessfulAttack".equals(methodName))
+                                && "resolveSuccessfulAttack".equals(methodName)
                                 && COMBAT_HOOK_DESC.equals(methodDesc)) {
                             scan.alreadyInstant = true;
+                        }
+                        if (MOD_FORCE_HIT.equals(owner)
+                                && "isForceHitEnabled".equals(methodName)
+                                && FORCE_ACTIVE_DESC.equals(methodDesc)) {
+                            scan.alreadyForce = true;
                         }
                         if (MOD_FORCE_HIT.equals(owner)
                                 && "forceHitCheck".equals(methodName)
@@ -2013,20 +2031,30 @@ public class SmmAnkhCharAttackPatcher {
                         @Override
                         public void visitCode() {
                             super.visitCode();
-                            Label nativeAttack = new Label();
-                            super.visitVarInsn(Opcodes.ALOAD, 0);
-                            super.visitVarInsn(Opcodes.ALOAD, 1);
-                            super.visitMethodInsn(
-                                    Opcodes.INVOKESTATIC,
-                                    MOD_INSTANT_KILL,
-                                    "resolveForcedAttack",
-                                    COMBAT_HOOK_DESC,
-                                    false);
-                            super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
-                            super.visitInsn(Opcodes.ICONST_1);
-                            super.visitInsn(Opcodes.IRETURN);
-                            super.visitLabel(nativeAttack);
-                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                            if (force) {
+                                Label nativeAttack = new Label();
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        MOD_FORCE_HIT,
+                                        "isForceHitEnabled",
+                                        FORCE_ACTIVE_DESC,
+                                        false);
+                                super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        MOD_INSTANT_KILL,
+                                        "resolveSuccessfulAttack",
+                                        COMBAT_HOOK_DESC,
+                                        false);
+                                super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
+                                super.visitInsn(Opcodes.ICONST_1);
+                                super.visitInsn(Opcodes.IRETURN);
+                                super.visitLabel(nativeAttack);
+                                super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                            }
                         }
 
                         private void clear() {
@@ -2155,11 +2183,13 @@ public class SmmAnkhCharAttackPatcher {
         }
 
         boolean donorInstant = hasPublicStaticHook(
-                payload, MOD_INSTANT_KILL, "resolveForcedAttack")
-                && hasPublicStaticHook(
-                        payload, MOD_INSTANT_KILL, "resolveSuccessfulAttack");
+                payload, MOD_INSTANT_KILL, "resolveSuccessfulAttack",
+                COMBAT_HOOK_DESC);
         boolean donorForce = hasPublicStaticHook(
-                payload, MOD_FORCE_HIT, "forceHitCheck");
+                payload, MOD_FORCE_HIT, "forceHitCheck", COMBAT_HOOK_DESC)
+                && hasPublicStaticHook(
+                        payload, MOD_FORCE_HIT, "isForceHitEnabled",
+                        FORCE_ACTIVE_DESC);
         Scan scan = scan(original);
 
         boolean instant = donorInstant
