@@ -1682,15 +1682,14 @@ public class SmmAnkhCharAttackPatcher {
         String hitMethod;
         String hitDesc;
         String hitDetail;
-        int instantBranchOpcode = -1;
-        int instantAnchors;
     }
 
     static Scan scan(byte[] original) {
         Scan scan = new Scan();
         LinkedHashSet<String> attacks = new LinkedHashSet<>();
-        LinkedHashMap<String, LinkedHashSet<String>> edges = new LinkedHashMap<>();
         LinkedHashSet<String> hitCandidates = new LinkedHashSet<>();
+        LinkedHashMap<String, LinkedHashSet<String>> attackEdges = new LinkedHashMap<>();
+        LinkedHashMap<String, LinkedHashSet<String>> attackHitCalls = new LinkedHashMap<>();
 
         new ClassReader(original).accept(new ClassVisitor(API) {
             @Override
@@ -1698,7 +1697,8 @@ public class SmmAnkhCharAttackPatcher {
                                              String signature, String[] exceptions) {
                 if (isCharAttack(name, desc, access)) {
                     attacks.add(desc);
-                    edges.put(desc, new LinkedHashSet<>());
+                    attackEdges.put(desc, new LinkedHashSet<>());
+                    attackHitCalls.put(desc, new LinkedHashSet<>());
                 }
                 if (isStructuralHit(desc, access)) {
                     hitCandidates.add(name + "\n" + desc);
@@ -1721,20 +1721,19 @@ public class SmmAnkhCharAttackPatcher {
                             scan.alreadyInstant = true;
                         }
                         if (MOD_FORCE_HIT.equals(owner)
-                                && "isForceHitEnabled".equals(methodName)
-                                && FORCE_ACTIVE_DESC.equals(methodDesc)) {
+                                && ("isForceHitEnabled".equals(methodName)
+                                    || "forceHitCheck".equals(methodName))) {
                             scan.alreadyForce = true;
                         }
-                        if (MOD_FORCE_HIT.equals(owner)
-                                && "forceHitCheck".equals(methodName)
-                                && COMBAT_HOOK_DESC.equals(methodDesc)) {
-                            scan.alreadyForce = true;
+                        if (!isCharAttack(name, desc, access) || !CHAR.equals(owner)) {
+                            return;
                         }
-                        if (isCharAttack(name, desc, access)
-                                && CHAR.equals(owner)
-                                && "attack".equals(methodName)
-                                && attacks.contains(methodDesc)) {
-                            edges.get(desc).add(methodDesc);
+                        if ("attack".equals(methodName) && attacks.contains(methodDesc)) {
+                            attackEdges.get(desc).add(methodDesc);
+                        }
+                        String key = methodName + "\n" + methodDesc;
+                        if (opcode == Opcodes.INVOKESTATIC && hitCandidates.contains(key)) {
+                            attackHitCalls.get(desc).add(key);
                         }
                     }
                 };
@@ -1743,7 +1742,7 @@ public class SmmAnkhCharAttackPatcher {
 
         LinkedHashSet<String> terminals = new LinkedHashSet<>();
         for (String desc : attacks) {
-            if (edges.get(desc).isEmpty()) terminals.add(desc);
+            if (attackEdges.get(desc).isEmpty()) terminals.add(desc);
         }
         if (terminals.size() != 1) {
             scan.hitDetail = "expected one terminal Char.attack, found " + terminals.size();
@@ -1751,127 +1750,30 @@ public class SmmAnkhCharAttackPatcher {
         }
         scan.terminalDesc = terminals.iterator().next();
 
+        LinkedHashSet<String> calledHits = attackHitCalls.get(scan.terminalDesc);
         String modernDirect = "hit\n" + MODERN_HIT_DESC;
         String legacyDirect = "hit\n" + LEGACY_HIT_DESC;
-        String selected = hitCandidates.contains(modernDirect)
+        String selected = calledHits.contains(modernDirect)
                 ? modernDirect
-                : (hitCandidates.contains(legacyDirect) ? legacyDirect : null);
+                : (calledHits.contains(legacyDirect) ? legacyDirect : null);
 
-        if (selected == null) {
-            LinkedHashSet<String> structural = new LinkedHashSet<>();
-            new ClassReader(original).accept(new ClassVisitor(API) {
-                @Override
-                public MethodVisitor visitMethod(int access, String name, String desc,
-                                                 String signature, String[] exceptions) {
-                    if (!"attack".equals(name)
-                            || !scan.terminalDesc.equals(desc)
-                            || (access & Opcodes.ACC_STATIC) != 0) {
-                        return null;
-                    }
-                    return new MethodVisitor(API) {
-                        private String pending;
-
-                        private void clear() {
-                            pending = null;
-                        }
-
-                        @Override
-                        public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                    String methodDesc, boolean isInterface) {
-                            clear();
-                            String key = methodName + "\n" + methodDesc;
-                            if (opcode == Opcodes.INVOKESTATIC
-                                    && CHAR.equals(owner)
-                                    && hitCandidates.contains(key)) {
-                                pending = key;
-                            }
-                        }
-
-                        @Override
-                        public void visitJumpInsn(int opcode, Label label) {
-                            if (pending != null
-                                    && (opcode == Opcodes.IFEQ || opcode == Opcodes.IFNE)) {
-                                structural.add(pending);
-                            }
-                            clear();
-                        }
-
-                        @Override public void visitInsn(int opcode) { clear(); }
-                        @Override public void visitIntInsn(int opcode, int operand) { clear(); }
-                        @Override public void visitVarInsn(int opcode, int var) { clear(); }
-                        @Override public void visitTypeInsn(int opcode, String type) { clear(); }
-                        @Override public void visitFieldInsn(int opcode, String owner, String name, String desc) { clear(); }
-                        @Override public void visitLdcInsn(Object value) { clear(); }
-                        @Override public void visitIincInsn(int var, int increment) { clear(); }
-                    };
-                }
-            }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
-
-            if (structural.size() != 1) {
-                scan.hitDetail = "expected one structural hit-check in terminal Char.attack"
-                        + scan.terminalDesc + ", found " + structural.size();
-                return scan;
-            }
-            selected = structural.iterator().next();
+        if (selected != null) {
+            scan.hitDetail = "direct hit-check ";
+        } else if (calledHits.size() == 1) {
+            selected = calledHits.iterator().next();
             scan.hitDetail = "structural hit-check ";
         } else {
-            scan.hitDetail = "direct hit-check ";
+            scan.hitDetail = "expected one callable hit-check in terminal Char.attack"
+                    + scan.terminalDesc + ", found " + calledHits.size()
+                    + ": " + calledHits;
+            return scan;
         }
 
         int split = selected.indexOf('\n');
         scan.hitMethod = selected.substring(0, split);
         scan.hitDesc = selected.substring(split + 1);
         scan.hitDetail += scan.hitMethod + scan.hitDesc
-                + " selected for terminal Char.attack" + scan.terminalDesc;
-
-        new ClassReader(original).accept(new ClassVisitor(API) {
-            @Override
-            public MethodVisitor visitMethod(int access, String name, String desc,
-                                             String signature, String[] exceptions) {
-                if (!"attack".equals(name)
-                        || !scan.terminalDesc.equals(desc)
-                        || (access & Opcodes.ACC_STATIC) != 0) {
-                    return null;
-                }
-                return new MethodVisitor(API) {
-                    private boolean pending;
-
-                    private void clear() {
-                        pending = false;
-                    }
-
-                    @Override
-                    public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                String methodDesc, boolean isInterface) {
-                        clear();
-                        if (opcode == Opcodes.INVOKESTATIC
-                                && CHAR.equals(owner)
-                                && scan.hitMethod.equals(methodName)
-                                && scan.hitDesc.equals(methodDesc)) {
-                            pending = true;
-                        }
-                    }
-
-                    @Override
-                    public void visitJumpInsn(int opcode, Label label) {
-                        if (pending && (opcode == Opcodes.IFEQ || opcode == Opcodes.IFNE)) {
-                            scan.instantAnchors++;
-                            scan.instantBranchOpcode = opcode;
-                        }
-                        clear();
-                    }
-
-                    @Override public void visitInsn(int opcode) { clear(); }
-                    @Override public void visitIntInsn(int opcode, int operand) { clear(); }
-                    @Override public void visitVarInsn(int opcode, int var) { clear(); }
-                    @Override public void visitTypeInsn(int opcode, String type) { clear(); }
-                    @Override public void visitFieldInsn(int opcode, String owner, String name, String desc) { clear(); }
-                    @Override public void visitLdcInsn(Object value) { clear(); }
-                    @Override public void visitIincInsn(int var, int increment) { clear(); }
-                };
-            }
-        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
-
+                + " called by terminal Char.attack" + scan.terminalDesc;
         return scan;
     }
 
@@ -1890,8 +1792,6 @@ public class SmmAnkhCharAttackPatcher {
                         && scan.terminalDesc.equals(desc)
                         && (access & Opcodes.ACC_STATIC) == 0) {
                     return new MethodVisitor(API, base) {
-                        private boolean awaitingHitBranch;
-
                         @Override
                         public void visitCode() {
                             super.visitCode();
@@ -1921,72 +1821,35 @@ public class SmmAnkhCharAttackPatcher {
                             }
                         }
 
-                        private void clear() {
-                            awaitingHitBranch = false;
-                        }
-
-                        private void emitInstant(Label nativeSuccess) {
-                            Label nativeAttack = new Label();
-                            super.visitVarInsn(Opcodes.ALOAD, 0);
-                            super.visitVarInsn(Opcodes.ALOAD, 1);
-                            super.visitMethodInsn(
-                                    Opcodes.INVOKESTATIC,
-                                    MOD_INSTANT_KILL,
-                                    "resolveSuccessfulAttack",
-                                    COMBAT_HOOK_DESC,
-                                    false);
-                            super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
-                            super.visitInsn(Opcodes.ICONST_1);
-                            super.visitInsn(Opcodes.IRETURN);
-                            super.visitLabel(nativeAttack);
-                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                            if (nativeSuccess != null) {
-                                super.visitJumpInsn(Opcodes.GOTO, nativeSuccess);
-                            }
-                        }
-
                         @Override
-                        public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                    String methodDesc, boolean isInterface) {
-                            super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
-                            awaitingHitBranch = opcode == Opcodes.INVOKESTATIC
-                                    && CHAR.equals(owner)
-                                    && scan.hitMethod.equals(methodName)
-                                    && scan.hitDesc.equals(methodDesc);
-                        }
-
-                        @Override
-                        public void visitJumpInsn(int opcode, Label label) {
-                            if (!awaitingHitBranch || opcode != scan.instantBranchOpcode) {
-                                clear();
-                                super.visitJumpInsn(opcode, label);
-                                return;
+                        public void visitInsn(int opcode) {
+                            if (opcode == Opcodes.IRETURN) {
+                                Label nativeReturn = new Label();
+                                super.visitInsn(Opcodes.DUP);
+                                super.visitJumpInsn(Opcodes.IFEQ, nativeReturn);
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        MOD_INSTANT_KILL,
+                                        "resolveSuccessfulAttack",
+                                        COMBAT_HOOK_DESC,
+                                        false);
+                                super.visitInsn(Opcodes.POP);
+                                super.visitLabel(nativeReturn);
+                                super.visitFrame(
+                                        Opcodes.F_SAME1,
+                                        0,
+                                        null,
+                                        1,
+                                        new Object[]{Opcodes.INTEGER});
                             }
-                            clear();
-
-                            if (opcode == Opcodes.IFEQ) {
-                                super.visitJumpInsn(opcode, label);
-                                emitInstant(null);
-                            } else {
-                                Label miss = new Label();
-                                super.visitJumpInsn(Opcodes.IFEQ, miss);
-                                emitInstant(label);
-                                super.visitLabel(miss);
-                                super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                            }
+                            super.visitInsn(opcode);
                         }
-
-                        @Override public void visitInsn(int opcode) { clear(); super.visitInsn(opcode); }
-                        @Override public void visitIntInsn(int opcode, int operand) { clear(); super.visitIntInsn(opcode, operand); }
-                        @Override public void visitVarInsn(int opcode, int var) { clear(); super.visitVarInsn(opcode, var); }
-                        @Override public void visitTypeInsn(int opcode, String type) { clear(); super.visitTypeInsn(opcode, type); }
-                        @Override public void visitFieldInsn(int opcode, String owner, String fieldName, String fieldDesc) { clear(); super.visitFieldInsn(opcode, owner, fieldName, fieldDesc); }
-                        @Override public void visitLdcInsn(Object value) { clear(); super.visitLdcInsn(value); }
-                        @Override public void visitIincInsn(int var, int increment) { clear(); super.visitIincInsn(var, increment); }
 
                         @Override
                         public void visitMaxs(int maxStack, int maxLocals) {
-                            super.visitMaxs(maxStack + 2, maxLocals);
+                            super.visitMaxs(maxStack + 3, maxLocals);
                         }
                     };
                 }
@@ -2058,12 +1921,7 @@ public class SmmAnkhCharAttackPatcher {
 
         boolean instant = donorInstant
                 && !scan.alreadyInstant
-                && scan.terminalDesc != null
-                && scan.hitMethod != null
-                && scan.hitDesc != null
-                && scan.instantAnchors == 1
-                && (scan.instantBranchOpcode == Opcodes.IFEQ
-                    || scan.instantBranchOpcode == Opcodes.IFNE);
+                && scan.terminalDesc != null;
         boolean force = donorForce
                 && !scan.alreadyForce
                 && scan.hitMethod != null
@@ -2071,11 +1929,11 @@ public class SmmAnkhCharAttackPatcher {
 
         if (instant) {
             System.out.println(
-                    "Optional Instant Kill hit hook: supported - " + scan.hitDetail);
+                    "Optional Instant Kill attack-return hook: supported - "
+                            + scan.terminalDesc);
         } else {
             System.out.println(
-                    "Optional Instant Kill skipped: "
-                            + (scan.hitDetail == null ? "no compatible hit-check" : scan.hitDetail));
+                    "Optional Instant Kill skipped: no compatible terminal Char.attack");
         }
         if (force) {
             System.out.println(
