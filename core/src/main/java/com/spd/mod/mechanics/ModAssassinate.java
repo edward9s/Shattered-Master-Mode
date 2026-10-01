@@ -181,6 +181,11 @@ public class ModAssassinate extends Buff {
     }
 
     @Override
+    public String toString() {
+        return name();
+    }
+
+    @Override
     public String desc() {
         return "Enables Assassinate for this character. When attached to the player Hero, "
                 + "the edge target button enters Assassinate targeting; press it again to use the current "
