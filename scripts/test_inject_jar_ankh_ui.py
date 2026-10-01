@@ -40,6 +40,7 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertIn('result.put(FORCE_HIT, "openInfo")', source)
         self.assertIn('result.put(PARRY_RIPOSTE, "openInfo")', source)
         self.assertIn('result.put(ASSASSINATE, "openInfo")', source)
+        self.assertIn("ENABLE_PARRY", source)
         self.assertIn("ENABLE_ASSASSINATE", source)
 
     def test_ankh_core_includes_last_stand_runtime_ui(self):
@@ -50,6 +51,10 @@ class AnkhJarUiTests(unittest.TestCase):
             "com/spd/mod/journal/ModRuntimeTagStack.class", mod.ANKH_REQUIRED_ROOTS
         )
         source = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
+        self.assertIn(
+            '"parry": "com/spd/mod/mechanics/ModParryRiposte.class"',
+            source,
+        )
         self.assertIn(
             '"assassinate": "com/spd/mod/mechanics/ModAssassinate.class"',
             source,
@@ -411,10 +416,10 @@ public class Harness {{
                     target,
                     work,
                     GAME_ROOT,
+                    parry=False,
                     instant=False,
                     force=False,
                     assassinate=False,
-                    full=False,
                 )
             target_class = classes / entry
             target_class.write_bytes(patched.read_bytes())
@@ -454,10 +459,10 @@ public class Harness {{
                     target,
                     work,
                     GAME_ROOT,
+                    parry=False,
                     instant=False,
                     force=False,
                     assassinate=False,
-                    full=False,
                 )
 
     def test_last_stand_zero_candidates_fail_early(self):
@@ -475,10 +480,10 @@ public class Harness {{
                     target,
                     work,
                     GAME_ROOT,
+                    parry=False,
                     instant=False,
                     force=False,
                     assassinate=False,
-                    full=False,
                 )
 
     @classmethod
@@ -524,6 +529,11 @@ import {package}.actors.Char;
 public class ModInstantKill {{
     public static boolean enabled;
     public static int successfulCalls;
+    public static void beginAttack(Char attacker, Char defender) {{
+    }}
+    public static void finishAttack(boolean successful) {{
+        if (successful) resolveSuccessfulAttack(null, null);
+    }}
     public static boolean resolveSuccessfulAttack(Char attacker, Char defender) {{
         successfulCalls++;
         return enabled;
@@ -555,7 +565,16 @@ public class ModForceHit {{
 package com.spd.mod.mechanics;
 import {package}.actors.Char;
 public class ModParryRiposte {{
+    public static int incomingCalls;
+    public static int completeCalls;
     public static void onIncomingAttack(Char attacker, Char defender) {{
+        incomingCalls++;
+    }}
+    public static void onIncomingAttackComplete() {{
+        completeCalls++;
+    }}
+    public static void onIncomingAttackComplete(Char attacker, Char defender) {{
+        completeCalls++;
     }}
 }}
 """,
@@ -567,6 +586,7 @@ public class ModParryRiposte {{
 package {package}.actors;
 import com.spd.mod.mechanics.ModForceHit;
 import com.spd.mod.mechanics.ModInstantKill;
+import com.spd.mod.mechanics.ModParryRiposte;
 public class CombatHarness {{
     private static void check(boolean value, String label) {{
         if (!value) throw new AssertionError(label);
@@ -574,6 +594,9 @@ public class CombatHarness {{
     public static void main(String[] args) {{
         Char attacker = new Char();
         Char defender = new Char();
+
+        ModParryRiposte.incomingCalls = 0;
+        ModParryRiposte.completeCalls = 0;
 
         Char.invulnerable = false;
         Char.nativeHit = false;
@@ -602,6 +625,9 @@ public class CombatHarness {{
         ModInstantKill.successfulCalls = 0;
         check(attacker.attack(defender), "Force Hit + Instant Kill did not bypass invulnerability");
         check(ModInstantKill.successfulCalls == 1, "Force Hit + Instant Kill did not resolve at attack entry");
+
+        check(ModParryRiposte.incomingCalls == 3, "Parry/Riposte entry hook count mismatch");
+        check(ModParryRiposte.completeCalls == 3, "Parry/Riposte completion hook count mismatch");
     }}
 }}
 """,
@@ -666,7 +692,7 @@ public class CombatHarness {{
             stderr=subprocess.STDOUT,
         )
 
-    def test_ark_legacy_hit_supported_by_ankh_jar_for_force_and_instant(self):
+    def test_ark_legacy_hit_supported_by_ankh_jar_for_parry_force_and_instant(self):
         java = pathlib.Path(self._tool("java"))
         with tempfile.TemporaryDirectory() as tmp:
             work = pathlib.Path(tmp)
@@ -675,7 +701,7 @@ public class CombatHarness {{
                 java, target, payload, work, GAME_ROOT
             )
             self.assertIsNotNone(patched)
-            self.assertEqual({"instant", "force"}, enabled)
+            self.assertEqual({"parry", "instant", "force"}, enabled)
             char_class = classes / f"{GAME_ROOT}/actors/Char.class"
             char_class.write_bytes(patched.read_bytes())
 
