@@ -1,7 +1,7 @@
 package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.ChampionEnemy;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Preparation;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
@@ -13,10 +13,9 @@ import com.spd.mod.journal.WndInstantKillInfo;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
-import java.util.HashSet;
 
 /** Permanent Char combat buff with a configurable Instant Kill effect. */
-public class ModInstantKill extends ChampionEnemy {
+public class ModInstantKill extends Buff {
 
     private static final String INSTANT_KILL = "instant_kill";
     private boolean instantKill = true;
@@ -25,10 +24,6 @@ public class ModInstantKill extends ChampionEnemy {
         type = buffType.POSITIVE;
         announced = true;
         revivePersists = true;
-        // Char.attackProc() already dispatches ChampionEnemy buffs for every Char.
-        // Reuse that stable combat hook instead of adding another attack injection.
-        // This buff otherwise has no champion side effects.
-        color = 0xFFFFFF;
     }
 
     /** Stable across supported SPD forks; avoids Char.buff(Class) ABI variance. */
@@ -55,13 +50,6 @@ public class ModInstantKill extends ChampionEnemy {
         if (target != null && find(target) == this) {
             GameScene.show(new WndInstantKillInfo(this));
         }
-    }
-
-    @Override
-    public void fx(boolean on) {
-        // ChampionEnemy.fx() draws a colored rotating aura. ModInstantKill only
-        // reuses ChampionEnemy's stable attackProc dispatch and must not inherit
-        // any champion presentation state.
     }
 
     @Override
@@ -109,15 +97,19 @@ public class ModInstantKill extends ChampionEnemy {
 
     @Override
     public String desc() {
-        return "Successful physical attacks kill their target while enabled.";
+        return "Successful physical attacks kill their target while enabled. "
+                + "With Force Hit enabled, the attack resolves as an immediate kill "
+                + "before native hit and invulnerability checks.";
     }
 
-    @Override
-    public void onAttackProc(Char defender) {
-        // Primary Instant Kill resolution happens immediately after Char.hit()
-        // succeeds and before defenseProc(). Keep this as a compatibility
-        // fallback for source/fork builds that have not installed that hook.
-        resolveSuccessfulAttack(target, defender);
+    /**
+     * Resolves Force Hit + Instant Kill at terminal Char.attack() entry. This is
+     * intentionally the only Instant Kill path that bypasses native hit and
+     * invulnerability checks.
+     */
+    public static boolean resolveForcedAttack(Char attacker, Char defender) {
+        return ModForceHit.find(attacker) != null
+                && resolveSuccessfulAttack(attacker, defender);
     }
 
     /**
@@ -135,26 +127,6 @@ public class ModInstantKill extends ChampionEnemy {
                 || defender == attacker
                 || !attacker.isAlive()
                 || !defender.isAlive()) {
-            return false;
-        }
-        return executeInstantKill(attacker, defender);
-    }
-
-    /**
-     * Resolves an attack that was blocked by target invulnerability. Instant Kill
-     * owns this policy; Force Hit never bypasses invulnerability by itself.
-     */
-    static boolean resolveBlockedAttack(Char attacker, Char defender) {
-        ModInstantKill buff = find(attacker);
-        if (buff == null
-                || !buff.instantKill
-                || buff.target != attacker
-                || attacker == null
-                || defender == null
-                || defender == attacker
-                || !attacker.isAlive()
-                || !defender.isAlive()
-                || !defender.isInvulnerable(attacker.getClass())) {
             return false;
         }
         return executeInstantKill(attacker, defender);
@@ -192,11 +164,6 @@ public class ModInstantKill extends ChampionEnemy {
     }
 
     @Override
-    public float evasionAndAccuracyFactor() {
-        return 1f;
-    }
-
-    @Override
     public void storeInBundle(Bundle bundle) {
         super.storeInBundle(bundle);
         bundle.put(INSTANT_KILL, instantKill);
@@ -208,13 +175,4 @@ public class ModInstantKill extends ChampionEnemy {
         instantKill = bundle.getBoolean(INSTANT_KILL);
     }
 
-    @Override
-    public HashSet<Class> immunities() {
-        return new HashSet<>();
-    }
-
-    @Override
-    public HashSet<Class> resistances() {
-        return new HashSet<>();
-    }
 }
