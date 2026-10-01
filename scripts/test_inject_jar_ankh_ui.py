@@ -85,7 +85,8 @@ class AnkhJarUiTests(unittest.TestCase):
             root / "core/src/main/java/com/spd/mod/mechanics/ModInstantKill.java"
         ).read_text(encoding="utf-8")
         self.assertIn("class ModInstantKill extends Buff", instant_source)
-        self.assertIn("resolveForcedAttack", instant_source)
+        self.assertNotIn("ModForceHit", instant_source)
+        self.assertNotIn("resolveForcedAttack", instant_source)
         self.assertNotIn("ChampionEnemy", instant_source)
         self.assertNotIn("onAttackProc", instant_source)
         self.assertNotIn("resolveBlockedAttack", instant_source)
@@ -94,6 +95,11 @@ class AnkhJarUiTests(unittest.TestCase):
             "TargetHealthIndicator.instance.target(null)",
             instant_source,
         )
+
+        force_source = (
+            root / "core/src/main/java/com/spd/mod/mechanics/ModForceHit.java"
+        ).read_text(encoding="utf-8")
+        self.assertIn("isForceHitEnabled", force_source)
 
         riposte_source = (
             root / "core/src/main/java/com/spd/mod/mechanics/ModParryRiposte.java"
@@ -513,12 +519,7 @@ package com.spd.mod.mechanics;
 import {package}.actors.Char;
 public class ModInstantKill {{
     public static boolean enabled;
-    public static int forcedCalls;
     public static int successfulCalls;
-    public static boolean resolveForcedAttack(Char attacker, Char defender) {{
-        forcedCalls++;
-        return enabled && ModForceHit.enabled;
-    }}
     public static boolean resolveSuccessfulAttack(Char attacker, Char defender) {{
         successfulCalls++;
         return enabled;
@@ -534,6 +535,9 @@ package com.spd.mod.mechanics;
 import {package}.actors.Char;
 public class ModForceHit {{
     public static boolean enabled;
+    public static boolean isForceHitEnabled(Char attacker) {{
+        return enabled;
+    }}
     public static boolean forceHitCheck(Char attacker, Char defender) {{
         return enabled;
     }}
@@ -571,37 +575,29 @@ public class CombatHarness {{
         Char.nativeHit = false;
         ModForceHit.enabled = true;
         ModInstantKill.enabled = false;
-        ModInstantKill.forcedCalls = 0;
         ModInstantKill.successfulCalls = 0;
         check(attacker.attack(defender), "Force Hit did not override legacy hit");
-        check(ModInstantKill.forcedCalls == 1, "Force/Instant entry hook did not run");
-        check(ModInstantKill.successfulCalls == 1, "Instant Kill did not observe forced legacy hit");
+        check(ModInstantKill.successfulCalls == 2, "Force Hit attack should check Instant Kill at entry and after forced hit");
 
         Char.nativeHit = true;
         ModForceHit.enabled = false;
         ModInstantKill.enabled = true;
-        ModInstantKill.forcedCalls = 0;
         ModInstantKill.successfulCalls = 0;
         check(attacker.attack(defender), "Instant Kill changed successful attack result");
-        check(ModInstantKill.forcedCalls == 1, "Instant Kill entry hook did not run");
         check(ModInstantKill.successfulCalls == 1, "Instant Kill did not hook legacy hit success");
 
         Char.invulnerable = true;
         ModForceHit.enabled = false;
         ModInstantKill.enabled = true;
-        ModInstantKill.forcedCalls = 0;
         ModInstantKill.successfulCalls = 0;
         check(!attacker.attack(defender), "Instant Kill alone bypassed invulnerability");
-        check(ModInstantKill.forcedCalls == 1, "Instant Kill entry hook did not inspect invulnerable attack");
-        check(ModInstantKill.successfulCalls == 0, "Invulnerable attack reached successful-hit hook");
+        check(ModInstantKill.successfulCalls == 0, "Instant Kill alone bypassed the native invulnerability stop");
 
         ModForceHit.enabled = true;
         ModInstantKill.enabled = true;
-        ModInstantKill.forcedCalls = 0;
         ModInstantKill.successfulCalls = 0;
         check(attacker.attack(defender), "Force Hit + Instant Kill did not bypass invulnerability");
-        check(ModInstantKill.forcedCalls == 1, "Force/Instant entry hook was not used");
-        check(ModInstantKill.successfulCalls == 0, "Force/Instant entry kill continued into hit hook");
+        check(ModInstantKill.successfulCalls == 1, "Force Hit + Instant Kill did not resolve at attack entry");
     }}
 }}
 """,
