@@ -1232,36 +1232,66 @@ def patch_char_hit(
     char_descriptor: str,
     method_name: str | None = None,
     proto: str | None = None,
+    *,
+    force: bool = True,
+    parry: bool = False,
 ) -> str:
+    if not force and not parry:
+        return text
+
     method_name = method_name or "hit"
     proto = proto or f"({char_descriptor}{char_descriptor}FZ)Z"
     if not proto.startswith(f"({char_descriptor}{char_descriptor}") or not proto.endswith(")Z"):
         raise injector.InjectError(
-            "Force Hit target must be a boolean static method whose first two "
+            "Combat hit hook target must be a boolean static method whose first two "
             "parameters are attacker and defender Char values"
         )
     start, end, block = injector.method_block(text, method_name, proto)
     if _smali_local_register_count(block, proto, True) < 1:
         raise injector.InjectError(
-            "Force Hit target has no safe entry scratch register"
+            "Combat hit hook target has no safe entry scratch register"
         )
-    hook = (
+
+    force_hook = (
         "Lcom/spd/mod/mechanics/ModForceHit;->forceHitCheck("
         f"{char_descriptor}{char_descriptor})Z"
     )
-    if hook in block:
+    parry_hook = (
+        "Lcom/spd/mod/mechanics/ModParryRiposte;->shouldParry("
+        f"{char_descriptor}{char_descriptor})Z"
+    )
+    if force and force_hook in block:
         raise injector.InjectError("Char.hit already contains SMM Force Hit hook")
+    if parry and parry_hook in block:
+        raise injector.InjectError("Char.hit already contains SMM Parry hook")
 
     insert_at, indent = _first_smali_instruction(block)
-    injected = (
-        f"{indent}# SMM Force Hit pre-defense hook\n"
-        f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
-        f"{indent}move-result v0\n"
-        f"{indent}if-eqz v0, :smm_force_hit_native\n"
-        f"{indent}const/4 v0, 0x1\n"
-        f"{indent}return v0\n"
-        f"{indent}:smm_force_hit_native\n\n"
-    )
+    parts = []
+
+    if force:
+        parts.extend([
+            f"{indent}# SMM Force Hit pre-defense hook\n",
+            f"{indent}invoke-static/range {{p0 .. p1}}, {force_hook}\n",
+            f"{indent}move-result v0\n",
+            f"{indent}if-eqz v0, :smm_force_hit_native\n",
+            f"{indent}const/4 v0, 0x1\n",
+            f"{indent}return v0\n",
+            f"{indent}:smm_force_hit_native\n",
+        ])
+
+    if parry:
+        parts.extend([
+            f"{indent}# SMM Parry pre-hit hook\n",
+            f"{indent}invoke-static/range {{p0 .. p1}}, {parry_hook}\n",
+            f"{indent}move-result v0\n",
+            f"{indent}if-eqz v0, :smm_parry_native\n",
+            f"{indent}const/4 v0, 0x0\n",
+            f"{indent}return v0\n",
+            f"{indent}:smm_parry_native\n",
+        ])
+
+    parts.append("\n")
+    injected = "".join(parts)
     patched = block[:insert_at] + injected + block[insert_at:]
     return text[:start] + patched + text[end:]
 
@@ -1372,6 +1402,8 @@ def compile_smali_with_char_hook(
         char_descriptor,
         hit_method,
         hit_proto,
+        force=True,
+        parry=True,
     )
     char_output = directory / Path(char_descriptor[1:-1] + ".smali")
     if char_output.exists():
@@ -1385,7 +1417,7 @@ def compile_smali_with_char_hook(
     )
     injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
     injector.log(
-        "Force Hit pre-defense hook "
+        "Force Hit + Parry pre-hit hooks "
         f"{hit_method}{hit_proto} ({hit_capability.strategy}): OK"
     )
 
