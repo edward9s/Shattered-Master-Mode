@@ -77,6 +77,7 @@ def configure(public_module) -> None:
     full_prefix = public_module.FULL_SMM_PREFIX
     last_stand = full_prefix + "mechanics/ModLastStand;"
     last_stand_tag = full_prefix + "journal/ModLastStandTag;"
+    parry_riposte = full_prefix + "mechanics/ModParryRiposte;"
     instant_kill = full_prefix + "mechanics/ModInstantKill;"
     force_hit = full_prefix + "mechanics/ModForceHit;"
     assassinate = full_prefix + "mechanics/ModAssassinate;"
@@ -84,6 +85,7 @@ def configure(public_module) -> None:
     def detect_target_game_prefix(target_index):
         game_prefix = public_module._original_detect_target_game_prefix(target_index)
         public_module._current_game_prefix = game_prefix
+        public_module._ankh_parry_riposte_enabled = False
         public_module._ankh_instant_kill_enabled = False
         public_module._ankh_force_hit_enabled = False
         public_module._ankh_assassinate_enabled = False
@@ -220,6 +222,7 @@ def configure(public_module) -> None:
                     )
 
         optional_specs = (
+            ("parry", parry_riposte, "char.incomingAttackHook", "Parry/Riposte"),
             ("instant", instant_kill, "char.incomingAttackHook", "Instant Kill"),
             ("force", force_hit, "char.hitHook", "Force Hit"),
             ("assassinate", assassinate, None, "Assassinate"),
@@ -295,6 +298,7 @@ def configure(public_module) -> None:
             feature: mapped(feature_closure)
             for feature, feature_closure in optional_closures.items()
         }
+        public_module._ankh_parry_riposte_enabled = "parry" in optional_closures
         public_module._ankh_instant_kill_enabled = "instant" in optional_closures
         public_module._ankh_force_hit_enabled = "force" in optional_closures
         public_module._ankh_assassinate_enabled = "assassinate" in optional_closures
@@ -379,11 +383,13 @@ def configure(public_module) -> None:
             return core_errors
 
         feature_flags = {
+            "parry": "_ankh_parry_riposte_enabled",
             "instant": "_ankh_instant_kill_enabled",
             "force": "_ankh_force_hit_enabled",
             "assassinate": "_ankh_assassinate_enabled",
         }
         labels = {
+            "parry": "Parry/Riposte",
             "instant": "Instant Kill",
             "force": "Force Hit",
             "assassinate": "Assassinate",
@@ -433,6 +439,9 @@ def configure(public_module) -> None:
         api: int,
     ) -> None:
         pending_char = getattr(public_module, "_pending_char_overlay", None)
+        parry_enabled = bool(
+            getattr(public_module, "_ankh_parry_riposte_enabled", False)
+        )
         instant_enabled = bool(
             getattr(public_module, "_ankh_instant_kill_enabled", False)
         )
@@ -450,6 +459,12 @@ def configure(public_module) -> None:
         public_module.write_action_name_overlay(directory)
 
         if pending_char is None:
+            if parry_enabled:
+                injector.log(
+                    "Optional Parry/Riposte skipped: target Char overlay is unavailable"
+                )
+                parry_enabled = False
+                public_module._ankh_parry_riposte_enabled = False
             if instant_enabled:
                 injector.log(
                     "Optional Instant Kill skipped: target Char overlay is unavailable"
@@ -463,7 +478,7 @@ def configure(public_module) -> None:
                 force_enabled = False
                 public_module._ankh_force_hit_enabled = False
 
-        if (instant_enabled or force_enabled) and pending_char is not None:
+        if (parry_enabled or instant_enabled or force_enabled) and pending_char is not None:
             char_descriptor, original_char = pending_char
             patched_char = original_char
             char_changed = False
@@ -536,6 +551,37 @@ def configure(public_module) -> None:
                         + attack_capability.detail
                     )
 
+            if parry_enabled:
+                attack_capability = public_module._current_abi_profile.get(
+                    "char.incomingAttackHook"
+                )
+                proto = attack_capability.data.get("proto")
+                if attack_capability.compatible and proto:
+                    try:
+                        patched_char = public_module.patch_char_attack(
+                            patched_char,
+                            char_descriptor,
+                            proto,
+                        )
+                        char_changed = True
+                        injector.log(
+                            f"Char.attack Parry/Riposte entry/return hooks ({proto}): OK"
+                        )
+                    except injector.InjectError as exc:
+                        parry_enabled = False
+                        public_module._ankh_parry_riposte_enabled = False
+                        injector.log(
+                            "Optional Parry/Riposte skipped after attack patch attempt: "
+                            + str(exc)
+                        )
+                else:
+                    parry_enabled = False
+                    public_module._ankh_parry_riposte_enabled = False
+                    injector.log(
+                        "Optional Parry/Riposte skipped: "
+                        + attack_capability.detail
+                    )
+
             if char_changed:
                 char_path = directory / Path(char_descriptor[1:-1] + ".smali")
                 if char_path.exists():
@@ -547,10 +593,10 @@ def configure(public_module) -> None:
 
         public_module.write_buff_click_patch(
             directory,
+            parry=parry_enabled,
             instant=instant_enabled,
             force=force_enabled,
             assassinate=assassinate_enabled,
-            full=False,
         )
 
         core_keys = set(
@@ -560,6 +606,8 @@ def configure(public_module) -> None:
             getattr(public_module, "_ankh_optional_payload_descriptors", {})
         )
         keep = set(core_keys)
+        if parry_enabled:
+            keep.update(optional_sets.get("parry", set()))
         if instant_enabled:
             keep.update(optional_sets.get("instant", set()))
         if force_enabled:
@@ -589,10 +637,10 @@ def configure(public_module) -> None:
         )
 
     # Ankh-only guarantees the ModAnkh + Last Stand core, including the runtime
-    # Last Stand Tag. Instant Kill requires only a safe terminal Char.attack hook;
-    # Force Hit separately requires a safe selected hit-check. No attackProc
-    # fallback is kept, so optional features never silently degrade their semantics.
-    # Assassinate is a separate optional closure and needs no extra Char hook.
+    # Last Stand Tag. Parry/Riposte and Instant Kill require a safe terminal
+    # Char.attack hook; Force Hit separately requires a safe selected hit-check.
+    # No attackProc fallback is kept, so optional features never silently degrade
+    # their semantics. Assassinate is separate and needs no extra Char hook.
     injector.detect_target_game_prefix = detect_target_game_prefix
     injector.build_debug_payload = build_ankh_payload
     injector.payload_compatibility_errors = payload_compatibility_errors
