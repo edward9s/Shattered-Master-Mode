@@ -7,11 +7,13 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
-import com.spd.mod.journal.ModEnemySurgeInfoOverlay;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+import com.spd.mod.journal.WndEnemySurgeInfo;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 
 /**
  * Permanent Master Mode buff that accelerates normal enemy respawning, raises
@@ -60,6 +62,41 @@ public class ModEnemySurge extends Buff {
         return target != null && find(target) == this;
     }
 
+    public void openInfo() {
+        if (isAttached()) {
+            GameScene.show(new WndEnemySurgeInfo(this));
+        }
+    }
+
+    /**
+     * Source builds may install the richer transparent overlay. Binary injection
+     * uses the BuffIndicator click bridge instead, so keep this UI dependency
+     * reflective and out of the Enemy Surge gameplay closure.
+     */
+    private static void ensureOptionalOverlay() {
+        invokeOptionalOverlay("ensureInstalled");
+    }
+
+    private static void refreshIndicators() {
+        BuffIndicator.refreshHero();
+        invokeOptionalOverlay("refreshIndicators");
+    }
+
+    private static void invokeOptionalOverlay(String methodName) {
+        try {
+            String className = ModEnemySurge.class.getName().replace(
+                    ".mechanics.ModEnemySurge",
+                    ".journal.ModEnemySurgeInfoOverlay");
+            Class<?> overlay = Class.forName(
+                    className, false, ModEnemySurge.class.getClassLoader());
+            Method method = overlay.getDeclaredMethod(methodName);
+            method.setAccessible(true);
+            method.invoke(null);
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+            // Minimal/legacy injection intentionally omits the overlay layer.
+        }
+    }
+
     @Override
     public boolean attachTo(Char target) {
         if (!super.attachTo(target)) {
@@ -77,14 +114,14 @@ public class ModEnemySurge extends Buff {
             }
         }
 
-        ModEnemySurgeInfoOverlay.ensureInstalled();
+        ensureOptionalOverlay();
         return true;
     }
 
     @Override
     public void fx(boolean on) {
         if (on) {
-            ModEnemySurgeInfoOverlay.ensureInstalled();
+            ensureOptionalOverlay();
         }
     }
 
@@ -96,7 +133,7 @@ public class ModEnemySurge extends Buff {
         spawnMultiplier = Math.max(1, Math.min(10, multiplier));
         extraSpawnCountdown = Float.NaN;
         BuffIndicator.refreshHero();
-        ModEnemySurgeInfoOverlay.refreshIndicators();
+        refreshIndicators();
     }
 
     public boolean attractEnemies() {
@@ -107,7 +144,7 @@ public class ModEnemySurge extends Buff {
         attractEnemies = !attractEnemies;
         attractCountdown = 0f;
         BuffIndicator.refreshHero();
-        ModEnemySurgeInfoOverlay.refreshIndicators();
+        refreshIndicators();
     }
 
     @Override
@@ -259,6 +296,11 @@ public class ModEnemySurge extends Buff {
     }
 
     @Override
+    public String toString() {
+        return name();
+    }
+
+    @Override
     public String desc() {
         return "Enemy respawn rate and population limit: " + spawnMultiplier
                 + "x. Attraction: " + (attractEnemies ? "ON" : "OFF")
@@ -291,6 +333,6 @@ public class ModEnemySurge extends Buff {
     public void detach() {
         super.detach();
         BuffIndicator.refreshHero();
-        ModEnemySurgeInfoOverlay.refreshIndicators();
+        refreshIndicators();
     }
 }
