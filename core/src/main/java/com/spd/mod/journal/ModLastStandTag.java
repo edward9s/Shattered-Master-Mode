@@ -7,7 +7,6 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Tag;
 import com.spd.mod.mechanics.ModLastStand;
 import com.watabou.noosa.BitmapText;
-import com.watabou.noosa.ColorBlock;
 import com.watabou.noosa.Game;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
@@ -19,13 +18,7 @@ import java.lang.reflect.Method;
 public final class ModLastStandTag extends Gizmo {
 
     private static final int TAG_NEUTRAL = 0x7B8073;
-    private static final int BADGE_RED = 0xFFC03838;
-    private static final float BADGE_SIZE = 9f;
-
     private static ModLastStandTag instance;
-    private static Method givePointerPriorityMethod;
-    private static boolean pointerPriorityResolved;
-
     private LastStandTag storeTag;
 
     public static void ensureInstalled() {
@@ -102,32 +95,6 @@ public final class ModLastStandTag extends Gizmo {
         return ModLastStand.find(Dungeon.hero) != null;
     }
 
-    private static void givePointerPriorityCompat(Tag tag) {
-        if (!pointerPriorityResolved) {
-            pointerPriorityResolved = true;
-            for (Class<?> cls = tag.getClass(); cls != null; cls = cls.getSuperclass()) {
-                try {
-                    Method method = cls.getDeclaredMethod("givePointerPriority");
-                    method.setAccessible(true);
-                    givePointerPriorityMethod = method;
-                    break;
-                } catch (NoSuchMethodException ignored) {
-                    // Continue through the component hierarchy.
-                } catch (SecurityException ignored) {
-                    break;
-                }
-            }
-        }
-
-        if (givePointerPriorityMethod != null) {
-            try {
-                givePointerPriorityMethod.invoke(tag);
-            } catch (ReflectiveOperationException | RuntimeException ignored) {
-                // Adding the tag to the scene still gives a usable fallback.
-            }
-        }
-    }
-
     @Override
     public void destroy() {
         removeStoreTag();
@@ -140,7 +107,6 @@ public final class ModLastStandTag extends Gizmo {
     private static final class LastStandTag extends Tag {
 
         private final Image icon;
-        private final ColorBlock[] badgeBorder = new ColorBlock[4];
         private final BitmapText count;
         private int lastCount = -1;
 
@@ -150,11 +116,6 @@ public final class ModLastStandTag extends Gizmo {
 
             icon = backpackIcon();
             add(icon);
-
-            for (int i = 0; i < badgeBorder.length; i++) {
-                badgeBorder[i] = new ColorBlock(1, 1, BADGE_RED);
-                add(badgeBorder[i]);
-            }
 
             count = new BitmapText(PixelScene.pixelFont);
             count.hardlight(0xFFFFFF);
@@ -212,13 +173,10 @@ public final class ModLastStandTag extends Gizmo {
             float contentAlpha = available ? 1f : 0.4f;
             icon.alpha(contentAlpha);
             count.alpha(contentAlpha);
-            for (ColorBlock border : badgeBorder) {
-                border.alpha(contentAlpha);
-            }
 
             super.update();
             if (!ModRuntimeTagStack.hasOpenWindow()) {
-                givePointerPriorityCompat(this);
+                ModRuntimeTagStack.givePointerPriority(this);
             }
         }
 
@@ -233,25 +191,6 @@ public final class ModLastStandTag extends Gizmo {
             }
             icon.y = y + (height - icon.height()) / 2f;
             PixelScene.align(icon);
-
-            float badgeLeft = icon.x + icon.width() - BADGE_SIZE + 1f;
-            float badgeTop = icon.y + icon.height() - BADGE_SIZE + 1f;
-
-            badgeBorder[0].x = badgeLeft;
-            badgeBorder[0].y = badgeTop;
-            badgeBorder[0].size(BADGE_SIZE, 1f);
-
-            badgeBorder[1].x = badgeLeft;
-            badgeBorder[1].y = badgeTop + BADGE_SIZE - 1f;
-            badgeBorder[1].size(BADGE_SIZE, 1f);
-
-            badgeBorder[2].x = badgeLeft;
-            badgeBorder[2].y = badgeTop;
-            badgeBorder[2].size(1f, BADGE_SIZE);
-
-            badgeBorder[3].x = badgeLeft + BADGE_SIZE - 1f;
-            badgeBorder[3].y = badgeTop;
-            badgeBorder[3].size(1f, BADGE_SIZE);
 
             if (count.visible) {
                 count.x = icon.x - 1f;
