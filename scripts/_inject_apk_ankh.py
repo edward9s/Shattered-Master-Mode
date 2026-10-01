@@ -517,7 +517,7 @@ def configure(public_module) -> None:
                         char_changed = True
                         combo = " + Force Hit entry" if force_enabled else ""
                         injector.log(
-                            "Char.attack Instant Kill successful-return hook"
+                            "Char.attack Instant Kill attack-context return hook"
                             + combo
                             + f" ({proto}): OK"
                         )
