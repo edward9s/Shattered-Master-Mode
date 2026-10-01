@@ -58,6 +58,13 @@ public class ModInstantKill extends ChampionEnemy {
     }
 
     @Override
+    public void fx(boolean on) {
+        // ChampionEnemy.fx() draws a colored rotating aura. ModInstantKill only
+        // reuses ChampionEnemy's stable attackProc dispatch and must not inherit
+        // any champion presentation state.
+    }
+
+    @Override
     public boolean act() {
         spend(TICK);
         return true;
