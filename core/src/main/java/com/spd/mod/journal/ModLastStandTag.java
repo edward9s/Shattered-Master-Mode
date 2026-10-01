@@ -14,7 +14,6 @@ import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
 import com.watabou.noosa.TextureFilm;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 /** Runtime edge Tag for opening Last Stand storage in full and ankh-only injection. */
@@ -174,36 +173,16 @@ public final class ModLastStandTag extends Gizmo {
         }
 
         private static Image lastStandBadgeIcon() {
-            Object atlas = null;
-            int frameSize = 0;
-
-            for (String fieldName : new String[]{"BUFFS_SMALL", "BUFFS_LARGE"}) {
-                try {
-                    Field field = Assets.Interfaces.class.getField(fieldName);
-                    atlas = field.get(null);
-                    frameSize = "BUFFS_SMALL".equals(fieldName) ? 7 : 16;
-                    break;
-                } catch (ReflectiveOperationException | SecurityException ignored) {
-                    // Older forks may expose only one of the two buff atlases.
-                }
-            }
-
-            if (atlas != null) {
-                Image image = new Image(atlas);
-                TextureFilm film = new TextureFilm(atlas, frameSize, frameSize);
-                image.frame(film.get(new ModLastStand().icon()));
-                if (frameSize > 7) {
-                    image.scale.set(PixelScene.align(7f / frameSize));
-                }
-                return image;
-            }
-
-            // Extremely old forks: keep the badge visible even without a buff
-            // atlas by reusing a stable toolbar frame.
-            Image fallback = new Image(Assets.Interfaces.TOOLBAR);
-            fallback.frame(160, 0, 16, 16);
-            fallback.scale.set(PixelScene.align(7f / 16f));
-            return fallback;
+            // Keep source builds and injected builds on the exact same path.
+            // Reflecting Assets.Interfaces.BUFFS_SMALL is unreliable in source
+            // release builds because R8 may inline/remove that static final
+            // field. The small buff-atlas resource path itself is stable across
+            // the supported Pixel Dungeon lineage.
+            Object atlas = "interfaces/buffs.png";
+            Image image = new Image(atlas);
+            TextureFilm film = new TextureFilm(atlas, 7, 7);
+            image.frame(film.get(new ModLastStand().icon()));
+            return image;
         }
 
         @Override
