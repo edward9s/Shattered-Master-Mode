@@ -9,19 +9,23 @@ INSTANT_KILL = "Lcom/spd/mod/mechanics/ModInstantKill;"
 FORCE_HIT = "Lcom/spd/mod/mechanics/ModForceHit;"
 PARRY_RIPOSTE = "Lcom/spd/mod/mechanics/ModParryRiposte;"
 ASSASSINATE = "Lcom/spd/mod/mechanics/ModAssassinate;"
+ENEMY_SURGE = "Lcom/spd/mod/mechanics/ModEnemySurge;"
 
 LAST_STAND_HANDLER = (LAST_STAND, "open")
 INSTANT_KILL_HANDLER = (INSTANT_KILL, "openInfo")
 FORCE_HIT_HANDLER = (FORCE_HIT, "openInfo")
 PARRY_RIPOSTE_HANDLER = (PARRY_RIPOSTE, "openInfo")
 ASSASSINATE_HANDLER = (ASSASSINATE, "openInfo")
+ENEMY_SURGE_HANDLER = (ENEMY_SURGE, "openInfo")
 
 INFO_HELPER = "smmNativeInfo"
 LONG_HELPER = "smmNativeLongClick"
 _LEGACY_HELPERS = ("smmLastStandInfo", "smm$lastStandInfo")
 
 
-def selected_handlers(*, parry: bool, instant: bool, force: bool, assassinate: bool):
+def selected_handlers(
+    *, parry: bool, instant: bool, force: bool, assassinate: bool, enemy_surge: bool
+):
     handlers = [LAST_STAND_HANDLER]
     if parry:
         handlers.append(PARRY_RIPOSTE_HANDLER)
@@ -31,6 +35,8 @@ def selected_handlers(*, parry: bool, instant: bool, force: bool, assassinate: b
         handlers.append(FORCE_HIT_HANDLER)
     if assassinate:
         handlers.append(ASSASSINATE_HANDLER)
+    if enemy_surge:
+        handlers.append(ENEMY_SURGE_HANDLER)
     return tuple(handlers)
 
 
