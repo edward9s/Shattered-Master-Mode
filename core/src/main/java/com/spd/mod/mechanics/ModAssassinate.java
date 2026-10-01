@@ -659,7 +659,7 @@ public class ModAssassinate extends Buff {
 
             super.update();
             if (!ModRuntimeTagStack.hasOpenWindow()) {
-                givePointerPriority();
+                ModRuntimeTagStack.givePointerPriority(this);
             }
         }
 
