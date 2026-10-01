@@ -92,6 +92,17 @@ class AnkhJarUiTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("hit = attacker.attack(target);", assassin_source)
         self.assertNotIn("attacker.attack(target, 1f, 0f, 1f)", assassin_source)
+        self.assertNotIn("HeroClass.DUELIST", assassin_source)
+        self.assertIn('((Enum<?>) hero.heroClass).name()', assassin_source)
+
+        self.assertNotIn(
+            "com.shatteredpixel.shatteredpixeldungeon.ui.Button",
+            assassinate_source,
+        )
+        self.assertIn(
+            "ModLegacyCompat.longClickThreshold()",
+            assassinate_source,
+        )
 
     def test_tag_has_only_store_tag_responsibility(self):
         root = pathlib.Path(__file__).resolve().parents[1]
