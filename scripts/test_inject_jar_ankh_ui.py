@@ -154,6 +154,7 @@ class AnkhJarUiTests(unittest.TestCase):
             "import com.spd.mod.journal.ModEnemySurgeInfoOverlay;",
             surge,
         )
+        self.assertNotIn("ModEnemySurgeInfoOverlay", window)
         self.assertNotIn("RenderedTextBlock", window)
 
 
