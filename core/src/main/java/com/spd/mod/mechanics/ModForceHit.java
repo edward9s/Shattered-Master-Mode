@@ -39,9 +39,9 @@ public class ModForceHit extends Buff {
     }
 
     /**
-     * Char.hit calls this before any native defense calculation. Returning true
-     * resolves the hit immediately. Invulnerability remains an engine-level hard
-     * stop and is never bypassed.
+     * The selected Char.hit check calls this before native accuracy/evasion logic.
+     * Force Hit alone does not bypass an earlier Char.attack invulnerability stop.
+     * Force Hit + Instant Kill is resolved separately at Char.attack entry.
      */
     public static boolean forceHitCheck(Char attacker, Char defender) {
         return attacker != null
@@ -110,8 +110,9 @@ public class ModForceHit extends Buff {
 
     @Override
     public String desc() {
-        return "Forces this character's hit checks to succeed whenever the target can be hit. "
-                + "Invulnerability is not bypassed.";
+        return "Forces this character's hit checks to succeed. Force Hit alone does not "
+                + "bypass engine-level invulnerability; combined with Instant Kill, the "
+                + "attack-entry kill does.";
     }
 
     @Override
