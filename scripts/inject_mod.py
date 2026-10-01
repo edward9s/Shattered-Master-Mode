@@ -221,20 +221,27 @@ def _char_hit_method(content: str) -> tuple[str, str, int]:
 
 def patch_char_hit(file_path: Path) -> None:
     content = file_path.read_text(encoding='utf-8')
-    marker = '// MASTER_MODE_FORCE_HIT'
+    force_marker = '// MASTER_MODE_FORCE_HIT'
+    parry_marker = '// MASTER_MODE_PARRY'
 
-    if marker in content:
-        print(f"Force Hit hook already injected into {file_path}")
-        return
+    if force_marker in content or parry_marker in content:
+        if force_marker in content and parry_marker in content:
+            print(f"Force Hit + Parry hooks already injected into {file_path}")
+            return
+        raise RuntimeError(
+            f"Partial Char.hit hook set found in {file_path}; refusing an ambiguous patch"
+        )
 
     attacker, defender, open_brace = _char_hit_method(content)
     injected = (
         "\n\t\t// MASTER_MODE_FORCE_HIT\n"
         f"\t\tif (com.spd.mod.mechanics.ModForceHit.forceHitCheck({attacker}, {defender})) return true;\n"
+        "\t\t// MASTER_MODE_PARRY\n"
+        f"\t\tif (com.spd.mod.mechanics.ModParryRiposte.shouldParry({attacker}, {defender})) return false;\n"
     )
     content = content[:open_brace + 1] + injected + content[open_brace + 1:]
     file_path.write_text(content, encoding='utf-8')
-    print(f"Force Hit hook injected successfully into {file_path}")
+    print(f"Force Hit + Parry hooks injected successfully into {file_path}")
 
 
 
