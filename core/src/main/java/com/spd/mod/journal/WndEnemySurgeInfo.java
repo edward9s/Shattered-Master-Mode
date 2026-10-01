@@ -1,7 +1,6 @@
 package com.spd.mod.journal;
 
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
-import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModEnemySurge;
