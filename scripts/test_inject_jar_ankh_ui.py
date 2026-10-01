@@ -386,36 +386,6 @@ public class Harness {{
 }}
 """,
         )
-        cls._write(
-            src,
-            f"{GAME_ROOT}/actors/ParryHarness.java",
-            f"""
-package {package}.actors;
-import com.spd.mod.mechanics.ModForceHit;
-import com.spd.mod.mechanics.ModInstantKill;
-import com.spd.mod.mechanics.ModParryRiposte;
-public class ParryHarness {{
-    private static void check(boolean value, String label) {{
-        if (!value) throw new AssertionError(label);
-    }}
-    public static void main(String[] args) {{
-        Char attacker = new Char();
-        Char defender = new Char();
-        Char.invulnerable = false;
-        Char.nativeHit = true;
-        ModForceHit.enabled = false;
-        ModInstantKill.enabled = false;
-        ModParryRiposte.incomingCalls = 0;
-        ModParryRiposte.completeCalls = 0;
-
-        check(attacker.attack(defender), "native attack failed");
-        check(ModParryRiposte.incomingCalls == 1, "Parry/Riposte entry hook count mismatch");
-        check(ModParryRiposte.completeCalls == 1, "Parry/Riposte completion hook count mismatch");
-    }}
-}}
-""",
-        )
-
         javac = cls._tool("javac")
         java_files = [str(path) for path in src.rglob("*.java")]
         subprocess.run(
@@ -594,6 +564,7 @@ public class ModForceHit {{
 package com.spd.mod.mechanics;
 import {package}.actors.Char;
 public class ModParryRiposte {{
+    public static boolean enabled;
     public static int incomingCalls;
     public static int completeCalls;
     public static void onIncomingAttack(Char attacker, Char defender) {{
@@ -604,6 +575,9 @@ public class ModParryRiposte {{
     }}
     public static void onIncomingAttackComplete(Char attacker, Char defender) {{
         completeCalls++;
+    }}
+    public static boolean shouldParry(Char attacker, Char defender) {{
+        return enabled;
     }}
 }}
 """,
@@ -651,6 +625,42 @@ public class CombatHarness {{
         ModInstantKill.successfulCalls = 0;
         check(attacker.attack(defender), "Force Hit + Instant Kill did not bypass invulnerability");
         check(ModInstantKill.successfulCalls == 1, "Force Hit + Instant Kill did not resolve at attack entry");
+    }}
+}}
+""",
+        )
+        cls._write(
+            src,
+            f"{GAME_ROOT}/actors/ParryHarness.java",
+            f"""
+package {package}.actors;
+import com.spd.mod.mechanics.ModForceHit;
+import com.spd.mod.mechanics.ModInstantKill;
+import com.spd.mod.mechanics.ModParryRiposte;
+public class ParryHarness {{
+    private static void check(boolean value, String label) {{
+        if (!value) throw new AssertionError(label);
+    }}
+    public static void main(String[] args) {{
+        Char attacker = new Char();
+        Char defender = new Char();
+        Char.invulnerable = false;
+        ModInstantKill.enabled = false;
+        ModParryRiposte.incomingCalls = 0;
+        ModParryRiposte.completeCalls = 0;
+
+        Char.nativeHit = true;
+        ModForceHit.enabled = false;
+        ModParryRiposte.enabled = true;
+        check(!attacker.attack(defender), "Parry did not force the hit to miss");
+        check(ModParryRiposte.incomingCalls == 1, "Parry/Riposte entry hook count mismatch");
+        check(ModParryRiposte.completeCalls == 1, "Parry/Riposte completion hook count mismatch");
+
+        Char.nativeHit = false;
+        ModForceHit.enabled = true;
+        check(attacker.attack(defender), "Force Hit did not override Parry");
+        check(ModParryRiposte.incomingCalls == 2, "Second Parry/Riposte entry hook missing");
+        check(ModParryRiposte.completeCalls == 2, "Second Parry/Riposte completion hook missing");
     }}
 }}
 """,
