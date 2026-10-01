@@ -76,7 +76,6 @@ public class WndEnemySurgeInfo extends WndInfoBuff {
     }
 
     private void rebuild(ModEnemySurge buff) {
-        ModEnemySurgeInfoOverlay.refreshIndicators();
         hide();
         GameScene.show(new WndEnemySurgeInfo(buff));
     }
