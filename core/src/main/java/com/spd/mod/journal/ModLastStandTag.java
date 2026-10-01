@@ -16,7 +16,7 @@ import com.watabou.noosa.Image;
 
 import java.lang.reflect.Method;
 
-/** Optional full-SMM edge Tag for opening Last Stand storage. */
+/** Runtime edge Tag for opening Last Stand storage in full and ankh-only injection. */
 public final class ModLastStandTag extends Gizmo {
 
     private static final int TAG_NEUTRAL = 0x7B8073;
