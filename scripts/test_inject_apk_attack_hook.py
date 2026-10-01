@@ -239,7 +239,7 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertNotIn("confirmed hit", block)
 
 
-    def test_force_hit_rejects_unreferenced_direct_hit_method(self):
+    def test_force_hit_accepts_accessible_direct_hit_method(self):
         attack_proto = f"({self.char}FFF{self.damage_type})Z"
         hit_proto = f"({self.char}{self.char}FZ)Z"
         text = (
@@ -259,8 +259,9 @@ class TerminalAttackHookTest(unittest.TestCase):
         capability = mod._probe_hit_hook(
             {self.char: self.cls(text)}, self.game
         )
-        self.assertEqual(mod.ABI_UNSUPPORTED, capability.strategy)
-        self.assertIn("callable hit-check", capability.detail)
+        self.assertEqual(mod.ABI_DIRECT, capability.strategy)
+        self.assertEqual("hit", capability.data.get("method"))
+        self.assertEqual(hit_proto, capability.data.get("proto"))
 
 
     def test_ark_legacy_hit_is_direct_for_force_hit(self):
