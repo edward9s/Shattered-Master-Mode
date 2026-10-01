@@ -38,6 +38,69 @@ final class ModCombatCompat {
         return duelistComboTrackerClass;
     }
 
+    static void recordRiposteHit(Char riposter, Char hitTarget) {
+        if (!(riposter instanceof Hero)) {
+            return;
+        }
+
+        Hero hero = (Hero) riposter;
+
+        Object subClass = readField(hero, "subClass");
+        if ("GLADIATOR".equals(enumName(subClass))) {
+            addGladiatorComboHit(hero, hitTarget);
+        }
+
+        Object heroClass = readField(hero, "heroClass");
+        if ("DUELIST".equals(enumName(heroClass))) {
+            addDuelistComboHit(hero, hitTarget);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void addGladiatorComboHit(Hero hero, Char hitTarget) {
+        try {
+            Class<?> rawCombo = Class.forName(
+                    "com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Combo",
+                    false,
+                    ModCombatCompat.class.getClassLoader());
+            if (!Buff.class.isAssignableFrom(rawCombo)) {
+                return;
+            }
+
+            Object combo = Buff.affect(hero, (Class<? extends Buff>) rawCombo);
+            if (combo == null) {
+                return;
+            }
+
+            Method hit = rawCombo.getMethod("hit", Char.class);
+            hit.invoke(combo, hitTarget);
+        } catch (Exception | LinkageError ignored) {
+            // Gladiator bookkeeping is auxiliary to the Riposte attack itself.
+        }
+    }
+
+    private static Object readField(Object target, String name) {
+        if (target == null) {
+            return null;
+        }
+        for (Class<?> type = target.getClass(); type != null; type = type.getSuperclass()) {
+            try {
+                Field field = type.getDeclaredField(name);
+                field.setAccessible(true);
+                return field.get(target);
+            } catch (NoSuchFieldException ignored) {
+                // Try the parent class.
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static String enumName(Object value) {
+        return value instanceof Enum ? ((Enum<?>) value).name() : null;
+    }
+
     static void addDuelistComboHit(Hero hero, Char hitTarget) {
         if (hero == null) {
             return;
