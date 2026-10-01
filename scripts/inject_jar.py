@@ -2493,7 +2493,7 @@ def print_help() -> None:
         "Inject SMM into an SPD-derived desktop JAR using smm-inject-donor.jar beside this script.\n\n"
         "modes:\n"
         "  default       inject the full supported SMM payload\n"
-        "  --ankh-only   inject ModAnkh + Last Stand/Tag core; add Parry/Riposte, Instant Kill, Force Hit, and Assassinate when compatible\n\n"
+        "  --ankh-only   inject ModAnkh + Last Stand/Tag core; add Parry/Riposte, Instant Kill, Force Hit, Assassinate, and Enemy Surge when compatible\n\n"
         "options:\n"
         "  --out PATH    output JAR (default: <target>-SMM.jar or <target>-SMM-Ankh.jar)\n"
         "  --keep-work   keep temporary work files\n"
