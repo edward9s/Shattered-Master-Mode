@@ -1124,7 +1124,7 @@ def patch_char_instant_kill(
         entry_at, entry_indent = _first_smali_instruction(block)
         forced_entry = (
             f"{entry_indent}# SMM Force Hit + Instant Kill attack-entry hook\n"
-            f"{entry_indent}invoke-static {{p0}}, {force_hook}\n"
+            f"{entry_indent}invoke-static/range {{p0 .. p0}}, {force_hook}\n"
             f"{entry_indent}move-result v0\n"
             f"{entry_indent}if-eqz v0, :smm_instant_kill_force_native\n"
             f"{entry_indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
