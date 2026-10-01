@@ -1092,7 +1092,7 @@ def patch_char_instant_kill(
         )
 
     return_re = re.compile(
-        r"(?m)^(?P<indent>[ \\t]*)return (?P<reg>[vp]\\d+)(?P<tail>[ \\t]*(?:#.*)?)$"
+        r"(?m)^(?P<indent>[ \t]*)return\s+(?P<reg>[vp]\d+)(?P<tail>[ \t]*(?:#.*)?)$"
     )
     return_count = 0
 
