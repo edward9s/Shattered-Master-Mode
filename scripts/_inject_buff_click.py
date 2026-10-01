@@ -21,9 +21,9 @@ LONG_HELPER = "smmNativeLongClick"
 _LEGACY_HELPERS = ("smmLastStandInfo", "smm$lastStandInfo")
 
 
-def selected_handlers(*, instant: bool, force: bool, assassinate: bool, full: bool):
+def selected_handlers(*, parry: bool, instant: bool, force: bool, assassinate: bool):
     handlers = [LAST_STAND_HANDLER]
-    if full:
+    if parry:
         handlers.append(PARRY_RIPOSTE_HANDLER)
     if instant:
         handlers.append(INSTANT_KILL_HANDLER)
