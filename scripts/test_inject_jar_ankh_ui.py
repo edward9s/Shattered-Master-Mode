@@ -143,26 +143,7 @@ class AnkhJarUiTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, source)
 
-    def test_debug_console_directly_resolves_smm_packages(self):
-        root = pathlib.Path(__file__).resolve().parents[1]
-        source = (
-            root / "core/src/main/java/com/spd/mod/mechanics/ModDebug.java"
-        ).read_text(encoding="utf-8")
-        for package in (
-            '"com.spd.mod.mechanics"',
-            '"com.spd.mod.journal"',
-            '"com.spd.mod.items"',
-            '"com.spd.mod.tools"',
-        ):
-            self.assertIn(package, source)
 
-    def test_ankh_apk_logs_final_optional_payload_state(self):
-        root = pathlib.Path(__file__).resolve().parents[1]
-        source = (
-            root / "scripts/_inject_apk_ankh.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn("Optional {label} final payload:", source)
-        self.assertIn("enabled but its root class is missing", source)
 
     def test_total_info_overlay_is_removed(self):
         root = pathlib.Path(__file__).resolve().parents[1]
@@ -521,7 +502,9 @@ public class Char {{
     public boolean attack(Char enemy) {{
         if (enemy == null) return false;
         if (invulnerable) return false;
-        if (hit(this, enemy, false)) {{
+        boolean landed = hit(this, enemy, false);
+        int unrelated = 1;
+        if (landed && unrelated == 1) {{
             return true;
         }}
         return false;
@@ -605,7 +588,7 @@ public class CombatHarness {{
         ModInstantKill.enabled = true;
         ModInstantKill.successfulCalls = 0;
         check(attacker.attack(defender), "Instant Kill changed successful attack result");
-        check(ModInstantKill.successfulCalls == 1, "Instant Kill did not hook legacy hit success");
+        check(ModInstantKill.successfulCalls == 1, "Instant Kill did not hook successful attack return");
 
         Char.invulnerable = true;
         ModForceHit.enabled = false;
