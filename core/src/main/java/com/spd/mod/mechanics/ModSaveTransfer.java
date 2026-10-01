@@ -4,7 +4,6 @@ import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.watabou.noosa.Game;
 import com.watabou.utils.DeviceCompat;
-import com.watabou.utils.FileUtils;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -248,13 +247,136 @@ public final class ModSaveTransfer {
     }
 
     private static File desktopSaveDirectory() throws IOException {
-        File directory = FileUtils.getFileHandle("").file().getCanonicalFile();
+        File directory;
+        try {
+            ClassLoader loader = ModSaveTransfer.class.getClassLoader();
+            Class<?> fileUtilsClass = Class.forName(
+                    "com.watabou.utils.FileUtils",
+                    false,
+                    loader);
+
+            directory = desktopDirectoryFromFileUtils(fileUtilsClass);
+            if (directory == null) {
+                directory = desktopDirectoryFromGame(loader);
+            }
+        } catch (ReflectiveOperationException | LinkageError e) {
+            throw new IOException(
+                    "Desktop save directory API is unavailable",
+                    e);
+        }
+
+        if (directory == null) {
+            throw new IOException("Desktop save directory API is unavailable");
+        }
+
+        directory = directory.getCanonicalFile();
         if (!directory.exists() || !directory.isDirectory()) {
             throw new IOException(
                     "Desktop save directory is unavailable: "
                             + directory.getAbsolutePath());
         }
         return directory;
+    }
+
+    private static File desktopDirectoryFromFileUtils(Class<?> fileUtilsClass)
+            throws ReflectiveOperationException {
+
+        try {
+            Object handle = fileUtilsClass
+                    .getMethod("getFileHandle", String.class)
+                    .invoke(null, "");
+            File file = fileFromHandle(handle);
+            if (file != null) {
+                return file;
+            }
+        } catch (NoSuchMethodException ignored) {
+            // Pre-libGDX SPD-family FileUtils implementations use getDir().
+        }
+
+        try {
+            Object directory = fileUtilsClass
+                    .getMethod("getDir", String.class)
+                    .invoke(null, "");
+            if (directory instanceof File) {
+                return (File) directory;
+            }
+        } catch (NoSuchMethodException ignored) {
+            // Fall through to the oldest Game.getFilesDir() API.
+        }
+
+        return null;
+    }
+
+    private static File fileFromHandle(Object handle)
+            throws ReflectiveOperationException {
+
+        if (handle == null) {
+            return null;
+        }
+
+        try {
+            Object file = handle.getClass()
+                    .getMethod("file")
+                    .invoke(handle);
+            if (file instanceof File) {
+                return (File) file;
+            }
+        } catch (NoSuchMethodException ignored) {
+            // Older libGDX FileHandle exposes the backing File only as a field.
+        }
+
+        for (Class<?> type = handle.getClass();
+             type != null;
+             type = type.getSuperclass()) {
+            try {
+                java.lang.reflect.Field field =
+                        type.getDeclaredField("file");
+                field.setAccessible(true);
+                Object file = field.get(handle);
+                if (file instanceof File) {
+                    return (File) file;
+                }
+                return null;
+            } catch (NoSuchFieldException ignored) {
+                // Keep walking the FileHandle inheritance chain.
+            }
+        }
+
+        return null;
+    }
+
+    private static File desktopDirectoryFromGame(ClassLoader loader)
+            throws ReflectiveOperationException {
+
+        Class<?> gameClass = Class.forName(
+                "com.watabou.noosa.Game",
+                false,
+                loader);
+
+        Object instance;
+        try {
+            java.lang.reflect.Field instanceField =
+                    gameClass.getField("instance");
+            instance = instanceField.get(null);
+        } catch (NoSuchFieldException e) {
+            java.lang.reflect.Field instanceField =
+                    gameClass.getDeclaredField("instance");
+            instanceField.setAccessible(true);
+            instance = instanceField.get(null);
+        }
+
+        if (instance == null) {
+            return null;
+        }
+
+        try {
+            Object directory = instance.getClass()
+                    .getMethod("getFilesDir")
+                    .invoke(instance);
+            return directory instanceof File ? (File) directory : null;
+        } catch (NoSuchMethodException ignored) {
+            return null;
+        }
     }
 
     private static File chooseDesktopDirectory(
