@@ -1104,10 +1104,35 @@ def patch_char_instant_kill(
         "Lcom/spd/mod/mechanics/ModInstantKill;->resolveSuccessfulAttack("
         f"{char_descriptor}{char_descriptor})Z"
     )
-    if hook in block or ":smm_instant_kill_native" in block:
+    forced_hook = (
+        "Lcom/spd/mod/mechanics/ModInstantKill;->resolveForcedAttack("
+        f"{char_descriptor}{char_descriptor})Z"
+    )
+    if (
+        hook in block
+        or forced_hook in block
+        or ":smm_instant_kill_native" in block
+        or ":smm_instant_kill_force_native" in block
+    ):
         raise injector.InjectError(
-            "Char.attack already contains SMM Instant Kill success hook"
+            "Char.attack already contains SMM Instant Kill hook"
         )
+    if _smali_local_register_count(block, proto, False) < 1:
+        raise injector.InjectError(
+            "Terminal Char.attack has no safe local register for Instant Kill entry hook"
+        )
+
+    entry_at, entry_indent = _first_smali_instruction(block)
+    forced_entry = (
+        f"{entry_indent}# SMM Force Hit + Instant Kill attack-entry hook\n"
+        f"{entry_indent}invoke-static/range {{p0 .. p1}}, {forced_hook}\n"
+        f"{entry_indent}move-result v0\n"
+        f"{entry_indent}if-eqz v0, :smm_instant_kill_force_native\n"
+        f"{entry_indent}const/4 v0, 0x1\n"
+        f"{entry_indent}return v0\n"
+        f"{entry_indent}:smm_instant_kill_force_native\n\n"
+    )
+    block = block[:entry_at] + forced_entry + block[entry_at:]
 
     hit_desc = (
         re.escape(char_descriptor)
@@ -1248,7 +1273,15 @@ def patch_char_attack(
             "Char.attack already contains SMM incoming-attack hook"
         )
 
-    insert_at, indent = _first_smali_instruction(block)
+    force_native = re.search(
+        r"(?m)^(?P<indent>[ \t]*):smm_instant_kill_force_native\s*\n",
+        block,
+    )
+    if force_native is not None:
+        insert_at = force_native.end()
+        indent = force_native.group("indent")
+    else:
+        insert_at, indent = _first_smali_instruction(block)
     injected = (
         f"{indent}# SMM independent Riposte incoming-attack hook\n"
         f"{indent}invoke-static/range {{p0 .. p1}}, {pre_hook}\n\n"
@@ -1404,28 +1437,16 @@ def compile_smali_with_char_hook(
 
     char_descriptor, original_char = _pending_char_overlay
     patched_char = original_char
-    instant_kill_predefense = True
-    try:
-        patched_char = patch_char_instant_kill(
-            patched_char,
-            char_descriptor,
-            proto,
-            hit_method,
-            hit_proto,
-        )
-    except injector.InjectError as exc:
-        message = str(exc)
-        if not message.startswith(
-            "Expected exactly one successful selected hit-check branch "
-        ):
-            raise
-        instant_kill_predefense = False
-        injector.log(
-            "Char.attack Instant Kill pre-defense hook unavailable; "
-            "using ModInstantKill attackProc fallback: " + message
-        )
+    patched_char = patch_char_instant_kill(
+        patched_char,
+        char_descriptor,
+        proto,
+        hit_method,
+        hit_proto,
+    )
 
-    # Add Riposte completion hooks after the optional Instant Kill early return
+    # Add Riposte hooks after the Instant Kill guards. patch_char_attack places
+    # its entry hook after the force+instant guard and covers all early returns.
     # so every terminal-attack return remains covered.
     patched_char = patch_char_attack(patched_char, char_descriptor, proto)
 
@@ -1442,12 +1463,9 @@ def compile_smali_with_char_hook(
         )
     char_output.parent.mkdir(parents=True, exist_ok=True)
     char_output.write_text(patched_char, encoding="utf-8")
-    if instant_kill_predefense:
-        injector.log(f"Char.attack Instant Kill pre-defense hook ({proto}): OK")
-    else:
-        injector.log(
-            "Char.attack Instant Kill pre-defense hook: fallback-only"
-        )
+    injector.log(
+        f"Char.attack Instant Kill force-entry + confirmed-hit hooks ({proto}): OK"
+    )
     injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
     injector.log(
         "Force Hit pre-defense hook "
