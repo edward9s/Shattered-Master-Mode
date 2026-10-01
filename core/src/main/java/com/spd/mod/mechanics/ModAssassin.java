@@ -66,23 +66,9 @@ public class ModAssassin {
 
         Wound.hit(target);
 
-        int originalInvisible = attacker.invisible;
-        boolean hit;
-
-        try {
-            // Assassinate creates the same hit context as an invisible attack, then
-            // lets the target Char implementation decide whether surprise accuracy
-            // applies. Force Hit is resolved centrally by the injected Char.hit hook.
-            attacker.invisible = Math.max(1, originalInvisible);
-            hit = attacker.attack(target);
-        } finally {
-            attacker.invisible = originalInvisible;
-        }
-
-        if (!hit && target.isAlive()) {
-            // Instant Kill owns its engine-blocked-attack policy independently.
-            hit = ModInstantKill.resolveBlockedAttack(attacker, target);
-        }
+        // Assassinate uses normal Char.attack accuracy. Force Hit is the only
+        // mechanic that converts this attack into a guaranteed hit.
+        boolean hit = attacker.attack(target);
 
         // Hero has class-specific onAttackComplete bookkeeping that this synchronous,
         // turn-free attack intentionally bypasses. Preserve only those Hero semantics.
