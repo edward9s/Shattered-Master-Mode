@@ -52,7 +52,11 @@ public final class ModDebug {
 
     private static final String[] ROOTS = {
             "com.shatteredpixel.shatteredpixeldungeon",
-            "com.spd.mod"
+            "com.spd.mod",
+            "com.spd.mod.mechanics",
+            "com.spd.mod.journal",
+            "com.spd.mod.items",
+            "com.spd.mod.tools"
     };
 
     private static final String INTERLEVEL_SCENE =
