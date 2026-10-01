@@ -2525,13 +2525,6 @@ def run_ankh_only(
         enabled_features = set()
 
     payload_features = set(enabled_features)
-    if "instant" in adapted_optional:
-        if "instant" not in enabled_features:
-            injector.log(
-                "Optional Instant Kill pre-defense hook unavailable; "
-                "keeping ModInstantKill with attackProc fallback"
-            )
-        payload_features.add("instant")
     if "assassinate" in adapted_optional:
         payload_features.add("assassinate")
 
