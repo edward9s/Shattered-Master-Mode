@@ -374,6 +374,47 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(1, hit.count(force_hook))
 
 
+    def test_parry_covers_modern_magic_hit_wrapper(self):
+        legacy_hit = f"({self.char}{self.char}Z)Z"
+        modern_hit = f"({self.char}{self.char}FZ)Z"
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public static hit{legacy_hit}\n"
+            "    .locals 1\n"
+            "    const/high16 v0, 0x40000000    # 2.0f\n"
+            f"    invoke-static {{p0, p1, v0, p2}}, {self.char}->hit{modern_hit}\n"
+            "    move-result v0\n"
+            "    return v0\n"
+            ".end method\n"
+            f".method public static hit{modern_hit}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+
+        patched = mod.patch_char_hit(
+            text,
+            self.char,
+            "hit",
+            modern_hit,
+            force=False,
+            parry=True,
+        )
+        _, _, wrapper = mod.injector.method_block(patched, "hit", legacy_hit)
+        _, _, selected = mod.injector.method_block(patched, "hit", modern_hit)
+        parry_hook = (
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->shouldParry("
+            + self.char + self.char + ")Z"
+        )
+
+        self.assertIn(f"->hit{modern_hit}", wrapper)
+        self.assertNotIn(parry_hook, wrapper)
+        self.assertIn(parry_hook, selected)
+        self.assertLess(selected.index(parry_hook), selected.index("const/4 v0, 0x1"))
+
+
     def test_force_hit_precedes_parry_in_shared_hit_hook(self):
         hit_proto = f"({self.char}{self.char}Z)Z"
         text = (
