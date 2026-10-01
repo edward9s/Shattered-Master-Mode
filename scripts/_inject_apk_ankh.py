@@ -452,9 +452,10 @@ def configure(public_module) -> None:
         if pending_char is None:
             if instant_enabled:
                 injector.log(
-                    "Optional Instant Kill pre-defense hook unavailable: "
-                    "using attackProc fallback because target Char overlay is unavailable"
+                    "Optional Instant Kill skipped: target Char overlay is unavailable"
                 )
+                instant_enabled = False
+                public_module._ankh_instant_kill_enabled = False
             if force_enabled:
                 injector.log(
                     "Optional Force Hit skipped: target Char overlay is unavailable"
@@ -494,13 +495,14 @@ def configure(public_module) -> None:
                         )
                         char_changed = True
                         injector.log(
-                            "Char.attack Instant Kill pre-defense hook "
+                            "Char.attack Instant Kill force-entry + confirmed-hit hooks "
                             f"({proto} via {hit_method}{hit_proto}): OK"
                         )
                     except injector.InjectError as exc:
+                        instant_enabled = False
+                        public_module._ankh_instant_kill_enabled = False
                         injector.log(
-                            "Optional Instant Kill pre-defense hook unavailable; "
-                            "keeping ModInstantKill with attackProc fallback: "
+                            "Optional Instant Kill skipped after structural patch attempt: "
                             + str(exc)
                         )
                 else:
@@ -509,11 +511,9 @@ def configure(public_module) -> None:
                         if not attack_capability.compatible
                         else hit_capability.detail
                     )
-                    injector.log(
-                        "Optional Instant Kill pre-defense hook unavailable; "
-                        "keeping ModInstantKill with attackProc fallback: "
-                        + detail
-                    )
+                    instant_enabled = False
+                    public_module._ankh_instant_kill_enabled = False
+                    injector.log("Optional Instant Kill skipped: " + detail)
 
             if force_enabled:
                 try:
@@ -599,8 +599,9 @@ def configure(public_module) -> None:
         )
 
     # Ankh-only guarantees the ModAnkh + Last Stand core, including the runtime
-    # Last Stand Tag. Instant Kill keeps its attackProc fallback when a safe
-    # pre-defense hook is unavailable; Force Hit requires a safe selected hit-check.
+    # Last Stand Tag. Instant Kill requires a safe terminal attack + selected hit
+    # hook; Force Hit requires a safe selected hit-check. No attackProc fallback is
+    # kept, so optional features never silently degrade their combat semantics.
     # Assassinate is a separate optional closure and needs no extra Char hook.
     injector.detect_target_game_prefix = detect_target_game_prefix
     injector.build_debug_payload = build_ankh_payload
