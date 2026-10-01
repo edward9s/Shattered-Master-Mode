@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mode adapter for the small ModAnkh tools + Last Stand + Instant Kill + Force Hit APK payload."""
+"""Mode adapter for the narrow ModAnkh core plus optional combat/UI APK payloads."""
 from __future__ import annotations
 
 import re
@@ -76,14 +76,17 @@ def configure(public_module) -> None:
     injector = public_module.injector
     full_prefix = public_module.FULL_SMM_PREFIX
     last_stand = full_prefix + "mechanics/ModLastStand;"
+    last_stand_tag = full_prefix + "journal/ModLastStandTag;"
     instant_kill = full_prefix + "mechanics/ModInstantKill;"
     force_hit = full_prefix + "mechanics/ModForceHit;"
+    assassinate = full_prefix + "mechanics/ModAssassinate;"
 
     def detect_target_game_prefix(target_index):
         game_prefix = public_module._original_detect_target_game_prefix(target_index)
         public_module._current_game_prefix = game_prefix
         public_module._ankh_instant_kill_enabled = False
         public_module._ankh_force_hit_enabled = False
+        public_module._ankh_assassinate_enabled = False
 
         char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
         char_class = target_index.get(char_descriptor)
@@ -175,14 +178,14 @@ def configure(public_module) -> None:
 
             return closure, unresolved
 
-        core_closure, core_unresolved = collect(direct)
+        core_closure, core_unresolved = collect([*direct, last_stand_tag])
         if core_unresolved:
             raise injector.InjectError(
                 "ModAnkh core dependency closure has unresolved donor classes: "
                 + ", ".join(sorted(core_unresolved))
             )
 
-        required_roots = {last_stand}
+        required_roots = {last_stand, last_stand_tag}
         missing_roots = sorted(required_roots.difference(core_closure))
         if missing_roots:
             raise injector.InjectError(
@@ -219,6 +222,7 @@ def configure(public_module) -> None:
         optional_specs = (
             ("instant", instant_kill, None, "Instant Kill"),
             ("force", force_hit, "char.hitHook", "Force Hit"),
+            ("assassinate", assassinate, None, "Assassinate"),
         )
         optional_closures = {}
 
@@ -293,6 +297,7 @@ def configure(public_module) -> None:
         }
         public_module._ankh_instant_kill_enabled = "instant" in optional_closures
         public_module._ankh_force_hit_enabled = "force" in optional_closures
+        public_module._ankh_assassinate_enabled = "assassinate" in optional_closures
 
         public_module._full_donor_payload = {
             descriptor: item
@@ -301,7 +306,7 @@ def configure(public_module) -> None:
         }
         injector.log(
             f"ModAnkh core dependency closure: {len(core_closure)} class(es) "
-            "(Store + Loot + Console + Last Stand)"
+            "(Store + Loot + Console + Last Stand + Tag)"
         )
         return payload, relocations
 
@@ -376,10 +381,12 @@ def configure(public_module) -> None:
         feature_flags = {
             "instant": "_ankh_instant_kill_enabled",
             "force": "_ankh_force_hit_enabled",
+            "assassinate": "_ankh_assassinate_enabled",
         }
         labels = {
             "instant": "Instant Kill",
             "force": "Force Hit",
+            "assassinate": "Assassinate",
         }
 
         for feature, descriptors in optional_sets.items():
@@ -431,6 +438,9 @@ def configure(public_module) -> None:
         )
         force_enabled = bool(
             getattr(public_module, "_ankh_force_hit_enabled", False)
+        )
+        assassinate_enabled = bool(
+            getattr(public_module, "_ankh_assassinate_enabled", False)
         )
         if public_module._current_game_prefix is None:
             raise injector.InjectError("Target game prefix was not initialized")
@@ -549,6 +559,7 @@ def configure(public_module) -> None:
             directory,
             instant=instant_enabled,
             force=force_enabled,
+            assassinate=assassinate_enabled,
             full=False,
         )
 
@@ -563,6 +574,8 @@ def configure(public_module) -> None:
             keep.update(optional_sets.get("instant", set()))
         if force_enabled:
             keep.update(optional_sets.get("force", set()))
+        if assassinate_enabled:
+            keep.update(optional_sets.get("assassinate", set()))
 
         optional_all = set()
         for descriptors in optional_sets.values():
@@ -585,11 +598,10 @@ def configure(public_module) -> None:
             target.stem + "-SMM-Ankh" + (target.suffix or ".apk")
         )
 
-    # Ankh-only guarantees the ModAnkh + Last Stand core. Instant Kill is a
-    # best-effort extra: keep its payload whenever the target API can load it,
-    # then install the pre-defense Char hook when possible and otherwise rely on
-    # its attackProc fallback. Force Hit is structurally traced from terminal
-    # Char.attack and is skipped only when no unique safe hit-check can be found.
+    # Ankh-only guarantees the ModAnkh + Last Stand core, including the runtime
+    # Last Stand Tag. Instant Kill keeps its attackProc fallback when a safe
+    # pre-defense hook is unavailable; Force Hit requires a safe selected hit-check.
+    # Assassinate is a separate optional closure and needs no extra Char hook.
     injector.detect_target_game_prefix = detect_target_game_prefix
     injector.build_debug_payload = build_ankh_payload
     injector.payload_compatibility_errors = payload_compatibility_errors

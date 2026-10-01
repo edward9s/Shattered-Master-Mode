@@ -40,6 +40,20 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertIn('result.put(FORCE_HIT, "openInfo")', source)
         self.assertIn('result.put(PARRY_RIPOSTE, "openInfo")', source)
         self.assertIn('result.put(ASSASSINATE, "openInfo")', source)
+        self.assertIn("ENABLE_ASSASSINATE", source)
+
+    def test_ankh_core_includes_last_stand_runtime_ui(self):
+        self.assertIn(
+            "com/spd/mod/journal/ModLastStandTag.class", mod.ANKH_REQUIRED_ROOTS
+        )
+        self.assertIn(
+            "com/spd/mod/journal/ModRuntimeTagStack.class", mod.ANKH_REQUIRED_ROOTS
+        )
+        source = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
+        self.assertIn(
+            '"assassinate": "com/spd/mod/mechanics/ModAssassinate.class"',
+            source,
+        )
 
     def test_tag_has_only_store_tag_responsibility(self):
         root = pathlib.Path(__file__).resolve().parents[1]
@@ -324,6 +338,7 @@ public class Harness {{
                     GAME_ROOT,
                     instant=False,
                     force=False,
+                    assassinate=False,
                     full=False,
                 )
             target_class = classes / entry
@@ -366,6 +381,7 @@ public class Harness {{
                     GAME_ROOT,
                     instant=False,
                     force=False,
+                    assassinate=False,
                     full=False,
                 )
 
@@ -386,6 +402,7 @@ public class Harness {{
                     GAME_ROOT,
                     instant=False,
                     force=False,
+                    assassinate=False,
                     full=False,
                 )
 

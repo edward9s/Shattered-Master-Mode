@@ -133,8 +133,9 @@ public class ModLastStand extends Buff {
     }
 
     /**
-     * The edge Tag is presentation-only and deliberately excluded from the narrow
-     * injection dependency closure. Full SMM loads it when available.
+     * The edge Tag is presentation-only and loaded reflectively so gameplay does
+     * not hard-link its UI. Binary --ankh-only injectors include the Tag and its
+     * runtime layout helper in the guaranteed Last Stand core.
      */
     private static void ensureOptionalTag() {
         try {
@@ -146,7 +147,7 @@ public class ModLastStand extends Buff {
             method.setAccessible(true);
             method.invoke(null);
         } catch (ReflectiveOperationException | LinkageError ignored) {
-            // Narrow/legacy injection intentionally works without this UI layer.
+            // Source/fork builds may intentionally omit this presentation layer.
         }
     }
 

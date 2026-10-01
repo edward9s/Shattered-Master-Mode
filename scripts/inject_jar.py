@@ -852,6 +852,8 @@ ANKH_REQUIRED_ROOTS = {
     "com/spd/mod/mechanics/ModLegacyCompat.class",
     "com/spd/mod/mechanics/ModItemCompat.class",
     "com/spd/mod/mechanics/ModLastStand.class",
+    "com/spd/mod/journal/ModLastStandTag.class",
+    "com/spd/mod/journal/ModRuntimeTagStack.class",
 }
 
 def _class_utf8_strings(data: bytes) -> list[str]:
@@ -939,7 +941,12 @@ def build_ankh_payload(
                     queue.append(dep)
         return closure
 
-    core_closure = collect(list(_smm_dependencies(donor.read(root), available)))
+    core_roots = list(_smm_dependencies(donor.read(root), available))
+    core_roots.extend([
+        "com/spd/mod/journal/ModLastStandTag.class",
+        "com/spd/mod/journal/ModRuntimeTagStack.class",
+    ])
+    core_closure = collect(core_roots)
     missing = sorted(ANKH_REQUIRED_ROOTS - core_closure)
     if missing:
         raise injector.InjectError(
@@ -950,6 +957,12 @@ def build_ankh_payload(
     optional_roots = {
         "instant": "com/spd/mod/mechanics/ModInstantKill.class",
         "force": "com/spd/mod/mechanics/ModForceHit.class",
+        "assassinate": "com/spd/mod/mechanics/ModAssassinate.class",
+    }
+    optional_labels = {
+        "instant": "Instant Kill",
+        "force": "Force Hit",
+        "assassinate": "Assassinate",
     }
     optional_closures: dict[str, set[str]] = {}
     for feature, optional_root in optional_roots.items():
@@ -957,9 +970,7 @@ def build_ankh_payload(
             optional_closures[feature] = collect([optional_root])
         else:
             injector.log(
-                "Optional "
-                + ("Instant Kill" if feature == "instant" else "Force Hit")
-                + " skipped: donor class is missing"
+                f"Optional {optional_labels[feature]} skipped: donor class is missing"
             )
 
     def rebased(names: set[str]) -> dict[str, bytes]:
@@ -970,7 +981,7 @@ def build_ankh_payload(
 
     injector.log(
         f"ModAnkh core dependency closure: {len(core_closure)} class(es) "
-        "(Store + Loot + Console + Last Stand)"
+        "(Store + Loot + Console + Last Stand + Tag)"
     )
     return (
         rebased(core_closure),
@@ -996,6 +1007,7 @@ public class SmmBuffClickPatcher {
 
     static final boolean ENABLE_INSTANT = __ENABLE_INSTANT__;
     static final boolean ENABLE_FORCE = __ENABLE_FORCE__;
+    static final boolean ENABLE_ASSASSINATE = __ENABLE_ASSASSINATE__;
     static final boolean ENABLE_FULL = __ENABLE_FULL__;
 
     static final String LAST_STAND = "com/spd/mod/mechanics/ModLastStand";
@@ -1020,7 +1032,7 @@ public class SmmBuffClickPatcher {
         if (ENABLE_FULL) result.put(PARRY_RIPOSTE, "openInfo");
         if (ENABLE_INSTANT) result.put(INSTANT_KILL, "openInfo");
         if (ENABLE_FORCE) result.put(FORCE_HIT, "openInfo");
-        if (ENABLE_FULL) result.put(ASSASSINATE, "openInfo");
+        if (ENABLE_ASSASSINATE) result.put(ASSASSINATE, "openInfo");
         return result;
     }
 
@@ -2156,6 +2168,7 @@ def patch_buff_click_jar(
     *,
     instant: bool,
     force: bool,
+    assassinate: bool,
     full: bool,
 ) -> tuple[str, Path]:
     helper = work / "SmmBuffClickPatcher.java"
@@ -2166,6 +2179,7 @@ def patch_buff_click_jar(
         .replace("__BUFF_INDICATOR_PREFIX__", target_game_root + "/ui/BuffIndicator$")
         .replace("__ENABLE_INSTANT__", str(instant).lower())
         .replace("__ENABLE_FORCE__", str(force).lower())
+        .replace("__ENABLE_ASSASSINATE__", str(assassinate).lower())
         .replace("__ENABLE_FULL__", str(full).lower()),
         encoding="utf-8",
     )
@@ -2426,6 +2440,7 @@ def run_ankh_only(
     feature_labels = {
         "instant": "Instant Kill",
         "force": "Force Hit",
+        "assassinate": "Assassinate",
     }
     for feature, feature_payload in optional_payloads.items():
         raw_feature_jar = work / f"rebased-ankh-{feature}-payload.jar"
@@ -2475,6 +2490,8 @@ def run_ankh_only(
                 "keeping ModInstantKill with attackProc fallback"
             )
         payload_features.add("instant")
+    if "assassinate" in adapted_optional:
+        payload_features.add("assassinate")
 
     patched_buff_click = patch_buff_click_jar(
         java,
@@ -2483,6 +2500,7 @@ def run_ankh_only(
         target_game_root,
         instant="instant" in payload_features,
         force="force" in payload_features,
+        assassinate="assassinate" in payload_features,
         full=False,
     )
 
@@ -2546,7 +2564,7 @@ def print_help() -> None:
         "Inject SMM into an SPD-derived desktop JAR using smm-inject-donor.jar beside this script.\n\n"
         "modes:\n"
         "  default       inject the full supported SMM payload\n"
-        "  --ankh-only   inject ModAnkh + Last Stand core; add Instant Kill best-effort and Force Hit when compatible\n\n"
+        "  --ankh-only   inject ModAnkh + Last Stand/Tag core; add Instant Kill, Force Hit, and Assassinate when compatible\n\n"
         "options:\n"
         "  --out PATH    output JAR (default: <target>-SMM.jar or <target>-SMM-Ankh.jar)\n"
         "  --keep-work   keep temporary work files\n"
@@ -2593,7 +2611,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     injector.log(
         "Injection mode: "
         + (
-            "ModAnkh only (core: Store + Loot + Console + Last Stand; Instant Kill best-effort; Force Hit by ABI)"
+            "ModAnkh only (core: Store + Loot + Console + Last Stand + Tag; optional: Instant Kill, Force Hit, Assassinate)"
             if parsed.ankh_only else "full SMM"
         )
     )
@@ -2665,6 +2683,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             target_game_root,
             instant=True,
             force=True,
+            assassinate=True,
             full=True,
         )
 

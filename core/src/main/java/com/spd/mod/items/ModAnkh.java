@@ -30,8 +30,8 @@ public class ModAnkh extends Ankh {
     public static final String AC_LOOT = "LOOT";
 
     // Keep only the guaranteed ankh-only core as an explicit donor dependency.
-    // Instant Kill and Force Hit are discovered separately by the injector and
-    // included only when the target ABI supports their hooks. This method is
+    // Instant Kill, Force Hit, Assassinate, and the Last Stand runtime Tag are
+    // selected separately by the injector according to their compatibility. This method is
     // intentionally never called.
     @SuppressWarnings("unused")
     private static Class<?>[] ankhOnlyPayloadRoots() {

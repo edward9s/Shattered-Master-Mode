@@ -56,6 +56,7 @@ class ApkUiCompatTests(unittest.TestCase):
         handlers = buff_click.selected_handlers(
             instant=True,
             force=True,
+            assassinate=True,
             full=True,
         )
         patched = buff_click.patch(
@@ -87,6 +88,7 @@ class ApkUiCompatTests(unittest.TestCase):
         handlers = buff_click.selected_handlers(
             instant=True,
             force=False,
+            assassinate=True,
             full=False,
         )
         patched = buff_click.patch(
@@ -103,12 +105,16 @@ class ApkUiCompatTests(unittest.TestCase):
         )
         self.assertNotIn("Lcom/spd/mod/mechanics/ModForceHit;", patched)
         self.assertNotIn("Lcom/spd/mod/mechanics/ModParryRiposte;", patched)
-        self.assertNotIn("Lcom/spd/mod/mechanics/ModAssassinate;", patched)
+        self.assertIn(
+            "Lcom/spd/mod/mechanics/ModAssassinate;->openInfo()V",
+            patched,
+        )
 
     def test_existing_long_click_is_preserved_for_normal_buffs(self):
         handlers = buff_click.selected_handlers(
             instant=False,
             force=False,
+            assassinate=False,
             full=False,
         )
         patched = buff_click.patch(
@@ -234,8 +240,12 @@ class ApkUiCompatTests(unittest.TestCase):
         full_prefix = "Lcom/spd/mod/"
         mod_ankh = full_prefix + "items/ModAnkh;"
         last_stand = full_prefix + "mechanics/ModLastStand;"
+        last_stand_tag = full_prefix + "journal/ModLastStandTag;"
+        assassinate = full_prefix + "mechanics/ModAssassinate;"
         ankh_item = object()
         last_stand_item = SimpleNamespace(descriptor=last_stand)
+        last_stand_tag_item = SimpleNamespace(descriptor=last_stand_tag)
+        assassinate_item = SimpleNamespace(descriptor=assassinate)
 
         def dependencies(item):
             if item is ankh_item:
@@ -265,13 +275,23 @@ class ApkUiCompatTests(unittest.TestCase):
             {
                 mod_ankh: ankh_item,
                 last_stand: last_stand_item,
+                last_stand_tag: last_stand_tag_item,
+                assassinate: assassinate_item,
             },
             {},
         )
 
         self.assertIn(last_stand, payload)
         self.assertEqual({}, relocations)
-        self.assertEqual({last_stand}, public_module._ankh_core_payload_descriptors)
+        self.assertEqual(
+            {last_stand, last_stand_tag},
+            public_module._ankh_core_payload_descriptors,
+        )
+        self.assertTrue(public_module._ankh_assassinate_enabled)
+        self.assertEqual(
+            {assassinate},
+            public_module._ankh_optional_payload_descriptors["assassinate"],
+        )
 
 
 if __name__ == "__main__":

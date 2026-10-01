@@ -1340,6 +1340,7 @@ def write_buff_click_patch(
     *,
     instant: bool,
     force: bool,
+    assassinate: bool,
     full: bool,
 ) -> None:
     global _pending_buff_click_patch
@@ -1354,6 +1355,7 @@ def write_buff_click_patch(
     handlers = buff_click.selected_handlers(
         instant=instant,
         force=force,
+        assassinate=assassinate,
         full=full,
     )
     patched = buff_click.patch(
@@ -1453,7 +1455,9 @@ def compile_smali_with_char_hook(
     )
 
     write_action_name_overlay(directory)
-    write_buff_click_patch(directory, instant=True, force=True, full=True)
+    write_buff_click_patch(
+        directory, instant=True, force=True, assassinate=True, full=True
+    )
 
     try:
         _original_compile_smali(java, smali_jar, directory, output, api)
@@ -1683,7 +1687,7 @@ def print_help() -> None:
         "usage: inject_apk.py TARGET.apk [--out OUTPUT.apk] [options]\n\n"
         "Inject SMM into an SPD-derived APK using smm-inject-donor.apk beside this script.\n\n"
         "options:\n"
-        "  --ankh-only         inject ModAnkh + Last Stand core; add Instant Kill best-effort and Force Hit when compatible\n"
+        "  --ankh-only         inject ModAnkh + Last Stand/Tag core; add Instant Kill, Force Hit, and Assassinate when compatible\n"
         "  --out PATH          output APK (default: <target>-SMM.apk, or -SMM-Ankh with --ankh-only)\n"
         "  --cache PATH        injector tool cache\n"
         "  --offline           do not download missing tools\n"
@@ -1738,7 +1742,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         _inject_apk_ankh.configure(sys.modules[__name__])
         injector.step("Injection mode")
-        injector.log("ModAnkh only (core: Store + Loot + Console + Last Stand; Instant Kill best-effort; Force Hit by ABI)")
+        injector.log("ModAnkh only (core: Store + Loot + Console + Last Stand + Tag; optional: Instant Kill, Force Hit, Assassinate)")
     else:
         injector.step("Injection mode")
         injector.log("Full SMM")
