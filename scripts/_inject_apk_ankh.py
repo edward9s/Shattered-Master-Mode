@@ -252,6 +252,30 @@ def configure(public_module) -> None:
                 )
                 continue
 
+            if feature == "parry":
+                source_char = (
+                    injector.SOURCE_GAME_DESCRIPTOR_PREFIX + "actors/Char;"
+                )
+                required_hooks = (
+                    ("onIncomingAttack", f"({source_char}{source_char})V"),
+                    ("onIncomingAttackComplete", "()V"),
+                    ("shouldParry", f"({source_char}{source_char})Z"),
+                )
+                donor_parry = donor_index[root]
+                missing_hooks = [
+                    name + proto
+                    for name, proto in required_hooks
+                    if not {"public", "static"}.issubset(
+                        donor_parry.methods.get((name, proto), frozenset())
+                    )
+                ]
+                if missing_hooks:
+                    injector.log(
+                        "Optional Parry/Riposte skipped: donor is missing hook ABI: "
+                        + ", ".join(missing_hooks)
+                    )
+                    continue
+
             feature_closure, unresolved = collect([root])
             if unresolved:
                 injector.log(
