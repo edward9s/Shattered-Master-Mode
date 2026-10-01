@@ -1052,105 +1052,6 @@ def _first_smali_instruction(block: str) -> tuple[int, str]:
     raise injector.InjectError("Char.attack has no executable instruction")
 
 
-def _reserve_fresh_smali_locals(
-    block: str,
-    count: int,
-    purpose: str,
-) -> tuple[str, list[str]]:
-    if count <= 0:
-        return block, []
-
-    locals_match = re.search(
-        r"(?m)^(?P<indent>[ \t]*)\.locals\s+(?P<count>\d+)\s*$",
-        block,
-    )
-    if locals_match is None:
-        if re.search(r"(?m)^\s*\.registers\s+\d+\s*$", block):
-            raise injector.InjectError(
-                f"{purpose} requires fresh locals, but target method uses .registers; "
-                "refusing an unsafe register rewrite"
-            )
-        raise injector.InjectError(
-            f"{purpose} cannot find a .locals register declaration"
-        )
-
-    old_count = int(locals_match.group("count"))
-
-    # .locals keeps parameter registers above the local range. If the original
-    # method addresses those parameter slots through raw vNN aliases instead of
-    # pNN names, increasing .locals would silently retarget those instructions.
-    # Reject that shape rather than producing verifier-invalid bytecode.
-    register_directive_end = locals_match.end()
-    for raw_index in re.findall(r"\bv(\d+)\b", block[register_directive_end:]):
-        if int(raw_index) >= old_count:
-            raise injector.InjectError(
-                f"{purpose} cannot safely grow .locals because the target uses "
-                f"raw parameter alias v{raw_index}"
-            )
-
-    new_count = old_count + count
-    if new_count > 0xFFFF:
-        raise injector.InjectError(
-            f"{purpose} would exceed the dex register limit"
-        )
-
-    replacement = (
-        f"{locals_match.group('indent')}.locals {new_count}"
-    )
-    block = (
-        block[:locals_match.start()]
-        + replacement
-        + block[locals_match.end():]
-    )
-    return block, [f"v{old_count + i}" for i in range(count)]
-
-
-def _ensure_stable_attack_registers(
-    block: str,
-    proto: str,
-) -> tuple[str, str, str, str]:
-    existing = re.search(
-        r"(?m)^\s*# SMM stable attack registers: "
-        r"(?P<attacker>v\d+) (?P<defender>v\d+) (?P<scratch>v\d+)\s*$",
-        block,
-    )
-    if existing is not None:
-        return (
-            block,
-            existing.group("attacker"),
-            existing.group("defender"),
-            existing.group("scratch"),
-        )
-
-    block, regs = _reserve_fresh_smali_locals(
-        block, 3, "Char.attack SMM hooks"
-    )
-    attacker_reg, defender_reg, scratch_reg = regs
-    insert_at, indent = _first_smali_instruction(block)
-    saved = (
-        f"{indent}# SMM stable attack registers: "
-        f"{attacker_reg} {defender_reg} {scratch_reg}\n"
-        f"{indent}move-object/16 {attacker_reg}, p0\n"
-        f"{indent}move-object/16 {defender_reg}, p1\n"
-    )
-    block = block[:insert_at] + saved + block[insert_at:]
-    return block, attacker_reg, defender_reg, scratch_reg
-
-
-def _after_stable_attack_registers(block: str) -> int:
-    marker = re.search(
-        r"(?m)^\s*# SMM stable attack registers: v\d+ v\d+ v\d+\s*\n"
-        r"\s*move-object/16\s+v\d+,\s*p0\s*\n"
-        r"\s*move-object/16\s+v\d+,\s*p1\s*\n",
-        block,
-    )
-    if marker is None:
-        raise injector.InjectError(
-            "Stable Char.attack register prologue is missing"
-        )
-    return marker.end()
-
-
 def patch_char_instant_kill(
     text: str,
     char_descriptor: str,
@@ -1166,79 +1067,85 @@ def patch_char_instant_kill(
             )
 
     start, end, block = injector.method_block(text, "attack", proto)
-    hook = (
+    resolve_hook = (
         "Lcom/spd/mod/mechanics/ModInstantKill;->resolveSuccessfulAttack("
         f"{char_descriptor}{char_descriptor})Z"
+    )
+    begin_hook = (
+        "Lcom/spd/mod/mechanics/ModInstantKill;->beginAttack("
+        f"{char_descriptor}{char_descriptor})V"
+    )
+    finish_hook = (
+        "Lcom/spd/mod/mechanics/ModInstantKill;->finishAttack(Z)V"
     )
     force_hook = (
         "Lcom/spd/mod/mechanics/ModForceHit;->isForceHitEnabled("
         f"{char_descriptor})Z"
     )
     if (
-        hook in block
+        resolve_hook in block
+        or begin_hook in block
+        or finish_hook in block
         or force_hook in block
         or ":smm_instant_kill_force_native" in block
-        or ":smm_instant_kill_return_" in block
     ):
         raise injector.InjectError(
             "Char.attack already contains SMM Instant Kill hook"
         )
 
-    block, attacker_reg, defender_reg, scratch_reg = (
-        _ensure_stable_attack_registers(block, proto)
-    )
+    if force_combo and _smali_local_register_count(block, proto, False) < 1:
+        raise injector.InjectError(
+            "Terminal Char.attack has no safe entry scratch register for "
+            "Force Hit + Instant Kill"
+        )
 
+    # Every native return balances exactly one beginAttack call. The return value
+    # itself is safe to pass even if R8 reused p0/p1 in the method body.
     return_re = re.compile(
         r"(?m)^(?P<indent>[ \t]*)return\s+(?P<reg>[vp]\d+)"
         r"(?P<tail>[ \t]*(?:#.*)?)$"
     )
     return_count = 0
 
-    def add_success_hook(match: re.Match[str]) -> str:
+    def add_finish_hook(match: re.Match[str]) -> str:
         nonlocal return_count
         return_count += 1
         indent = match.group("indent")
         reg = match.group("reg")
         tail = match.group("tail")
-        label = f":smm_instant_kill_return_{return_count}"
         return (
-            f"{indent}# SMM Instant Kill on successful Char.attack result\n"
-            f"{indent}if-eqz {reg}, {label}\n"
-            f"{indent}invoke-static/range "
-            f"{{{attacker_reg} .. {defender_reg}}}, {hook}\n"
-            f"{indent}{label}\n"
+            f"{indent}# SMM Instant Kill attack-context completion\n"
+            f"{indent}invoke-static/range {{{reg} .. {reg}}}, {finish_hook}\n"
             f"{indent}return {reg}{tail}"
         )
 
-    block = return_re.sub(add_success_hook, block)
+    block = return_re.sub(add_finish_hook, block)
     if return_count == 0:
         raise injector.InjectError(
             "Terminal Char.attack has no normal boolean return for Instant Kill"
         )
 
-    # Only native returns are patched above. The combination short-circuit is
-    # inserted afterwards so it cannot re-enter the successful-return hook.
+    entry_at, entry_indent = _first_smali_instruction(block)
     if force_combo:
-        insert_at = _after_stable_attack_registers(block)
-        indent = re.match(
-            r"[ \t]*",
-            block[insert_at:block.find("\n", insert_at)],
-        ).group(0)
-        forced_entry = (
-            f"{indent}# SMM Force Hit + Instant Kill attack-entry hook\n"
-            f"{indent}invoke-static/range "
-            f"{{{attacker_reg} .. {attacker_reg}}}, {force_hook}\n"
-            f"{indent}move-result {scratch_reg}\n"
-            f"{indent}if-eqz {scratch_reg}, :smm_instant_kill_force_native\n"
-            f"{indent}invoke-static/range "
-            f"{{{attacker_reg} .. {defender_reg}}}, {hook}\n"
-            f"{indent}move-result {scratch_reg}\n"
-            f"{indent}if-eqz {scratch_reg}, :smm_instant_kill_force_native\n"
-            f"{indent}const/4 {scratch_reg}, 0x1\n"
-            f"{indent}return {scratch_reg}\n"
-            f"{indent}:smm_instant_kill_force_native\n\n"
+        prologue = (
+            f"{entry_indent}# SMM Force Hit + Instant Kill attack-entry hook\n"
+            f"{entry_indent}invoke-static/range {{p0 .. p0}}, {force_hook}\n"
+            f"{entry_indent}move-result v0\n"
+            f"{entry_indent}if-eqz v0, :smm_instant_kill_force_native\n"
+            f"{entry_indent}invoke-static/range {{p0 .. p1}}, {resolve_hook}\n"
+            f"{entry_indent}move-result v0\n"
+            f"{entry_indent}if-eqz v0, :smm_instant_kill_force_native\n"
+            f"{entry_indent}const/4 v0, 0x1\n"
+            f"{entry_indent}return v0\n"
+            f"{entry_indent}:smm_instant_kill_force_native\n"
+            f"{entry_indent}invoke-static/range {{p0 .. p1}}, {begin_hook}\n\n"
         )
-        block = block[:insert_at] + forced_entry + block[insert_at:]
+    else:
+        prologue = (
+            f"{entry_indent}# SMM Instant Kill attack-context entry\n"
+            f"{entry_indent}invoke-static/range {{p0 .. p1}}, {begin_hook}\n\n"
+        )
+    block = block[:entry_at] + prologue + block[entry_at:]
 
     return text[:start] + block + text[end:]
 
@@ -1261,32 +1168,40 @@ def patch_char_attack(
         f"{char_descriptor}{char_descriptor})V"
     )
     post_hook = (
-        "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete("
-        f"{char_descriptor}{char_descriptor})V"
+        "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete()V"
     )
     if pre_hook in block or post_hook in block:
         raise injector.InjectError(
             "Char.attack already contains SMM incoming-attack hook"
         )
 
-    block, attacker_reg, defender_reg, _scratch_reg = (
-        _ensure_stable_attack_registers(block, proto)
+    begin_hook = (
+        "Lcom/spd/mod/mechanics/ModInstantKill;->beginAttack("
+        f"{char_descriptor}{char_descriptor})V"
     )
-
-    force_native = re.search(
-        r"(?m)^(?P<indent>[ \t]*):smm_instant_kill_force_native\s*\n",
+    begin_match = re.search(
+        r"(?m)^[ \t]*invoke-static/range \{p0 \.\. p1\},\s*"
+        + re.escape(begin_hook)
+        + r"\s*$",
         block,
     )
-    if force_native is not None:
-        insert_at = force_native.end()
-        indent = force_native.group("indent")
-    else:
-        insert_at = _after_stable_attack_registers(block)
+    if begin_match is not None:
+        insert_at = begin_match.end()
         indent = ""
+    else:
+        force_native = re.search(
+            r"(?m)^(?P<indent>[ \t]*):smm_instant_kill_force_native\s*\n",
+            block,
+        )
+        if force_native is not None:
+            insert_at = force_native.end()
+            indent = force_native.group("indent")
+        else:
+            insert_at, indent = _first_smali_instruction(block)
+
     injected = (
-        f"{indent}# SMM independent Riposte incoming-attack hook\n"
-        f"{indent}invoke-static/range "
-        f"{{{attacker_reg} .. {defender_reg}}}, {pre_hook}\n\n"
+        f"\n{indent}# SMM independent Riposte incoming-attack hook\n"
+        f"{indent}invoke-static/range {{p0 .. p1}}, {pre_hook}\n"
     )
     patched = block[:insert_at] + injected + block[insert_at:]
 
@@ -1300,8 +1215,7 @@ def patch_char_attack(
         original = match.group(0)
         return (
             f"{ind}# SMM immediate Riposte completion hook\n"
-            f"{ind}invoke-static/range "
-            f"{{{attacker_reg} .. {defender_reg}}}, {post_hook}\n"
+            f"{ind}invoke-static {{}}, {post_hook}\n"
             f"{original}"
         )
 
@@ -1327,10 +1241,10 @@ def patch_char_hit(
             "parameters are attacker and defender Char values"
         )
     start, end, block = injector.method_block(text, method_name, proto)
-    block, fresh = _reserve_fresh_smali_locals(
-        block, 1, "Force Hit Char.hit hook"
-    )
-    scratch_reg = fresh[0]
+    if _smali_local_register_count(block, proto, True) < 1:
+        raise injector.InjectError(
+            "Force Hit target has no safe entry scratch register"
+        )
     hook = (
         "Lcom/spd/mod/mechanics/ModForceHit;->forceHitCheck("
         f"{char_descriptor}{char_descriptor})Z"
@@ -1342,10 +1256,10 @@ def patch_char_hit(
     injected = (
         f"{indent}# SMM Force Hit pre-defense hook\n"
         f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
-        f"{indent}move-result {scratch_reg}\n"
-        f"{indent}if-eqz {scratch_reg}, :smm_force_hit_native\n"
-        f"{indent}const/4 {scratch_reg}, 0x1\n"
-        f"{indent}return {scratch_reg}\n"
+        f"{indent}move-result v0\n"
+        f"{indent}if-eqz v0, :smm_force_hit_native\n"
+        f"{indent}const/4 v0, 0x1\n"
+        f"{indent}return v0\n"
         f"{indent}:smm_force_hit_native\n\n"
     )
     patched = block[:insert_at] + injected + block[insert_at:]
