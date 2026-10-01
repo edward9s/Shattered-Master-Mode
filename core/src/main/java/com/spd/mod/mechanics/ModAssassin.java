@@ -6,7 +6,6 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Combo;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
-import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
@@ -92,7 +91,7 @@ public class ModAssassin {
             if (hero.subClass == HeroSubClass.GLADIATOR) {
                 Buff.affect(hero, Combo.class).hit(target);
             }
-            if (hero.heroClass == HeroClass.DUELIST) {
+            if ("DUELIST".equals(hero.heroClass.name())) {
                 ModCombatCompat.addDuelistComboHit(hero, target);
             }
         }
