@@ -180,10 +180,13 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(2, block.count("# SMM Instant Kill on successful Char.attack result"))
         self.assertIn("if-eqz v0, :smm_instant_kill_return_1", block)
         self.assertIn("if-eqz v0, :smm_instant_kill_return_2", block)
-        entry = block[
-            block.index("# SMM Force Hit + Instant Kill attack-entry hook"):
-            block.index(":smm_instant_kill_force_native")
-        ]
+        entry_start = block.index(
+            "# SMM Force Hit + Instant Kill attack-entry hook"
+        )
+        entry_end = block.index(
+            "\n    :smm_instant_kill_force_native", entry_start
+        )
+        entry = block[entry_start:entry_end]
         self.assertEqual(1, entry.count(instant_hook))
         self.assertNotIn("# SMM Instant Kill on successful Char.attack result", entry)
 
