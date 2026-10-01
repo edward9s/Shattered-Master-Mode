@@ -28,7 +28,7 @@ python inject_jar.py TARGET.jar --ankh-only
 
 另外會盡力加入四個選配戰鬥 Buff：
 
-- `ModParryRiposte`：完整 Parry/Riposte dependency closure 相容時才加入，並在唯一 terminal `Char.attack()` 掛 entry/completion hook。Riposte 維持原生命中規則，只有啟用 Force Hit 時才必中。
+- `ModParryRiposte`：完整 dependency closure 相容時才加入。Riposte 使用唯一 terminal `Char.attack()` 的 entry/completion hook；Parry 則和 Force Hit 共用 selected `Char.hit(...)` helper，直接讓該次 hit check miss。Force Hit 先判定，因此會覆蓋 Parry。Buff 本身只繼承一般 `Buff`，不再依賴 Champion 或 Monk Focus API。
 - `ModInstantKill`：只依賴唯一的 terminal `Char.attack()` overload。Force Hit + Instant Kill 在 attack 入口直接結算；否則只有原生 terminal attack 本來就要 `return true` 時才執行 Instant Kill，因此原生 defense side effect 會先跑完。不再提供 `attackProc()` fallback，也不再分析 hit-success branch。
 - `ModForceHit` 才擁有 selected hit-check capability；`ModInstantKill` 不再依賴它。已知 direct ABI 依方法是否存在且可安全 patch 來採用：先 `Char.hit(Char, Char, float, boolean)`，再舊版 `Char.hit(Char, Char, boolean)`。只有兩種 direct ABI 都不存在時，才從 terminal `Char.attack()` structural trace 唯一可辨識的 static boolean helper。
 - `ModAssassinate`：完整 runtime UI / combat dependency closure 相容時才加入。側邊 Tag 與 map long-press layer 都在 runtime 自行掛載，不需要額外 patch `GameScene` 或 `Char`。
@@ -58,11 +58,11 @@ JAR 注入不使用這把 APK 簽章金鑰。
 - ABI dependency 無法可靠解析時直接停止，不猜測、不硬塞。
 - 不複製任意 donor-only 或混淆 class 來掩蓋 compatibility error。
 - `--ankh-only` 必須保持精簡；ModAnkh + ModLastStand 與 Store / Loot / Debug Console 是保證核心，Parry/Riposte、Instant Kill、Force Hit 與 Assassinate 是選配，不能因選配失敗拖垮核心注入。
-- 「選配」不代表消極放棄。APK/JAR 的 Parry/Riposte 與 Instant Kill 都只依賴唯一 terminal attack；Force Hit 則共用 direct-first、structural-fallback 的 hit hook 規則。找不到安全 terminal attack 時只跳過 Parry/Riposte 或 Instant Kill；已知 direct ABI 與安全 structural hit-check 都找不到時才跳過 Force Hit。
+- 「選配」不代表消極放棄。APK/JAR 的 Riposte 與 Instant Kill 共用唯一 terminal attack 規則；Parry 與 Force Hit 共用 direct-first、structural-fallback 的 selected hit-hook 規則。Parry/Riposte 同時需要安全的 terminal attack 與 selected hit-check；Instant Kill 只需要 terminal attack；Force Hit 只需要 selected hit-check。
 - `--ankh-only` 會把 Parry/Riposte、Instant Kill、Force Hit 與 Assassinate（包含各自的設定 UI）視為完整的選配 dependency closure 驗證。若某功能的 UI 或 target API 相依不相容，就在 patch `BuffIndicator` 前跳過整個選配功能；不得讓 click bridge 引用已被省略的 payload class。
 - Mod 系列 action 文字維持直接由程式碼提供。APK/JAR 若遇到舊版 `WndUseItem` 繞過 `Item.actionName()`、直接呼叫 `Messages.get(...)`，應只對該 legacy call site 做 ABI bridge，讓 `ac_*` 重新走 target 已存在的虛擬 `Item.actionName(action, hero)`；不要為 ModAnkh 修改 `items*.properties`。
 - 可設定的 SMM buff 在 source build、APK injection、JAR injection 都共用直接 `BuffIndicator` bridge：短按呼叫該 buff 自己的 `open()` / `openInfo()`，長按保留 target 原本的 buff info 行為。Full SMM 處理 Last Stand、Parry/Riposte、Instant Kill、Force Hit、Assassinate；`--ankh-only` 固定處理 Last Stand，並只加入通過相容性檢查的 Parry/Riposte / Instant Kill / Force Hit / Assassinate。`ModTotalInfoOverlay` 已移除；`ModLastStandTag` 屬於 narrow Last Stand 的保證核心。
-- 完整注入可以使用既有 SMM 選單與 Riposte `Char.attack()` hook。APK/JAR 都只需選出唯一 terminal `Char.attack()`。Instant Kill patch 成功的 boolean return，並在 attack 入口加上 Force Hit 組合 guard；不再追蹤 hit-success branch。Force Hit 另外 patch terminal attack 實際呼叫到的唯一 hit helper。Riposte 與 Assassinate 都維持原生命中規則，只有啟用 Force Hit 時才必中。最小注入不得安裝完整選單，但可以安裝上述狹窄用途的 Parry/Riposte / Instant Kill / Force Hit hook。
+- 完整注入可以使用既有 SMM 選單與 Riposte `Char.attack()` hook。APK/JAR 都選出唯一 terminal `Char.attack()`。Instant Kill patch 成功的 boolean return，並在 attack 入口加上 Force Hit 組合 guard；不再追蹤 hit-success branch。Parry 與 Force Hit 共用 selected hit helper，而且 Force Hit 先判定。Riposte 改走最穩定的 `attack(Char)` wrapper，仍維持普通攻擊命中規則。最小注入不得安裝完整選單，但可以安裝上述狹窄用途的 Parry/Riposte / Instant Kill / Force Hit hook。
 - 存檔匯入匯出不得硬連結會隨 SPD 世代變動的 desktop 檔案 API；`FileUtils.getFileHandle(...)`、舊式 `FileUtils.getDir(...)` 與 backing `File` 應在 runtime 解析，避免 APK 根本不會執行的 desktop 路徑先讓 payload compatibility validation 失敗。
 - Debug Console 指令可能觸發 target 本身既有的 bug；不要為了讓指令表面成功而順便修改無關的 target 遊戲邏輯。
 
