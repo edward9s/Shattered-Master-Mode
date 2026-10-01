@@ -222,21 +222,30 @@ def configure(public_module) -> None:
                     )
 
         optional_specs = (
-            ("parry", parry_riposte, "char.incomingAttackHook", "Parry/Riposte"),
-            ("instant", instant_kill, "char.incomingAttackHook", "Instant Kill"),
-            ("force", force_hit, "char.hitHook", "Force Hit"),
-            ("assassinate", assassinate, None, "Assassinate"),
+            (
+                "parry",
+                parry_riposte,
+                ("char.incomingAttackHook", "char.hitHook"),
+                "Parry/Riposte",
+            ),
+            ("instant", instant_kill, ("char.incomingAttackHook",), "Instant Kill"),
+            ("force", force_hit, ("char.hitHook",), "Force Hit"),
+            ("assassinate", assassinate, (), "Assassinate"),
         )
         optional_closures = {}
 
-        for feature, root, capability_key, label in optional_specs:
-            if capability_key is not None:
+        for feature, root, capability_keys, label in optional_specs:
+            incompatible = None
+            for capability_key in capability_keys:
                 capability = public_module._current_abi_profile.get(capability_key)
                 if not capability.compatible:
-                    injector.log(
-                        f"Optional {label} skipped: {capability.detail}"
-                    )
-                    continue
+                    incompatible = capability
+                    break
+            if incompatible is not None:
+                injector.log(
+                    f"Optional {label} skipped: {incompatible.detail}"
+                )
+                continue
             if root not in donor_index:
                 injector.log(
                     f"Optional {label} skipped: donor class is missing"
@@ -483,9 +492,9 @@ def configure(public_module) -> None:
             patched_char = original_char
             char_changed = False
 
-            # Resolve Force Hit first. Instant Kill's attack-entry combination hook
-            # is emitted only when Force Hit survived its own structural patch.
-            if force_enabled:
+            # Parry and Force Hit share the selected Char.hit entry. Force Hit
+            # is emitted first so it keeps its established precedence over Parry.
+            if parry_enabled or force_enabled:
                 try:
                     hit_capability = public_module._current_abi_profile.get(
                         "char.hitHook"
@@ -501,18 +510,30 @@ def configure(public_module) -> None:
                         char_descriptor,
                         hit_method,
                         hit_proto,
+                        force=force_enabled,
+                        parry=parry_enabled,
                     )
                     char_changed = True
+                    enabled = []
+                    if force_enabled:
+                        enabled.append("Force Hit")
+                    if parry_enabled:
+                        enabled.append("Parry")
                     injector.log(
-                        "Force Hit pre-defense hook "
-                        f"{hit_method}{hit_proto} "
-                        f"({hit_capability.strategy}): OK"
+                        " + ".join(enabled)
+                        + " pre-hit hook "
+                        + f"{hit_method}{hit_proto} "
+                        + f"({hit_capability.strategy}): OK"
                     )
                 except injector.InjectError as exc:
-                    force_enabled = False
-                    public_module._ankh_force_hit_enabled = False
+                    if force_enabled:
+                        force_enabled = False
+                        public_module._ankh_force_hit_enabled = False
+                    if parry_enabled:
+                        parry_enabled = False
+                        public_module._ankh_parry_riposte_enabled = False
                     injector.log(
-                        "Optional Force Hit skipped after structural patch attempt: "
+                        "Optional combat hit hooks skipped after structural patch attempt: "
                         + str(exc)
                     )
 
