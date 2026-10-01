@@ -589,6 +589,23 @@ def configure(public_module) -> None:
             payload_path = directory / Path(descriptor[1:-1] + ".smali")
             payload_path.unlink(missing_ok=True)
 
+        final_roots = (
+            ("Instant Kill", instant_enabled, instant_kill),
+            ("Force Hit", force_enabled, force_hit),
+            ("Assassinate", assassinate_enabled, assassinate),
+        )
+        for label, enabled, root in final_roots:
+            root_path = directory / Path(root[1:-1] + ".smali")
+            if enabled and not root_path.is_file():
+                raise injector.InjectError(
+                    f"Optional {label} was enabled but its root class is missing "
+                    f"from the final overlay: {root}"
+                )
+            injector.log(
+                f"Optional {label} final payload: "
+                + ("enabled" if enabled else "disabled")
+            )
+
         try:
             public_module._original_compile_smali(
                 java, smali_jar, directory, output, api
