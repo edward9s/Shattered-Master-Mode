@@ -17,6 +17,7 @@ import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
 
 import java.lang.reflect.Field;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -25,6 +26,28 @@ import java.util.WeakHashMap;
 
 /** Permanent Master Mode combat buff with independent Parry and Riposte controls. */
 public class ModParryRiposte extends ChampionEnemy {
+
+    private static final ThreadLocal<ArrayDeque<IncomingAttackContext>> INCOMING_ATTACK_CONTEXTS =
+            new ThreadLocal<>();
+
+    private static final class IncomingAttackContext {
+        final Char attacker;
+        final Char defender;
+
+        IncomingAttackContext(Char attacker, Char defender) {
+            this.attacker = attacker;
+            this.defender = defender;
+        }
+    }
+
+    private static ArrayDeque<IncomingAttackContext> incomingAttackContexts() {
+        ArrayDeque<IncomingAttackContext> contexts = INCOMING_ATTACK_CONTEXTS.get();
+        if (contexts == null) {
+            contexts = new ArrayDeque<>();
+            INCOMING_ATTACK_CONTEXTS.set(contexts);
+        }
+        return contexts;
+    }
 
     private static final String PARRY_ENABLED = "parry_enabled";
     private static final String RIPOSTE_ENABLED = "riposte_enabled";
@@ -150,6 +173,8 @@ public class ModParryRiposte extends ChampionEnemy {
      * the triggering attack has fully resolved so its animation can play naturally.
      */
     public static void onIncomingAttack(Char attacker, Char defender) {
+        incomingAttackContexts().push(new IncomingAttackContext(attacker, defender));
+
         if (defender == null
                 || attacker == null
                 || attacker == defender
@@ -168,6 +193,23 @@ public class ModParryRiposte extends ChampionEnemy {
     }
 
     /** Queues the prepared Riposte immediately after terminal Char.attack() resolves. */
+    public static void onIncomingAttackComplete() {
+        ArrayDeque<IncomingAttackContext> contexts = INCOMING_ATTACK_CONTEXTS.get();
+        if (contexts == null || contexts.isEmpty()) {
+            return;
+        }
+
+        IncomingAttackContext context = contexts.pop();
+        if (contexts.isEmpty()) {
+            INCOMING_ATTACK_CONTEXTS.remove();
+        }
+        if (context.attacker == null || context.defender == null) {
+            return;
+        }
+        queueRiposte(context.defender, context.attacker, RiposteQueueMode.COMPLETE);
+    }
+
+    /** Source-build compatibility overload. Injected hooks use the stack-safe form. */
     public static void onIncomingAttackComplete(Char attacker, Char defender) {
         if (attacker == null || defender == null) {
             return;
