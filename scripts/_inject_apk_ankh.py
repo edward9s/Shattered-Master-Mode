@@ -81,6 +81,7 @@ def configure(public_module) -> None:
     instant_kill = full_prefix + "mechanics/ModInstantKill;"
     force_hit = full_prefix + "mechanics/ModForceHit;"
     assassinate = full_prefix + "mechanics/ModAssassinate;"
+    enemy_surge = full_prefix + "mechanics/ModEnemySurge;"
 
     def detect_target_game_prefix(target_index):
         game_prefix = public_module._original_detect_target_game_prefix(target_index)
@@ -89,6 +90,7 @@ def configure(public_module) -> None:
         public_module._ankh_instant_kill_enabled = False
         public_module._ankh_force_hit_enabled = False
         public_module._ankh_assassinate_enabled = False
+        public_module._ankh_enemy_surge_enabled = False
 
         char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
         char_class = target_index.get(char_descriptor)
@@ -231,6 +233,7 @@ def configure(public_module) -> None:
             ("instant", instant_kill, ("char.incomingAttackHook",), "Instant Kill"),
             ("force", force_hit, ("char.hitHook",), "Force Hit"),
             ("assassinate", assassinate, (), "Assassinate"),
+            ("enemy_surge", enemy_surge, (), "Enemy Surge"),
         )
         optional_closures = {}
 
@@ -335,6 +338,7 @@ def configure(public_module) -> None:
         public_module._ankh_instant_kill_enabled = "instant" in optional_closures
         public_module._ankh_force_hit_enabled = "force" in optional_closures
         public_module._ankh_assassinate_enabled = "assassinate" in optional_closures
+        public_module._ankh_enemy_surge_enabled = "enemy_surge" in optional_closures
 
         public_module._full_donor_payload = {
             descriptor: item
@@ -420,12 +424,14 @@ def configure(public_module) -> None:
             "instant": "_ankh_instant_kill_enabled",
             "force": "_ankh_force_hit_enabled",
             "assassinate": "_ankh_assassinate_enabled",
+            "enemy_surge": "_ankh_enemy_surge_enabled",
         }
         labels = {
             "parry": "Parry/Riposte",
             "instant": "Instant Kill",
             "force": "Force Hit",
             "assassinate": "Assassinate",
+            "enemy_surge": "Enemy Surge",
         }
 
         for feature, descriptors in optional_sets.items():
@@ -483,6 +489,9 @@ def configure(public_module) -> None:
         )
         assassinate_enabled = bool(
             getattr(public_module, "_ankh_assassinate_enabled", False)
+        )
+        enemy_surge_enabled = bool(
+            getattr(public_module, "_ankh_enemy_surge_enabled", False)
         )
         if public_module._current_game_prefix is None:
             raise injector.InjectError("Target game prefix was not initialized")
@@ -642,6 +651,7 @@ def configure(public_module) -> None:
             instant=instant_enabled,
             force=force_enabled,
             assassinate=assassinate_enabled,
+            enemy_surge=enemy_surge_enabled,
         )
 
         core_keys = set(
@@ -659,6 +669,8 @@ def configure(public_module) -> None:
             keep.update(optional_sets.get("force", set()))
         if assassinate_enabled:
             keep.update(optional_sets.get("assassinate", set()))
+        if enemy_surge_enabled:
+            keep.update(optional_sets.get("enemy_surge", set()))
 
         optional_all = set()
         for descriptors in optional_sets.values():
