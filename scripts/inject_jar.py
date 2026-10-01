@@ -302,15 +302,15 @@ public class SmmCharAttackPatcher {
         String terminalAttackDesc;
         String hitMethod;
         String hitDesc;
-        int instantBranchOpcode = -1;
-        String instantDetail;
+        String hitDetail;
     }
 
     static Plan analyze(byte[] original) {
         Plan plan = new Plan();
         LinkedHashSet<String> attacks = new LinkedHashSet<>();
         LinkedHashSet<String> structuralHits = new LinkedHashSet<>();
-        LinkedHashMap<String, LinkedHashSet<String>> edges = new LinkedHashMap<>();
+        LinkedHashMap<String, LinkedHashSet<String>> attackEdges = new LinkedHashMap<>();
+        LinkedHashMap<String, LinkedHashSet<String>> attackHitCalls = new LinkedHashMap<>();
 
         new ClassReader(original).accept(new ClassVisitor(API) {
             @Override
@@ -326,7 +326,8 @@ public class SmmCharAttackPatcher {
                                              String signature, String[] exceptions) {
                 if (isAttack(name, desc, access)) {
                     attacks.add(desc);
-                    edges.put(desc, new LinkedHashSet<>());
+                    attackEdges.put(desc, new LinkedHashSet<>());
+                    attackHitCalls.put(desc, new LinkedHashSet<>());
                 }
                 if (isStructuralHit(desc, access)) {
                     structuralHits.add(name + "\n" + desc);
@@ -344,10 +345,13 @@ public class SmmCharAttackPatcher {
                     @Override
                     public void visitMethodInsn(int opcode, String owner, String methodName,
                                                 String methodDesc, boolean isInterface) {
-                        if (CHAR.equals(owner)
-                                && "attack".equals(methodName)
-                                && attacks.contains(methodDesc)) {
-                            edges.get(desc).add(methodDesc);
+                        if (!CHAR.equals(owner)) return;
+                        if ("attack".equals(methodName) && attacks.contains(methodDesc)) {
+                            attackEdges.get(desc).add(methodDesc);
+                        }
+                        String key = methodName + "\n" + methodDesc;
+                        if (opcode == Opcodes.INVOKESTATIC && structuralHits.contains(key)) {
+                            attackHitCalls.get(desc).add(key);
                         }
                     }
                 };
@@ -356,7 +360,7 @@ public class SmmCharAttackPatcher {
 
         LinkedHashSet<String> terminals = new LinkedHashSet<>();
         for (String desc : attacks) {
-            if (edges.get(desc).isEmpty()) terminals.add(desc);
+            if (attackEdges.get(desc).isEmpty()) terminals.add(desc);
         }
         if (terminals.size() != 1) {
             throw new IllegalStateException(
@@ -365,100 +369,34 @@ public class SmmCharAttackPatcher {
         }
         plan.terminalAttackDesc = terminals.iterator().next();
 
+        LinkedHashSet<String> calledHits = attackHitCalls.get(plan.terminalAttackDesc);
         String modernDirect = "hit\n" + MODERN_HIT_DESC;
         String legacyDirect = "hit\n" + LEGACY_HIT_DESC;
-        String directHit = structuralHits.contains(modernDirect)
+        String selected = calledHits.contains(modernDirect)
                 ? modernDirect
-                : (structuralHits.contains(legacyDirect) ? legacyDirect : null);
+                : (calledHits.contains(legacyDirect) ? legacyDirect : null);
 
-        LinkedHashMap<String, ArrayList<Integer>> candidateBranches = new LinkedHashMap<>();
-        new ClassReader(original).accept(new ClassVisitor(API) {
-            @Override
-            public MethodVisitor visitMethod(int access, String name, String desc,
-                                             String signature, String[] exceptions) {
-                if (!"attack".equals(name)
-                        || !plan.terminalAttackDesc.equals(desc)
-                        || (access & Opcodes.ACC_STATIC) != 0) {
-                    return null;
-                }
-                return new MethodVisitor(API) {
-                    private String pending;
-
-                    private void clearPending() {
-                        pending = null;
-                    }
-
-                    @Override
-                    public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                String methodDesc, boolean isInterface) {
-                        clearPending();
-                        String key = methodName + "\n" + methodDesc;
-                        if (opcode == Opcodes.INVOKESTATIC
-                                && CHAR.equals(owner)
-                                && structuralHits.contains(key)
-                                && (directHit == null || directHit.equals(key))) {
-                            pending = key;
-                        }
-                    }
-
-                    @Override
-                    public void visitJumpInsn(int opcode, Label label) {
-                        if (pending != null
-                                && (opcode == Opcodes.IFEQ || opcode == Opcodes.IFNE)) {
-                            candidateBranches
-                                    .computeIfAbsent(pending, ignored -> new ArrayList<>())
-                                    .add(opcode);
-                        }
-                        clearPending();
-                    }
-
-                    @Override public void visitInsn(int opcode) { clearPending(); }
-                    @Override public void visitIntInsn(int opcode, int operand) { clearPending(); }
-                    @Override public void visitVarInsn(int opcode, int var) { clearPending(); }
-                    @Override public void visitTypeInsn(int opcode, String type) { clearPending(); }
-                    @Override public void visitFieldInsn(int opcode, String owner, String name, String desc) { clearPending(); }
-                    @Override public void visitLdcInsn(Object value) { clearPending(); }
-                    @Override public void visitIincInsn(int var, int increment) { clearPending(); }
-                };
-            }
-        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
-
-        String candidate;
-        if (directHit != null) {
-            candidate = directHit;
+        if (selected != null) {
+            plan.hitDetail = "direct hit-check ";
         } else {
-            if (candidateBranches.size() != 1) {
+            if (calledHits.size() != 1) {
                 throw new IllegalStateException(
-                        "Expected one structural hit-check in terminal Char.attack"
-                                + plan.terminalAttackDesc + ", found " + candidateBranches.size());
+                        "Expected one callable hit-check in terminal Char.attack"
+                                + plan.terminalAttackDesc + ", found " + calledHits.size()
+                                + ": " + calledHits);
             }
-            candidate = candidateBranches.keySet().iterator().next();
+            selected = calledHits.iterator().next();
+            plan.hitDetail = "structural hit-check ";
         }
 
-        int split = candidate.indexOf('\n');
-        plan.hitMethod = candidate.substring(0, split);
-        plan.hitDesc = candidate.substring(split + 1);
+        int split = selected.indexOf('\n');
+        plan.hitMethod = selected.substring(0, split);
+        plan.hitDesc = selected.substring(split + 1);
+        plan.hitDetail += plan.hitMethod + plan.hitDesc
+                + " called by terminal Char.attack" + plan.terminalAttackDesc;
 
-        ArrayList<Integer> branches = candidateBranches.get(candidate);
-        if (branches == null) branches = new ArrayList<>();
-        if (branches.size() == 1
-                && (branches.get(0) == Opcodes.IFEQ
-                    || branches.get(0) == Opcodes.IFNE)) {
-            plan.instantBranchOpcode = branches.get(0);
-            plan.instantDetail = branches.get(0) == Opcodes.IFEQ
-                    ? "unique successful hit fallthrough"
-                    : "unique successful hit branch";
-        } else {
-            plan.instantDetail =
-                    "selected hit-check found, but no unique boolean success branch";
-        }
-
-        System.out.println(
-                "Terminal Char.attack selected: " + plan.terminalAttackDesc);
-        System.out.println(
-                "Shared hit-check selected: "
-                        + plan.hitMethod + plan.hitDesc
-                        + (directHit != null ? " (direct)" : " (structural)"));
+        System.out.println("Terminal Char.attack selected: " + plan.terminalAttackDesc);
+        System.out.println("Shared hit-check selected: " + plan.hitDetail);
         return plan;
     }
 
@@ -469,7 +407,6 @@ public class SmmCharAttackPatcher {
 
         final int[] terminalAttackMethods = {0};
         final int[] hitMethods = {0};
-        final int[] instantAnchors = {0};
         final boolean[] alreadyRiposte = {false};
         final boolean[] alreadyForce = {false};
         final boolean[] alreadyInstant = {false};
@@ -485,8 +422,6 @@ public class SmmCharAttackPatcher {
                         && (access & Opcodes.ACC_STATIC) == 0) {
                     terminalAttackMethods[0]++;
                     return new MethodVisitor(API, base) {
-                        private boolean awaitingStructuralHit;
-
                         @Override
                         public void visitCode() {
                             super.visitCode();
@@ -541,103 +476,38 @@ public class SmmCharAttackPatcher {
                                     && FORCE_ACTIVE_DESC.equals(methodDesc)) {
                                 alreadyForce[0] = true;
                             }
-
                             super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
-                            awaitingStructuralHit = opcode == Opcodes.INVOKESTATIC
-                                    && CHAR.equals(owner)
-                                    && plan.hitMethod.equals(methodName)
-                                    && plan.hitDesc.equals(methodDesc);
-                        }
-
-                        private void emitInstant(Label nativeSuccess) {
-                            Label nativeAttack = new Label();
-                            super.visitVarInsn(Opcodes.ALOAD, 0);
-                            super.visitVarInsn(Opcodes.ALOAD, 1);
-                            super.visitMethodInsn(
-                                    Opcodes.INVOKESTATIC,
-                                    MOD_INSTANT_KILL,
-                                    "resolveSuccessfulAttack",
-                                    INSTANT_KILL_DESC,
-                                    false);
-                            super.visitJumpInsn(Opcodes.IFEQ, nativeAttack);
-                            super.visitInsn(Opcodes.ICONST_1);
-                            super.visitInsn(Opcodes.IRETURN);
-                            super.visitLabel(nativeAttack);
-                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                            if (nativeSuccess != null) {
-                                super.visitJumpInsn(Opcodes.GOTO, nativeSuccess);
-                            }
-                        }
-
-                        @Override
-                        public void visitJumpInsn(int opcode, Label label) {
-                            if (!awaitingStructuralHit
-                                    || opcode != plan.instantBranchOpcode) {
-                                awaitingStructuralHit = false;
-                                super.visitJumpInsn(opcode, label);
-                                return;
-                            }
-                            awaitingStructuralHit = false;
-                            instantAnchors[0]++;
-
-                            if (opcode == Opcodes.IFEQ) {
-                                super.visitJumpInsn(opcode, label);
-                                emitInstant(null);
-                            } else {
-                                Label miss = new Label();
-                                super.visitJumpInsn(Opcodes.IFEQ, miss);
-                                emitInstant(label);
-                                super.visitLabel(miss);
-                                super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                            }
                         }
 
                         @Override
                         public void visitInsn(int opcode) {
-                            awaitingStructuralHit = false;
+                            if (opcode == Opcodes.IRETURN) {
+                                Label nativeReturn = new Label();
+                                super.visitInsn(Opcodes.DUP);
+                                super.visitJumpInsn(Opcodes.IFEQ, nativeReturn);
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        MOD_INSTANT_KILL,
+                                        "resolveSuccessfulAttack",
+                                        INSTANT_KILL_DESC,
+                                        false);
+                                super.visitInsn(Opcodes.POP);
+                                super.visitLabel(nativeReturn);
+                                super.visitFrame(
+                                        Opcodes.F_SAME1,
+                                        0,
+                                        null,
+                                        1,
+                                        new Object[]{Opcodes.INTEGER});
+                            }
                             super.visitInsn(opcode);
                         }
 
                         @Override
-                        public void visitIntInsn(int opcode, int operand) {
-                            awaitingStructuralHit = false;
-                            super.visitIntInsn(opcode, operand);
-                        }
-
-                        @Override
-                        public void visitVarInsn(int opcode, int var) {
-                            awaitingStructuralHit = false;
-                            super.visitVarInsn(opcode, var);
-                        }
-
-                        @Override
-                        public void visitTypeInsn(int opcode, String type) {
-                            awaitingStructuralHit = false;
-                            super.visitTypeInsn(opcode, type);
-                        }
-
-                        @Override
-                        public void visitFieldInsn(int opcode, String owner, String fieldName,
-                                                   String fieldDesc) {
-                            awaitingStructuralHit = false;
-                            super.visitFieldInsn(opcode, owner, fieldName, fieldDesc);
-                        }
-
-                        @Override
-                        public void visitLdcInsn(Object value) {
-                            awaitingStructuralHit = false;
-                            super.visitLdcInsn(value);
-                        }
-
-                        @Override
-                        public void visitIincInsn(int var, int increment) {
-                            awaitingStructuralHit = false;
-                            super.visitIincInsn(var, increment);
-                        }
-
-                        @Override
                         public void visitMaxs(int maxStack, int maxLocals) {
-                            super.visitMaxs(maxStack + 2, maxLocals);
+                            super.visitMaxs(maxStack + 3, maxLocals);
                         }
                     };
                 }
@@ -695,7 +565,7 @@ public class SmmCharAttackPatcher {
         }
         if (alreadyForce[0]) {
             throw new IllegalStateException(
-                    "Structural hit-check already contains SMM Force Hit hook");
+                    "Selected hit-check already contains SMM Force Hit hook");
         }
         if (alreadyInstant[0]) {
             throw new IllegalStateException(
@@ -708,17 +578,11 @@ public class SmmCharAttackPatcher {
         }
         if (hitMethods[0] != 1) {
             throw new IllegalStateException(
-                    "Expected one selected structural hit-check method, found "
-                            + hitMethods[0]);
+                    "Expected one selected hit-check method, found " + hitMethods[0]);
         }
 
-        if (plan.instantBranchOpcode == -1 || instantAnchors[0] != 1) {
-            throw new IllegalStateException(
-                    "Instant Kill requires exactly one successful selected hit-check branch: "
-                            + plan.instantDetail);
-        }
         System.out.println(
-                "Char.attack Instant Kill force-entry + confirmed-hit patch: OK ("
+                "Char.attack Instant Kill force-entry + successful-return patch: OK ("
                         + plan.terminalAttackDesc + ")");
         System.out.println(
                 "Char.attack incoming-attack patch: OK (" + plan.terminalAttackDesc + ")");
