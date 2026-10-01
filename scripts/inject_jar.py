@@ -898,12 +898,14 @@ def build_ankh_payload(
         "instant": "com/spd/mod/mechanics/ModInstantKill.class",
         "force": "com/spd/mod/mechanics/ModForceHit.class",
         "assassinate": "com/spd/mod/mechanics/ModAssassinate.class",
+        "enemy_surge": "com/spd/mod/mechanics/ModEnemySurge.class",
     }
     optional_labels = {
         "parry": "Parry/Riposte",
         "instant": "Instant Kill",
         "force": "Force Hit",
         "assassinate": "Assassinate",
+        "enemy_surge": "Enemy Surge",
     }
     optional_closures: dict[str, set[str]] = {}
     for feature, optional_root in optional_roots.items():
@@ -950,12 +952,14 @@ public class SmmBuffClickPatcher {
     static final boolean ENABLE_INSTANT = __ENABLE_INSTANT__;
     static final boolean ENABLE_FORCE = __ENABLE_FORCE__;
     static final boolean ENABLE_ASSASSINATE = __ENABLE_ASSASSINATE__;
+    static final boolean ENABLE_ENEMY_SURGE = __ENABLE_ENEMY_SURGE__;
 
     static final String LAST_STAND = "com/spd/mod/mechanics/ModLastStand";
     static final String PARRY_RIPOSTE = "com/spd/mod/mechanics/ModParryRiposte";
     static final String INSTANT_KILL = "com/spd/mod/mechanics/ModInstantKill";
     static final String FORCE_HIT = "com/spd/mod/mechanics/ModForceHit";
     static final String ASSASSINATE = "com/spd/mod/mechanics/ModAssassinate";
+    static final String ENEMY_SURGE = "com/spd/mod/mechanics/ModEnemySurge";
 
     static final String INFO_HELPER = "smm$nativeInfo";
     static final String LONG_HELPER = "smm$nativeLongClick";
@@ -974,6 +978,7 @@ public class SmmBuffClickPatcher {
         if (ENABLE_INSTANT) result.put(INSTANT_KILL, "openInfo");
         if (ENABLE_FORCE) result.put(FORCE_HIT, "openInfo");
         if (ENABLE_ASSASSINATE) result.put(ASSASSINATE, "openInfo");
+        if (ENABLE_ENEMY_SURGE) result.put(ENEMY_SURGE, "openInfo");
         return result;
     }
 
@@ -2094,6 +2099,7 @@ def patch_buff_click_jar(
     instant: bool,
     force: bool,
     assassinate: bool,
+    enemy_surge: bool,
 ) -> tuple[str, Path]:
     helper = work / "SmmBuffClickPatcher.java"
     helper.write_text(
@@ -2104,7 +2110,8 @@ def patch_buff_click_jar(
         .replace("__ENABLE_PARRY__", str(parry).lower())
         .replace("__ENABLE_INSTANT__", str(instant).lower())
         .replace("__ENABLE_FORCE__", str(force).lower())
-        .replace("__ENABLE_ASSASSINATE__", str(assassinate).lower()),
+        .replace("__ENABLE_ASSASSINATE__", str(assassinate).lower())
+        .replace("__ENABLE_ENEMY_SURGE__", str(enemy_surge).lower()),
         encoding="utf-8",
     )
 
@@ -2366,6 +2373,7 @@ def run_ankh_only(
         "instant": "Instant Kill",
         "force": "Force Hit",
         "assassinate": "Assassinate",
+        "enemy_surge": "Enemy Surge",
     }
     for feature, feature_payload in optional_payloads.items():
         raw_feature_jar = work / f"rebased-ankh-{feature}-payload.jar"
@@ -2410,6 +2418,8 @@ def run_ankh_only(
     payload_features = set(enabled_features)
     if "assassinate" in adapted_optional:
         payload_features.add("assassinate")
+    if "enemy_surge" in adapted_optional:
+        payload_features.add("enemy_surge")
 
     patched_buff_click = patch_buff_click_jar(
         java,
@@ -2420,6 +2430,7 @@ def run_ankh_only(
         instant="instant" in payload_features,
         force="force" in payload_features,
         assassinate="assassinate" in payload_features,
+        enemy_surge="enemy_surge" in payload_features,
     )
 
     payload = dict(core_payload)
@@ -2529,7 +2540,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     injector.log(
         "Injection mode: "
         + (
-            "ModAnkh only (core: Store + Loot + Console + Last Stand + Tag; optional: Parry/Riposte, Instant Kill, Force Hit, Assassinate)"
+            "ModAnkh only (core: Store + Loot + Console + Last Stand + Tag; optional: Parry/Riposte, Instant Kill, Force Hit, Assassinate, Enemy Surge)"
             if parsed.ankh_only else "full SMM"
         )
     )
@@ -2603,6 +2614,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             instant=True,
             force=True,
             assassinate=True,
+            enemy_surge=True,
         )
 
         injector.step("Repacking target JAR")
