@@ -113,9 +113,9 @@ public class ModInstantKill extends Buff {
     }
 
     /**
-     * Resolves Instant Kill after a physical hit has succeeded but before the
-     * defender's defenseProc() runs. This prevents defensive side effects such
-     * as Swarm splitting and works for synchronous, turn-free Assassinate.
+     * Resolves Instant Kill after a physical hit has succeeded, before native
+     * damage resolution continues. Enemy-specific defense side effects are not
+     * part of this buff's contract.
      */
     public static boolean resolveSuccessfulAttack(Char attacker, Char defender) {
         ModInstantKill buff = find(attacker);
