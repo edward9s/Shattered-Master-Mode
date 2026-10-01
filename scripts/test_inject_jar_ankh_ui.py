@@ -670,7 +670,13 @@ public class ParryHarness {{
         Char.nativeHit = true;
         ModForceHit.enabled = false;
         ModParryRiposte.enabled = true;
-        check(!attacker.attack(defender), "Parry did not force the hit to miss");
+
+        // Eye/Yog-style guaranteed attacks call Char.hit(...) directly instead
+        // of Char.attack(). Parry must still override that direct hit check.
+        check(!Char.hit(attacker, defender, true),
+                "Parry did not block a direct guaranteed/magic hit");
+
+        check(!attacker.attack(defender), "Parry did not force the normal attack to miss");
         check(ModParryRiposte.incomingCalls == 1, "Parry/Riposte entry hook count mismatch");
         check(ModParryRiposte.completeCalls == 1, "Parry/Riposte completion hook count mismatch");
 
