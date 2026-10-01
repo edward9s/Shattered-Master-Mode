@@ -115,6 +115,10 @@ class ApkUiCompatTests(unittest.TestCase):
             "Lcom/spd/mod/mechanics/ModAssassinate;->openInfo()V",
             patched,
         )
+        self.assertIn(
+            "Lcom/spd/mod/mechanics/ModEnemySurge;->openInfo()V",
+            patched,
+        )
 
     def test_existing_long_click_is_preserved_for_normal_buffs(self):
         handlers = buff_click.selected_handlers(
