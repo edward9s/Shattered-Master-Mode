@@ -1075,6 +1075,19 @@ def _reserve_fresh_smali_locals(
         )
 
     old_count = int(locals_match.group("count"))
+
+    # .locals keeps parameter registers above the local range. If the original
+    # method addresses those parameter slots through raw vNN aliases instead of
+    # pNN names, increasing .locals would silently retarget those instructions.
+    # Reject that shape rather than producing verifier-invalid bytecode.
+    register_directive_end = locals_match.end()
+    for raw_index in re.findall(r"\bv(\d+)\b", block[register_directive_end:]):
+        if int(raw_index) >= old_count:
+            raise injector.InjectError(
+                f"{purpose} cannot safely grow .locals because the target uses "
+                f"raw parameter alias v{raw_index}"
+            )
+
     new_count = old_count + count
     if new_count > 0xFFFF:
         raise injector.InjectError(
