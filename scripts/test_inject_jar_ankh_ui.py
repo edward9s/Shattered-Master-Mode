@@ -133,6 +133,24 @@ class AnkhJarUiTests(unittest.TestCase):
             assassinate_source,
         )
 
+    def test_parry_riposte_stays_portable_across_old_forks(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        source = (
+            root / "core/src/main/java/com/spd/mod/mechanics/ModParryRiposte.java"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("class ModParryRiposte extends Buff", source)
+        self.assertNotIn("ChampionEnemy", source)
+        self.assertNotIn("MonkEnergy", source)
+        self.assertNotIn("HeroSubClass", source)
+        self.assertNotIn("attack(attacker, 1f, 0f, 1f)", source)
+        self.assertIn("riposter.attack(attacker)", source)
+        self.assertIn(
+            "public static boolean shouldParry(Char attacker, Char defender)",
+            source,
+        )
+
+
     def test_tag_has_only_store_tag_responsibility(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         old_name = "ModLastStand" + "Overlay"
