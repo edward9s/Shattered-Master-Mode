@@ -58,8 +58,7 @@ class TerminalAttackHookTest(unittest.TestCase):
             + self.char + self.char + ")V"
         )
         post_hook = (
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete("
-            + self.char + self.char + ")V"
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete()V"
         )
         self.assertEqual(1, patched.count(pre_hook))
         self.assertEqual(1, patched.count(post_hook))
@@ -91,8 +90,7 @@ class TerminalAttackHookTest(unittest.TestCase):
         )
         patched = mod.patch_char_attack(text, self.char)
         post_hook = (
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete("
-            + self.char + self.char + ")V"
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete()V"
         )
         _, _, block = mod.injector.method_block(patched, "attack", terminal)
         self.assertEqual(2, block.count(post_hook))
@@ -284,7 +282,8 @@ class TerminalAttackHookTest(unittest.TestCase):
         )
         _, _, block = mod.injector.method_block(patched, "attack", terminal)
         self.assertIn("if-nez v0, :hit_success", block)
-        self.assertEqual(3, block.count(instant_hook))
+        self.assertEqual(1, block.count(instant_hook))
+        self.assertEqual(2, block.count("ModInstantKill;->finishAttack(Z)V"))
         self.assertNotIn(":smm_instant_kill_miss", block)
         self.assertNotIn("confirmed hit", block)
 
@@ -358,7 +357,8 @@ class TerminalAttackHookTest(unittest.TestCase):
         _, _, attack = mod.injector.method_block(
             instant, "attack", attack_proto
         )
-        self.assertEqual(3, attack.count(instant_hook))
+        self.assertEqual(1, attack.count(instant_hook))
+        self.assertEqual(2, attack.count("ModInstantKill;->finishAttack(Z)V"))
 
         forced = mod.patch_char_hit(
             instant,
@@ -398,7 +398,9 @@ class TerminalAttackHookTest(unittest.TestCase):
             "Lcom/spd/mod/mechanics/ModInstantKill;->resolveSuccessfulAttack("
             + self.char + self.char + ")Z"
         )
-        self.assertEqual(1, attack.count(instant_hook))
+        self.assertEqual(0, attack.count(instant_hook))
+        self.assertEqual(1, attack.count("ModInstantKill;->beginAttack("))
+        self.assertEqual(1, attack.count("ModInstantKill;->finishAttack(Z)V"))
         self.assertNotIn(
             "Lcom/spd/mod/mechanics/ModForceHit;->isForceHitEnabled",
             attack,
