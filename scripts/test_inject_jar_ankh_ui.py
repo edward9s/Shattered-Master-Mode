@@ -40,8 +40,10 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertIn('result.put(FORCE_HIT, "openInfo")', source)
         self.assertIn('result.put(PARRY_RIPOSTE, "openInfo")', source)
         self.assertIn('result.put(ASSASSINATE, "openInfo")', source)
+        self.assertIn('result.put(ENEMY_SURGE, "openInfo")', source)
         self.assertIn("ENABLE_PARRY", source)
         self.assertIn("ENABLE_ASSASSINATE", source)
+        self.assertIn("ENABLE_ENEMY_SURGE", source)
 
     def test_ankh_core_includes_last_stand_runtime_ui(self):
         self.assertIn(
@@ -57,6 +59,10 @@ class AnkhJarUiTests(unittest.TestCase):
         )
         self.assertIn(
             '"assassinate": "com/spd/mod/mechanics/ModAssassinate.class"',
+            source,
+        )
+        self.assertIn(
+            '"enemy_surge": "com/spd/mod/mechanics/ModEnemySurge.class"',
             source,
         )
 
@@ -110,7 +116,7 @@ class AnkhJarUiTests(unittest.TestCase):
             root / "core/src/main/java/com/spd/mod/mechanics/ModParryRiposte.java"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            "boolean hit = riposter.attack(attacker, 1f, 0f, 1f);",
+            "boolean hit = riposter.attack(attacker);",
             riposte_source,
         )
 
@@ -132,6 +138,24 @@ class AnkhJarUiTests(unittest.TestCase):
             "ModLegacyCompat.longClickThreshold()",
             assassinate_source,
         )
+
+    def test_enemy_surge_minimal_payload_avoids_overlay_dependency(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        surge = (
+            root / "core/src/main/java/com/spd/mod/mechanics/ModEnemySurge.java"
+        ).read_text(encoding="utf-8")
+        window = (
+            root / "core/src/main/java/com/spd/mod/journal/WndEnemySurgeInfo.java"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("public void openInfo()", surge)
+        self.assertIn('invokeOptionalOverlay("ensureInstalled")', surge)
+        self.assertNotIn(
+            "import com.spd.mod.journal.ModEnemySurgeInfoOverlay;",
+            surge,
+        )
+        self.assertNotIn("RenderedTextBlock", window)
+
 
     def test_parry_riposte_stays_portable_across_old_forks(self):
         root = pathlib.Path(__file__).resolve().parents[1]
@@ -456,6 +480,7 @@ public class Harness {{
                     instant=False,
                     force=False,
                     assassinate=False,
+                    enemy_surge=False,
                 )
             target_class = classes / entry
             target_class.write_bytes(patched.read_bytes())
@@ -499,6 +524,7 @@ public class Harness {{
                     instant=False,
                     force=False,
                     assassinate=False,
+                    enemy_surge=False,
                 )
 
     def test_last_stand_zero_candidates_fail_early(self):
@@ -520,6 +546,7 @@ public class Harness {{
                     instant=False,
                     force=False,
                     assassinate=False,
+                    enemy_surge=False,
                 )
 
     @classmethod
