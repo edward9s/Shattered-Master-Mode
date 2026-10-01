@@ -38,6 +38,13 @@ public class ModForceHit extends Buff {
         return buff != null && buff.forceHitEnabled ? buff : null;
     }
 
+    /** Returns whether Force Hit is actively enabled for this attacker. */
+    public static boolean isForceHitEnabled(Char attacker) {
+        return attacker != null
+                && attacker.isAlive()
+                && find(attacker) != null;
+    }
+
     /**
      * The selected Char.hit check calls this before native accuracy/evasion logic.
      * Force Hit alone does not bypass an earlier Char.attack invulnerability stop.
@@ -47,9 +54,8 @@ public class ModForceHit extends Buff {
         return attacker != null
                 && defender != null
                 && attacker != defender
-                && attacker.isAlive()
+                && isForceHitEnabled(attacker)
                 && defender.isAlive()
-                && find(attacker) != null
                 && !defender.isInvulnerable(attacker.getClass());
     }
 
