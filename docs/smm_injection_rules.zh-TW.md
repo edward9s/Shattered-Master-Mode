@@ -29,7 +29,7 @@ python inject_jar.py TARGET.jar --ankh-only
 另外會盡力加入三個選配戰鬥 Buff：
 
 - `ModInstantKill`：只依賴唯一的 terminal `Char.attack()` overload。Force Hit + Instant Kill 在 attack 入口直接結算；否則只有原生 terminal attack 本來就要 `return true` 時才執行 Instant Kill，因此原生 defense side effect 會先跑完。不再提供 `attackProc()` fallback，也不再分析 hit-success branch。
-- `ModForceHit` 才擁有 selected hit-check capability；`ModInstantKill` 不再依賴它。已知 direct ABI 只有在 terminal `Char.attack()` 實際有呼叫時才採用：先 `Char.hit(Char, Char, float, boolean)`，再舊版 `Char.hit(Char, Char, boolean)`。否則只接受 terminal attack 實際呼叫到、且可唯一辨識的 static boolean helper。單純「方法存在」不算相容。
+- `ModForceHit` 才擁有 selected hit-check capability；`ModInstantKill` 不再依賴它。已知 direct ABI 依方法是否存在且可安全 patch 來採用：先 `Char.hit(Char, Char, float, boolean)`，再舊版 `Char.hit(Char, Char, boolean)`。只有兩種 direct ABI 都不存在時，才從 terminal `Char.attack()` structural trace 唯一可辨識的 static boolean helper。
 - `ModAssassinate`：完整 runtime UI / combat dependency closure 相容時才加入。側邊 Tag 與 map long-press layer 都在 runtime 自行掛載，不需要額外 patch `GameScene` 或 `Char`。
 
 三者都可透過 Debug Console 的 `affect ModInstantKill` / `affect ModForceHit` / `affect ModAssassinate` 套用。最小注入仍不安裝完整 SMM 選單或 Riposte。
@@ -57,7 +57,7 @@ JAR 注入不使用這把 APK 簽章金鑰。
 - ABI dependency 無法可靠解析時直接停止，不猜測、不硬塞。
 - 不複製任意 donor-only 或混淆 class 來掩蓋 compatibility error。
 - `--ankh-only` 必須保持精簡；ModAnkh + ModLastStand 與 Store / Loot / Debug Console 是保證核心，Instant Kill、Force Hit 與 Assassinate 是選配，不能因選配失敗拖垮核心注入。
-- 「選配」不代表消極放棄。APK/JAR 的 Instant Kill 都只依賴 terminal attack；Force Hit 則共用「terminal attack 實際呼叫的 hit helper」規則。只有找不到安全 terminal attack 時才跳過 Instant Kill；找不到安全 hit helper 時才跳過 Force Hit。
+- 「選配」不代表消極放棄。APK/JAR 的 Instant Kill 都只依賴 terminal attack；Force Hit 則共用 direct-first、structural-fallback 的 hit hook 規則。只有找不到安全 terminal attack 時才跳過 Instant Kill；已知 direct ABI 與安全 structural hit-check 都找不到時才跳過 Force Hit。
 - `--ankh-only` 會把 Instant Kill、Force Hit 與 Assassinate（包含各自的設定 UI）視為完整的選配 dependency closure 驗證。若某功能的 UI 或 target API 相依不相容，就在 patch `BuffIndicator` 前跳過整個選配功能；不得讓 click bridge 引用已被省略的 payload class。
 - Mod 系列 action 文字維持直接由程式碼提供。APK/JAR 若遇到舊版 `WndUseItem` 繞過 `Item.actionName()`、直接呼叫 `Messages.get(...)`，應只對該 legacy call site 做 ABI bridge，讓 `ac_*` 重新走 target 已存在的虛擬 `Item.actionName(action, hero)`；不要為 ModAnkh 修改 `items*.properties`。
 - 可設定的 SMM buff 在 source build、APK injection、JAR injection 都共用直接 `BuffIndicator` bridge：短按呼叫該 buff 自己的 `open()` / `openInfo()`，長按保留 target 原本的 buff info 行為。Full SMM 處理 Last Stand、Parry/Riposte、Instant Kill、Force Hit、Assassinate；`--ankh-only` 固定處理 Last Stand，並只加入通過相容性檢查的 Instant Kill / Force Hit / Assassinate。`ModTotalInfoOverlay` 已移除；`ModLastStandTag` 屬於 narrow Last Stand 的保證核心。
