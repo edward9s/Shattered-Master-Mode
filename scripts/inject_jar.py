@@ -210,6 +210,7 @@ public class SmmCharAttackPatcher {
     static final String FORCE_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
     static final String FORCE_ACTIVE_DESC = "(L" + CHAR + ";)Z";
     static final String INSTANT_KILL_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
+    static final String NO_ARGS_VOID_DESC = "()V";
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
 
@@ -230,6 +231,18 @@ public class SmmCharAttackPatcher {
                 "onIncomingAttack",
                 INCOMING_DESC,
                 "ModParryRiposte incoming-attack hook API");
+        validatePublicStatic(
+                payloadJar,
+                MOD_PARRY_RIPOSTE,
+                "onIncomingAttackComplete",
+                NO_ARGS_VOID_DESC,
+                "ModParryRiposte completion hook API");
+        validatePublicStatic(
+                payloadJar,
+                MOD_PARRY_RIPOSTE,
+                "shouldParry",
+                FORCE_HIT_DESC,
+                "ModParryRiposte hit-check hook API");
         validatePublicStatic(
                 payloadJar,
                 MOD_FORCE_HIT,
@@ -461,8 +474,10 @@ public class SmmCharAttackPatcher {
                         public void visitMethodInsn(int opcode, String owner, String methodName,
                                                     String methodDesc, boolean isInterface) {
                             if (MOD_PARRY_RIPOSTE.equals(owner)
-                                    && "onIncomingAttack".equals(methodName)
-                                    && INCOMING_DESC.equals(methodDesc)) {
+                                    && (("onIncomingAttack".equals(methodName)
+                                            && INCOMING_DESC.equals(methodDesc))
+                                        || ("onIncomingAttackComplete".equals(methodName)
+                                            && NO_ARGS_VOID_DESC.equals(methodDesc)))) {
                                 alreadyRiposte[0] = true;
                             }
                             if (MOD_INSTANT_KILL.equals(owner)
@@ -500,6 +515,12 @@ public class SmmCharAttackPatcher {
                                         null,
                                         1,
                                         new Object[]{Opcodes.INTEGER});
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        MOD_PARRY_RIPOSTE,
+                                        "onIncomingAttackComplete",
+                                        NO_ARGS_VOID_DESC,
+                                        false);
                             }
                             super.visitInsn(opcode);
                         }
@@ -519,7 +540,8 @@ public class SmmCharAttackPatcher {
                         @Override
                         public void visitCode() {
                             super.visitCode();
-                            Label nativeHit = new Label();
+
+                            Label afterForce = new Label();
                             super.visitVarInsn(Opcodes.ALOAD, 0);
                             super.visitVarInsn(Opcodes.ALOAD, 1);
                             super.visitMethodInsn(
@@ -528,8 +550,23 @@ public class SmmCharAttackPatcher {
                                     "forceHitCheck",
                                     FORCE_HIT_DESC,
                                     false);
-                            super.visitJumpInsn(Opcodes.IFEQ, nativeHit);
+                            super.visitJumpInsn(Opcodes.IFEQ, afterForce);
                             super.visitInsn(Opcodes.ICONST_1);
+                            super.visitInsn(Opcodes.IRETURN);
+                            super.visitLabel(afterForce);
+                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+
+                            Label nativeHit = new Label();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitVarInsn(Opcodes.ALOAD, 1);
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_PARRY_RIPOSTE,
+                                    "shouldParry",
+                                    FORCE_HIT_DESC,
+                                    false);
+                            super.visitJumpInsn(Opcodes.IFEQ, nativeHit);
+                            super.visitInsn(Opcodes.ICONST_0);
                             super.visitInsn(Opcodes.IRETURN);
                             super.visitLabel(nativeHit);
                             super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
@@ -542,6 +579,11 @@ public class SmmCharAttackPatcher {
                                     && "forceHitCheck".equals(methodName)
                                     && FORCE_HIT_DESC.equals(methodDesc)) {
                                 alreadyForce[0] = true;
+                            }
+                            if (MOD_PARRY_RIPOSTE.equals(owner)
+                                    && "shouldParry".equals(methodName)
+                                    && FORCE_HIT_DESC.equals(methodDesc)) {
+                                alreadyRiposte[0] = true;
                             }
                             super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
                         }
@@ -586,7 +628,7 @@ public class SmmCharAttackPatcher {
         System.out.println(
                 "Char.attack incoming-attack patch: OK (" + plan.terminalAttackDesc + ")");
         System.out.println(
-                "Force Hit pre-defense patch: OK ("
+                "Force Hit + Parry pre-hit patch: OK ("
                         + plan.hitMethod + plan.hitDesc + ")");
         return writer.toByteArray();
     }
@@ -1724,7 +1766,8 @@ public class SmmAnkhCharAttackPatcher {
                                                 String methodDesc, boolean isInterface) {
                         if (MOD_PARRY_RIPOSTE.equals(owner)
                                 && ("onIncomingAttack".equals(methodName)
-                                    || "onIncomingAttackComplete".equals(methodName))) {
+                                    || "onIncomingAttackComplete".equals(methodName)
+                                    || "shouldParry".equals(methodName))) {
                             scan.alreadyParry = true;
                         }
                         if (MOD_INSTANT_KILL.equals(owner)
@@ -1896,7 +1939,7 @@ public class SmmAnkhCharAttackPatcher {
                     };
                 }
 
-                if (force
+                if ((force || parry)
                         && scan.hitMethod.equals(name)
                         && scan.hitDesc.equals(desc)
                         && (access & Opcodes.ACC_STATIC) != 0) {
@@ -1904,20 +1947,40 @@ public class SmmAnkhCharAttackPatcher {
                         @Override
                         public void visitCode() {
                             super.visitCode();
-                            Label nativeHit = new Label();
-                            super.visitVarInsn(Opcodes.ALOAD, 0);
-                            super.visitVarInsn(Opcodes.ALOAD, 1);
-                            super.visitMethodInsn(
-                                    Opcodes.INVOKESTATIC,
-                                    MOD_FORCE_HIT,
-                                    "forceHitCheck",
-                                    COMBAT_HOOK_DESC,
-                                    false);
-                            super.visitJumpInsn(Opcodes.IFEQ, nativeHit);
-                            super.visitInsn(Opcodes.ICONST_1);
-                            super.visitInsn(Opcodes.IRETURN);
-                            super.visitLabel(nativeHit);
-                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+
+                            if (force) {
+                                Label afterForce = new Label();
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        MOD_FORCE_HIT,
+                                        "forceHitCheck",
+                                        COMBAT_HOOK_DESC,
+                                        false);
+                                super.visitJumpInsn(Opcodes.IFEQ, afterForce);
+                                super.visitInsn(Opcodes.ICONST_1);
+                                super.visitInsn(Opcodes.IRETURN);
+                                super.visitLabel(afterForce);
+                                super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                            }
+
+                            if (parry) {
+                                Label nativeHit = new Label();
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        MOD_PARRY_RIPOSTE,
+                                        "shouldParry",
+                                        COMBAT_HOOK_DESC,
+                                        false);
+                                super.visitJumpInsn(Opcodes.IFEQ, nativeHit);
+                                super.visitInsn(Opcodes.ICONST_0);
+                                super.visitInsn(Opcodes.IRETURN);
+                                super.visitLabel(nativeHit);
+                                super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                            }
                         }
 
                         @Override
@@ -1955,7 +2018,10 @@ public class SmmAnkhCharAttackPatcher {
                 payload, MOD_PARRY_RIPOSTE, "onIncomingAttack", INCOMING_DESC)
                 && hasPublicStaticHook(
                         payload, MOD_PARRY_RIPOSTE, "onIncomingAttackComplete",
-                        NO_ARGS_VOID_DESC);
+                        NO_ARGS_VOID_DESC)
+                && hasPublicStaticHook(
+                        payload, MOD_PARRY_RIPOSTE, "shouldParry",
+                        COMBAT_HOOK_DESC);
         boolean donorInstant = hasPublicStaticHook(
                 payload, MOD_INSTANT_KILL, "resolveSuccessfulAttack",
                 COMBAT_HOOK_DESC)
@@ -1972,7 +2038,9 @@ public class SmmAnkhCharAttackPatcher {
 
         boolean parry = donorParry
                 && !scan.alreadyParry
-                && scan.terminalDesc != null;
+                && scan.terminalDesc != null
+                && scan.hitMethod != null
+                && scan.hitDesc != null;
         boolean instant = donorInstant
                 && !scan.alreadyInstant
                 && scan.terminalDesc != null;
@@ -1983,8 +2051,8 @@ public class SmmAnkhCharAttackPatcher {
 
         if (parry) {
             System.out.println(
-                    "Optional Parry/Riposte entry/return hooks: supported - "
-                            + scan.terminalDesc);
+                    "Optional Parry/Riposte attack + hit hooks: supported - "
+                            + scan.terminalDesc + " / " + scan.hitDetail);
         } else {
             System.out.println(
                     "Optional Parry/Riposte skipped: no compatible terminal Char.attack");
