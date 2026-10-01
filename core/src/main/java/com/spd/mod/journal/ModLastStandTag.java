@@ -7,17 +7,23 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Tag;
 import com.spd.mod.mechanics.ModLastStand;
 import com.watabou.noosa.BitmapText;
+import com.watabou.noosa.ColorBlock;
 import com.watabou.noosa.Game;
 import com.watabou.noosa.Gizmo;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
+import com.watabou.noosa.TextureFilm;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 /** Runtime edge Tag for opening Last Stand storage in full and ankh-only injection. */
 public final class ModLastStandTag extends Gizmo {
 
     private static final int TAG_NEUTRAL = 0x7B8073;
+    private static final int BADGE_RED = 0xFFC03838;
+    private static final int HEART_YELLOW = 0xFFD54A;
+    private static final float BADGE_SIZE = 9f;
     private static ModLastStandTag instance;
     private LastStandTag storeTag;
 
@@ -107,6 +113,8 @@ public final class ModLastStandTag extends Gizmo {
     private static final class LastStandTag extends Tag {
 
         private final Image icon;
+        private final Image heart;
+        private final ColorBlock[] badgeBorder = new ColorBlock[4];
         private final BitmapText count;
         private int lastCount = -1;
 
@@ -116,6 +124,15 @@ public final class ModLastStandTag extends Gizmo {
 
             icon = backpackIcon();
             add(icon);
+
+            for (int i = 0; i < badgeBorder.length; i++) {
+                badgeBorder[i] = new ColorBlock(1, 1, BADGE_RED);
+                add(badgeBorder[i]);
+            }
+
+            heart = lastStandBadgeIcon();
+            heart.hardlight(HEART_YELLOW);
+            add(heart);
 
             count = new BitmapText(PixelScene.pixelFont);
             count.hardlight(0xFFFFFF);
@@ -156,6 +173,39 @@ public final class ModLastStandTag extends Gizmo {
             return fallback;
         }
 
+        private static Image lastStandBadgeIcon() {
+            Object atlas = null;
+            int frameSize = 0;
+
+            for (String fieldName : new String[]{"BUFFS_SMALL", "BUFFS_LARGE"}) {
+                try {
+                    Field field = Assets.Interfaces.class.getField(fieldName);
+                    atlas = field.get(null);
+                    frameSize = "BUFFS_SMALL".equals(fieldName) ? 7 : 16;
+                    break;
+                } catch (ReflectiveOperationException | SecurityException ignored) {
+                    // Older forks may expose only one of the two buff atlases.
+                }
+            }
+
+            if (atlas != null) {
+                Image image = new Image(atlas);
+                TextureFilm film = new TextureFilm(atlas, frameSize, frameSize);
+                image.frame(film.get(new ModLastStand().icon()));
+                if (frameSize > 7) {
+                    image.scale.set(PixelScene.align(7f / frameSize));
+                }
+                return image;
+            }
+
+            // Extremely old forks: keep the badge visible even without a buff
+            // atlas by reusing a stable toolbar frame.
+            Image fallback = new Image(Assets.Interfaces.TOOLBAR);
+            fallback.frame(160, 0, 16, 16);
+            fallback.scale.set(PixelScene.align(7f / 16f));
+            return fallback;
+        }
+
         @Override
         public void update() {
             if (!(Game.scene() instanceof GameScene)
@@ -172,7 +222,11 @@ public final class ModLastStandTag extends Gizmo {
             boolean available = Dungeon.hero != null && Dungeon.hero.ready;
             float contentAlpha = available ? 1f : 0.4f;
             icon.alpha(contentAlpha);
+            heart.alpha(contentAlpha);
             count.alpha(contentAlpha);
+            for (ColorBlock border : badgeBorder) {
+                border.alpha(contentAlpha);
+            }
 
             super.update();
             if (!ModRuntimeTagStack.hasOpenWindow()) {
@@ -191,6 +245,29 @@ public final class ModLastStandTag extends Gizmo {
             }
             icon.y = y + (height - icon.height()) / 2f;
             PixelScene.align(icon);
+
+            float badgeLeft = icon.x + icon.width() - BADGE_SIZE + 1f;
+            float badgeTop = icon.y + icon.height() - BADGE_SIZE + 1f;
+
+            badgeBorder[0].x = badgeLeft;
+            badgeBorder[0].y = badgeTop;
+            badgeBorder[0].size(BADGE_SIZE, 1f);
+
+            badgeBorder[1].x = badgeLeft;
+            badgeBorder[1].y = badgeTop + BADGE_SIZE - 1f;
+            badgeBorder[1].size(BADGE_SIZE, 1f);
+
+            badgeBorder[2].x = badgeLeft;
+            badgeBorder[2].y = badgeTop;
+            badgeBorder[2].size(1f, BADGE_SIZE);
+
+            badgeBorder[3].x = badgeLeft + BADGE_SIZE - 1f;
+            badgeBorder[3].y = badgeTop;
+            badgeBorder[3].size(1f, BADGE_SIZE);
+
+            heart.x = badgeLeft + (BADGE_SIZE - heart.width()) / 2f;
+            heart.y = badgeTop + (BADGE_SIZE - heart.height()) / 2f;
+            PixelScene.align(heart);
 
             if (count.visible) {
                 count.x = icon.x - 1f;
