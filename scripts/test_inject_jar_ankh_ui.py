@@ -143,6 +143,27 @@ class AnkhJarUiTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, source)
 
+    def test_debug_console_directly_resolves_smm_packages(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        source = (
+            root / "core/src/main/java/com/spd/mod/mechanics/ModDebug.java"
+        ).read_text(encoding="utf-8")
+        for package in (
+            '"com.spd.mod.mechanics"',
+            '"com.spd.mod.journal"',
+            '"com.spd.mod.items"',
+            '"com.spd.mod.tools"',
+        ):
+            self.assertIn(package, source)
+
+    def test_ankh_apk_logs_final_optional_payload_state(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        source = (
+            root / "scripts/_inject_apk_ankh.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Optional {label} final payload:", source)
+        self.assertIn("enabled but its root class is missing", source)
+
     def test_total_info_overlay_is_removed(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         overlay = root / "core/src/main/java/com/spd/mod/journal/ModTotalInfoOverlay.java"
