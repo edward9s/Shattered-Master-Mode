@@ -242,7 +242,7 @@ class ApkUiCompatTests(unittest.TestCase):
 
         class Profile:
             def get(self, key):
-                if key == "char.incomingAttackHook":
+                if key in {"char.incomingAttackHook", "char.hitHook"}:
                     return SupportedCapability()
                 return UnsupportedCapability()
 
