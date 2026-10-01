@@ -1329,10 +1329,10 @@ def patch_char_hit(
     injected = (
         f"{indent}# SMM Force Hit pre-defense hook\n"
         f"{indent}invoke-static/range {{p0 .. p1}}, {hook}\n"
-        f"{indent}move-result "{scratch_reg}"\n"
-        f"{indent}if-eqz "{scratch_reg}", :smm_force_hit_native\n"
-        f"{indent}const/4 "{scratch_reg}", 0x1\n"
-        f"{indent}return "{scratch_reg}"\n"
+        f"{indent}move-result {scratch_reg}\n"
+        f"{indent}if-eqz {scratch_reg}, :smm_force_hit_native\n"
+        f"{indent}const/4 {scratch_reg}, 0x1\n"
+        f"{indent}return {scratch_reg}\n"
         f"{indent}:smm_force_hit_native\n\n"
     )
     patched = block[:insert_at] + injected + block[insert_at:]
