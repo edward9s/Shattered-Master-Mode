@@ -74,6 +74,25 @@ class AnkhJarUiTests(unittest.TestCase):
                 runtime_source.read_text(encoding="utf-8"),
             )
 
+        stack_source = runtime_sources[1].read_text(encoding="utf-8")
+        self.assertIn('getDeclaredField("hotArea")', stack_source)
+        self.assertIn('getDeclaredMethod("givePointerPriority")', stack_source)
+
+        assassinate_source = runtime_sources[2].read_text(encoding="utf-8")
+        self.assertNotIn("givePointerPriority();", assassinate_source)
+
+        instant_source = (
+            root / "core/src/main/java/com/spd/mod/mechanics/ModInstantKill.java"
+        ).read_text(encoding="utf-8")
+        self.assertIn("public void fx(boolean on)", instant_source)
+        self.assertNotIn("target.sprite.aura", instant_source)
+
+        assassin_source = (
+            root / "core/src/main/java/com/spd/mod/mechanics/ModAssassin.java"
+        ).read_text(encoding="utf-8")
+        self.assertIn("hit = attacker.attack(target);", assassin_source)
+        self.assertNotIn("attacker.attack(target, 1f, 0f, 1f)", assassin_source)
+
     def test_tag_has_only_store_tag_responsibility(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         old_name = "ModLastStand" + "Overlay"
