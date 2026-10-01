@@ -132,7 +132,6 @@ public class ModEnemySurge extends Buff {
     public void setSpawnMultiplier(int multiplier) {
         spawnMultiplier = Math.max(1, Math.min(10, multiplier));
         extraSpawnCountdown = Float.NaN;
-        BuffIndicator.refreshHero();
         refreshIndicators();
     }
 
@@ -143,7 +142,6 @@ public class ModEnemySurge extends Buff {
     public void toggleAttractEnemies() {
         attractEnemies = !attractEnemies;
         attractCountdown = 0f;
-        BuffIndicator.refreshHero();
         refreshIndicators();
     }
 
@@ -332,7 +330,6 @@ public class ModEnemySurge extends Buff {
     @Override
     public void detach() {
         super.detach();
-        BuffIndicator.refreshHero();
         refreshIndicators();
     }
 }
