@@ -160,9 +160,10 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertIn("BADGE_RED", source)
         self.assertIn("HEART_YELLOW", source)
         self.assertIn("lastStandBadgeIcon()", source)
-        self.assertIn('"BUFFS_SMALL"', source)
-        self.assertIn("new TextureFilm(atlas, frameSize, frameSize)", source)
+        self.assertIn('"interfaces/buffs.png"', source)
+        self.assertIn("new TextureFilm(atlas, 7, 7)", source)
         self.assertIn("heart.hardlight(HEART_YELLOW)", source)
+        self.assertNotIn("Assets.Interfaces.class.getField", source)
         self.assertNotIn(
             "com.shatteredpixel.shatteredpixeldungeon.ui.BuffIcon",
             source,
