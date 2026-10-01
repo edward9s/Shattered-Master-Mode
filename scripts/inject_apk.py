@@ -692,6 +692,35 @@ def _probe_hit_hook(
             "Char class is missing",
         )
 
+    direct_candidates = (
+        (
+            f"({char_descriptor}{char_descriptor}FZ)Z",
+            "modern Char.hit(Char,Char,float,boolean)",
+        ),
+        (
+            f"({char_descriptor}{char_descriptor}Z)Z",
+            "legacy Char.hit(Char,Char,boolean)",
+        ),
+    )
+    for direct_proto, label in direct_candidates:
+        flags = char_class.methods.get(("hit", direct_proto))
+        if flags is None or "static" not in flags:
+            continue
+        try:
+            _hit_start, _hit_end, hit_block = injector.method_block(
+                char_class.text, "hit", direct_proto
+            )
+        except injector.InjectError:
+            continue
+        if _smali_local_register_count(hit_block, direct_proto, True) < 1:
+            continue
+        return AbiCapability(
+            "char.hitHook",
+            ABI_DIRECT,
+            f"accessible {label} is available",
+            data={"method": "hit", "proto": direct_proto},
+        )
+
     terminal_proto, terminal_detail = _terminal_char_attack_proto(
         char_class, char_descriptor
     )
@@ -750,27 +779,6 @@ def _probe_hit_hook(
         if key not in seen:
             seen.add(key)
             candidates.append(key)
-
-    direct_candidates = (
-        (
-            "hit",
-            f"({char_descriptor}{char_descriptor}FZ)Z",
-            "modern Char.hit(Char,Char,float,boolean)",
-        ),
-        (
-            "hit",
-            f"({char_descriptor}{char_descriptor}Z)Z",
-            "legacy Char.hit(Char,Char,boolean)",
-        ),
-    )
-    for name, proto, label in direct_candidates:
-        if (name, proto) in seen:
-            return AbiCapability(
-                "char.hitHook",
-                ABI_DIRECT,
-                f"{label} is called by terminal Char.attack",
-                data={"method": name, "proto": proto},
-            )
 
     if len(candidates) != 1:
         found = ", ".join(
