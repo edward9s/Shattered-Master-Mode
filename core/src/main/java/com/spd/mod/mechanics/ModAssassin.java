@@ -75,7 +75,7 @@ public class ModAssassin {
             // lets the target Char implementation decide whether surprise accuracy
             // applies. Force Hit is resolved centrally by the injected Char.hit hook.
             attacker.invisible = Math.max(1, originalInvisible);
-            hit = attacker.attack(target, 1f, 0f, 1f);
+            hit = attacker.attack(target);
         } finally {
             attacker.invisible = originalInvisible;
         }
