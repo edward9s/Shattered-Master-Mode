@@ -386,6 +386,35 @@ public class Harness {{
 }}
 """,
         )
+        cls._write(
+            src,
+            f"{GAME_ROOT}/actors/ParryHarness.java",
+            f"""
+package {package}.actors;
+import com.spd.mod.mechanics.ModForceHit;
+import com.spd.mod.mechanics.ModInstantKill;
+import com.spd.mod.mechanics.ModParryRiposte;
+public class ParryHarness {{
+    private static void check(boolean value, String label) {{
+        if (!value) throw new AssertionError(label);
+    }}
+    public static void main(String[] args) {{
+        Char attacker = new Char();
+        Char defender = new Char();
+        Char.invulnerable = false;
+        Char.nativeHit = true;
+        ModForceHit.enabled = false;
+        ModInstantKill.enabled = false;
+        ModParryRiposte.incomingCalls = 0;
+        ModParryRiposte.completeCalls = 0;
+
+        check(attacker.attack(defender), "native attack failed");
+        check(ModParryRiposte.incomingCalls == 1, "Parry/Riposte entry hook count mismatch");
+        check(ModParryRiposte.completeCalls == 1, "Parry/Riposte completion hook count mismatch");
+    }}
+}}
+""",
+        )
 
         javac = cls._tool("javac")
         java_files = [str(path) for path in src.rglob("*.java")]
@@ -595,9 +624,6 @@ public class CombatHarness {{
         Char attacker = new Char();
         Char defender = new Char();
 
-        ModParryRiposte.incomingCalls = 0;
-        ModParryRiposte.completeCalls = 0;
-
         Char.invulnerable = false;
         Char.nativeHit = false;
         ModForceHit.enabled = true;
@@ -625,9 +651,6 @@ public class CombatHarness {{
         ModInstantKill.successfulCalls = 0;
         check(attacker.attack(defender), "Force Hit + Instant Kill did not bypass invulnerability");
         check(ModInstantKill.successfulCalls == 1, "Force Hit + Instant Kill did not resolve at attack entry");
-
-        check(ModParryRiposte.incomingCalls == 3, "Parry/Riposte entry hook count mismatch");
-        check(ModParryRiposte.completeCalls == 3, "Parry/Riposte completion hook count mismatch");
     }}
 }}
 """,
@@ -637,6 +660,7 @@ public class CombatHarness {{
         target_sources = [
             src / f"{GAME_ROOT}/actors/Char.java",
             src / f"{GAME_ROOT}/actors/CombatHarness.java",
+            src / f"{GAME_ROOT}/actors/ParryHarness.java",
             src / "com/spd/mod/mechanics/ModInstantKill.java",
             src / "com/spd/mod/mechanics/ModForceHit.java",
             src / "com/spd/mod/mechanics/ModParryRiposte.java",
@@ -692,6 +716,24 @@ public class CombatHarness {{
             stderr=subprocess.STDOUT,
         )
 
+    @staticmethod
+    def _run_parry_harness(classes: pathlib.Path) -> subprocess.CompletedProcess[str]:
+        java = shutil.which("java")
+        if java is None:
+            raise unittest.SkipTest("java is unavailable")
+        return subprocess.run(
+            [
+                java,
+                "-cp",
+                str(classes),
+                f"{GAME_ROOT.replace('/', '.')}.actors.ParryHarness",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+
     def test_ark_legacy_hit_supported_by_ankh_jar_for_parry_force_and_instant(self):
         java = pathlib.Path(self._tool("java"))
         with tempfile.TemporaryDirectory() as tmp:
@@ -707,6 +749,8 @@ public class CombatHarness {{
 
             result = self._run_combat_harness(classes)
             self.assertEqual(0, result.returncode, result.stdout)
+            parry_result = self._run_parry_harness(classes)
+            self.assertEqual(0, parry_result.returncode, parry_result.stdout)
 
     def test_ark_legacy_hit_supported_by_full_jar_for_force_and_instant(self):
         java = pathlib.Path(self._tool("java"))
