@@ -392,8 +392,7 @@ public class SmmCharAttackPatcher {
         int split = selected.indexOf('\n');
         plan.hitMethod = selected.substring(0, split);
         plan.hitDesc = selected.substring(split + 1);
-        plan.hitDetail += plan.hitMethod + plan.hitDesc
-                + " called by terminal Char.attack" + plan.terminalAttackDesc;
+        plan.hitDetail += plan.hitMethod + plan.hitDesc;
 
         System.out.println("Terminal Char.attack selected: " + plan.terminalAttackDesc);
         System.out.println("Shared hit-check selected: " + plan.hitDetail);
@@ -1772,8 +1771,7 @@ public class SmmAnkhCharAttackPatcher {
         int split = selected.indexOf('\n');
         scan.hitMethod = selected.substring(0, split);
         scan.hitDesc = selected.substring(split + 1);
-        scan.hitDetail += scan.hitMethod + scan.hitDesc
-                + " called by terminal Char.attack" + scan.terminalDesc;
+        scan.hitDetail += scan.hitMethod + scan.hitDesc;
         return scan;
     }
 
