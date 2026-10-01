@@ -236,8 +236,14 @@ class ApkUiCompatTests(unittest.TestCase):
             compatible = False
             detail = "unsupported"
 
+        class SupportedCapability:
+            compatible = True
+            detail = "supported"
+
         class Profile:
             def get(self, key):
+                if key == "char.incomingAttackHook":
+                    return SupportedCapability()
                 return UnsupportedCapability()
 
         full_prefix = "Lcom/spd/mod/"
@@ -293,8 +299,12 @@ class ApkUiCompatTests(unittest.TestCase):
             {last_stand, last_stand_tag},
             public_module._ankh_core_payload_descriptors,
         )
-        self.assertFalse(public_module._ankh_parry_riposte_enabled)
+        self.assertTrue(public_module._ankh_parry_riposte_enabled)
         self.assertTrue(public_module._ankh_assassinate_enabled)
+        self.assertEqual(
+            {parry},
+            public_module._ankh_optional_payload_descriptors["parry"],
+        )
         self.assertEqual(
             {assassinate},
             public_module._ankh_optional_payload_descriptors["assassinate"],
