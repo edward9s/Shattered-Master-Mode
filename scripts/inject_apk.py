@@ -1326,6 +1326,7 @@ def write_buff_click_patch(
     instant: bool,
     force: bool,
     assassinate: bool,
+    enemy_surge: bool,
 ) -> None:
     global _pending_buff_click_patch
     if _pending_buff_click_patch is None:
@@ -1341,6 +1342,7 @@ def write_buff_click_patch(
         instant=instant,
         force=force,
         assassinate=assassinate,
+        enemy_surge=enemy_surge,
     )
     patched = buff_click.patch(
         injector,
@@ -1426,7 +1428,12 @@ def compile_smali_with_char_hook(
 
     write_action_name_overlay(directory)
     write_buff_click_patch(
-        directory, parry=True, instant=True, force=True, assassinate=True
+        directory,
+        parry=True,
+        instant=True,
+        force=True,
+        assassinate=True,
+        enemy_surge=True,
     )
 
     try:
