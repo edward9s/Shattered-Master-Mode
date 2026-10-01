@@ -692,35 +692,6 @@ def _probe_hit_hook(
             "Char class is missing",
         )
 
-    direct_candidates = (
-        (
-            f"({char_descriptor}{char_descriptor}FZ)Z",
-            "modern Char.hit(Char,Char,float,boolean)",
-        ),
-        (
-            f"({char_descriptor}{char_descriptor}Z)Z",
-            "legacy Char.hit(Char,Char,boolean)",
-        ),
-    )
-    for direct_proto, label in direct_candidates:
-        flags = char_class.methods.get(("hit", direct_proto))
-        if flags is None or "static" not in flags:
-            continue
-        try:
-            _hit_start, _hit_end, hit_block = injector.method_block(
-                char_class.text, "hit", direct_proto
-            )
-        except injector.InjectError:
-            continue
-        if _smali_local_register_count(hit_block, direct_proto, True) < 1:
-            continue
-        return AbiCapability(
-            "char.hitHook",
-            ABI_DIRECT,
-            f"accessible {label} is available",
-            data={"method": "hit", "proto": direct_proto},
-        )
-
     terminal_proto, terminal_detail = _terminal_char_attack_proto(
         char_class, char_descriptor
     )
@@ -735,20 +706,14 @@ def _probe_hit_hook(
         char_class.text, "attack", terminal_proto
     )
     lines = block.splitlines(keepends=True)
-
     invoke_re = re.compile(
         r"^\s*invoke-static(?P<range>/range)?\s+\{(?P<args>[^}]*)\},\s*"
         + re.escape(char_descriptor)
         + r"->(?P<name>[^\s(]+)(?P<proto>\([^)]*\)Z)\s*(?:#.*)?$"
     )
-    move_re = re.compile(r"^\s*move-result\s+([vp]\d+)\s*(?:#.*)?$")
-    branch_re = re.compile(
-        r"^\s*if-(?:eqz|nez)\s+([vp]\d+),\s*:[A-Za-z0-9_$.-]+\s*(?:#.*)?$"
-    )
 
     candidates: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
-
     for invoke_index, line in enumerate(lines):
         invoke = invoke_re.match(line.rstrip("\r\n"))
         if invoke is None:
@@ -772,20 +737,6 @@ def _probe_hit_hook(
         if not _smali_resolves_to_param(lines, invoke_index, registers[1], "p1"):
             continue
 
-        move_index = _smali_next_instruction(lines, invoke_index)
-        if move_index is None:
-            continue
-        move = move_re.match(lines[move_index].rstrip("\r\n"))
-        if move is None:
-            continue
-
-        branch_index = _smali_next_instruction(lines, move_index)
-        if branch_index is None:
-            continue
-        branch = branch_re.match(lines[branch_index].rstrip("\r\n"))
-        if branch is None or branch.group(1) != move.group(1):
-            continue
-
         try:
             _hit_start, _hit_end, hit_block = injector.method_block(
                 char_class.text, name, proto
@@ -800,6 +751,27 @@ def _probe_hit_hook(
             seen.add(key)
             candidates.append(key)
 
+    direct_candidates = (
+        (
+            "hit",
+            f"({char_descriptor}{char_descriptor}FZ)Z",
+            "modern Char.hit(Char,Char,float,boolean)",
+        ),
+        (
+            "hit",
+            f"({char_descriptor}{char_descriptor}Z)Z",
+            "legacy Char.hit(Char,Char,boolean)",
+        ),
+    )
+    for name, proto, label in direct_candidates:
+        if (name, proto) in seen:
+            return AbiCapability(
+                "char.hitHook",
+                ABI_DIRECT,
+                f"{label} is called by terminal Char.attack",
+                data={"method": name, "proto": proto},
+            )
+
     if len(candidates) != 1:
         found = ", ".join(
             f"{name}{proto}" for name, proto in candidates
@@ -807,7 +779,7 @@ def _probe_hit_hook(
         return AbiCapability(
             "char.hitHook",
             ABI_UNSUPPORTED,
-            "expected exactly one structural hit-check method called by terminal "
+            "expected exactly one callable hit-check method in terminal "
             f"Char.attack{terminal_proto}, found {len(candidates)}: {found}",
         )
 
@@ -815,7 +787,7 @@ def _probe_hit_hook(
     return AbiCapability(
         "char.hitHook",
         ABI_STRUCTURAL,
-        "unique structural hit-check "
+        "unique callable hit-check "
         f"{method_name}{method_proto} selected from terminal "
         f"Char.attack{terminal_proto}",
         data={"method": method_name, "proto": method_proto},
