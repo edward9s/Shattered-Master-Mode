@@ -15,6 +15,8 @@ import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
 import com.watabou.utils.Random;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.Collections;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -34,6 +36,9 @@ public class ModParryRiposte extends Buff {
      */
     private static final Map<Char, RiposteActor> PENDING_RIPOSTES =
             Collections.synchronizedMap(new WeakHashMap<Char, RiposteActor>());
+
+    private static volatile boolean currentActorFieldResolved;
+    private static Field currentActorField;
 
     private boolean parryEnabled = true;
     private boolean riposteEnabled = true;
@@ -145,6 +150,142 @@ public class ModParryRiposte extends Buff {
 
         parryFeedbackTargets().put(defender, Boolean.TRUE);
         return true;
+    }
+
+    /**
+     * Supplementary combat hook for fork-specific attacks that bypass hit()
+     * and call damage(int,Object) directly.
+     *
+     * The attacker is explicit when src is a Char. For marker-style sources
+     * (for example a nested DeathGaze class), infer the currently executing
+     * Char from Actor's scheduler state. Non-Char actors such as Buffs/Blobs do
+     * not become parryable merely because they deal damage.
+     */
+    public static boolean onDirectDamage(Char defender, int damage, Object src) {
+        if (defender == null || damage < 0) {
+            return false;
+        }
+
+        ModParryRiposte buff = find(defender);
+        if (buff == null) {
+            return false;
+        }
+
+        Char attacker = directDamageAttacker(defender, src);
+        if (attacker == null) {
+            return false;
+        }
+
+        if (buff.riposteEnabled) {
+            queueRiposte(defender, attacker);
+        }
+
+        // Keep Force Hit precedence consistent with the hit() hook.
+        if (ModForceHit.forceHitCheck(attacker, defender)) {
+            return false;
+        }
+
+        if (!buff.parryEnabled) {
+            return false;
+        }
+
+        if (defender.sprite != null && defender.sprite.visible) {
+            Sample.INSTANCE.play(
+                    Assets.Sounds.HIT_PARRY,
+                    1,
+                    Random.Float(0.96f, 1.05f));
+        }
+        return true;
+    }
+
+    private static Char directDamageAttacker(Char defender, Object src) {
+        if (src instanceof Char && src != defender) {
+            return (Char) src;
+        }
+
+        /*
+         * Only use scheduler inference for source-marker classes that belong to
+         * a Char type. This covers fork-defined direct attacks such as
+         * Eye.DeathGaze without turning Hunger, traps, Buffs, Blobs, etc. into
+         * parryable attacks merely because a Char happened to trigger them.
+         */
+        if (!isCharOwnedSourceMarker(src)) {
+            return null;
+        }
+
+        Actor current = currentActor();
+        return current instanceof Char && current != defender
+                ? (Char) current
+                : null;
+    }
+
+    private static boolean isCharOwnedSourceMarker(Object src) {
+        if (src == null) {
+            return false;
+        }
+
+        Class<?> owner = src.getClass().getEnclosingClass();
+        while (owner != null) {
+            if (Char.class.isAssignableFrom(owner)) {
+                return true;
+            }
+            owner = owner.getEnclosingClass();
+        }
+        return false;
+    }
+
+    private static Actor currentActor() {
+        resolveCurrentActorField();
+        if (currentActorField == null) {
+            return null;
+        }
+
+        try {
+            Object value = currentActorField.get(null);
+            return value instanceof Actor ? (Actor) value : null;
+        } catch (IllegalAccessException | RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static synchronized void resolveCurrentActorField() {
+        if (currentActorFieldResolved) {
+            return;
+        }
+        currentActorFieldResolved = true;
+
+        try {
+            Field named = Actor.class.getDeclaredField("current");
+            if (Modifier.isStatic(named.getModifiers())
+                    && Actor.class.isAssignableFrom(named.getType())) {
+                named.setAccessible(true);
+                currentActorField = named;
+                return;
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+        }
+
+        Field candidate = null;
+        for (Field field : Actor.class.getDeclaredFields()) {
+            if (!Modifier.isStatic(field.getModifiers())
+                    || !Actor.class.isAssignableFrom(field.getType())) {
+                continue;
+            }
+            if (candidate != null) {
+                // Ambiguous after obfuscation: fail closed.
+                return;
+            }
+            candidate = field;
+        }
+
+        if (candidate != null) {
+            try {
+                candidate.setAccessible(true);
+                currentActorField = candidate;
+            } catch (RuntimeException ignored) {
+                currentActorField = null;
+            }
+        }
     }
 
     /**
