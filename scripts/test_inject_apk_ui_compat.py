@@ -175,6 +175,23 @@ class ApkUiCompatTests(unittest.TestCase):
                 self.assertEqual(b"dex\nORIGINAL2", zf.read("classes3.dex"))
                 self.assertEqual(b"asset", zf.read("asset.txt"))
 
+    def test_enemy_surge_uses_reflective_level_spawn_compat(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        source = (
+            root / "core/src/main/java/com/spd/mod/mechanics/ModEnemySurge.java"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("Dungeon.level.mobLimit()", source)
+        self.assertNotIn("Dungeon.level.mobCount()", source)
+        self.assertNotIn("Dungeon.level.spawnMob(", source)
+        self.assertIn('"mobLimit"', source)
+        self.assertIn('"mobCount"', source)
+        self.assertIn('"spawnMob"', source)
+        self.assertIn('"nMobs"', source)
+        self.assertIn('"createMob"', source)
+        self.assertIn('"randomRespawnCell"', source)
+
+
     def test_full_buff_click_patch_dispatches_all_mod_buffs(self):
         handlers = buff_click.selected_handlers(
             parry=True,
