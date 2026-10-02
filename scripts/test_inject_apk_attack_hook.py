@@ -149,7 +149,7 @@ class TerminalAttackHookTest(unittest.TestCase):
             block,
         )
         self.assertEqual(
-            1,
+            0,
             block.count("ModInstantKill;->resolveSuccessfulAttack("),
         )
 
@@ -169,8 +169,7 @@ class TerminalAttackHookTest(unittest.TestCase):
         _, _, block = mod.injector.method_block(patched, "attack", proto)
         self.assertIn(".locals 17", block)
         self.assertNotIn(".locals 18", block)
-        self.assertIn(
-            "invoke-static/range {p0 .. p0}, "
+        self.assertNotIn(
             "Lcom/spd/mod/mechanics/ModForceHit;->isForceHitEnabled",
             block,
         )
@@ -837,7 +836,6 @@ class TerminalAttackHookTest(unittest.TestCase):
             text,
             self.char,
             attack_proto,
-            force_combo=False,
         )
         _, _, attack = mod.injector.method_block(
             patched, "attack", attack_proto
