@@ -1024,6 +1024,14 @@ def detect_target_abi(
     profile = AbiProfile()
     for probe in ABI_PROBES:
         profile.add(probe(target_index, game_prefix))
+
+    if _ankh_only_mode:
+        # These capabilities belong only to optional combat buffs in narrow
+        # injection. Core ModAnkh must not fail just because Instant Kill,
+        # Parry/Riposte, or Force Hit cannot be installed on this fork.
+        profile.get("char.incomingAttackHook").required = False
+        profile.get("char.hitHook").required = False
+
     return profile
 
 
