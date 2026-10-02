@@ -30,7 +30,19 @@ def package():
 
     # --- 2. 下載並解壓縮官方 Windows ZIP ---
     release_api_url = f"https://api.github.com/repos/00-Evan/shattered-pixel-dungeon/releases/tags/{upstream_tag}"
-    with urllib.request.urlopen(release_api_url) as response:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "Shattered-Master-Mode-package-release",
+    }
+    github_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
+
+    release_request = urllib.request.Request(
+        release_api_url,
+        headers=headers,
+    )
+    with urllib.request.urlopen(release_request) as response:
         release = json.load(response)
 
     win_zip_url = next((
