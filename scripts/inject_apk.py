@@ -248,6 +248,8 @@ _pending_buff_click_patch: tuple[str, str] | None = None
 _pending_action_name_overlay: tuple[str, str] | None = None
 _pending_hit_call_overlays: dict[str, str] = {}
 _pending_hit_call_rewrite_count = 0
+_pending_parry_feedback_overlays: dict[str, str] = {}
+_pending_parry_feedback_rewrite_count = 0
 _ankh_only_mode = False
 
 
@@ -875,6 +877,87 @@ def canonicalize_inherited_static_hit_calls(
     return overlays, total
 
 
+def _descriptor_extends(
+    target_index: dict[str, injector.SmaliClass],
+    descriptor: str,
+    base_descriptor: str,
+) -> bool:
+    seen: set[str] = set()
+    current = descriptor
+    while current and current not in seen:
+        if current == base_descriptor:
+            return True
+        seen.add(current)
+        item = target_index.get(current)
+        if item is None:
+            return False
+        current = item.superclass
+    return False
+
+
+def rewrite_parry_defense_verb_calls(
+    target_index: dict[str, injector.SmaliClass],
+    char_descriptor: str,
+    base_overlays: dict[str, str] | None = None,
+) -> tuple[dict[str, str], int]:
+    """Route Char defenseVerb() display calls through the SMM Parry bridge.
+
+    Only virtual calls whose declared receiver is Char or one of its subclasses
+    are rewritten. invoke-super is deliberately untouched so native overrides
+    keep their own fallback behavior. base_overlays lets this compose with the
+    inherited-static hit canonicalization without losing either rewrite.
+    """
+
+    call_re = re.compile(
+        r"(?m)^(?P<prefix>\s*)invoke-virtual(?P<range>/range)?\s+"
+        r"\{(?P<args>[^}]*)\},\s*"
+        r"(?P<owner>L[^;\s]+;)->defenseVerb\(\)Ljava/lang/String;"
+        r"(?P<suffix>\s*(?:#.*)?)$"
+    )
+    helper = "Lcom/spd/mod/mechanics/ModParryRiposte;->defenseVerb(" + char_descriptor + ")Ljava/lang/String;"
+
+    overlays: dict[str, str] = {}
+    total = 0
+    base_overlays = base_overlays or {}
+
+    for descriptor, item in target_index.items():
+        source = base_overlays.get(descriptor, item.text)
+        changed = 0
+
+        def repl(match: re.Match[str]) -> str:
+            nonlocal changed
+            owner = match.group("owner")
+            if not _descriptor_extends(target_index, owner, char_descriptor):
+                return match.group(0)
+
+            registers = _smali_invoke_registers(
+                match.group("args"),
+                bool(match.group("range")),
+            )
+            if registers is None or len(registers) != 1:
+                return match.group(0)
+
+            changed += 1
+            range_suffix = "/range" if match.group("range") else ""
+            return (
+                match.group("prefix")
+                + "invoke-static"
+                + range_suffix
+                + " {"
+                + match.group("args")
+                + "}, "
+                + helper
+                + match.group("suffix")
+            )
+
+        patched = call_re.sub(repl, source)
+        if changed:
+            overlays[descriptor] = patched
+            total += changed
+
+    return overlays, total
+
+
 ABI_PROBES: tuple[
     Callable[[dict[str, injector.SmaliClass], str], AbiCapability], ...
 ] = (
@@ -903,11 +986,14 @@ def detect_target_game_prefix(
     global _pending_char_overlay, _pending_buff_click_patch
     global _pending_action_name_overlay
     global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
+    global _pending_parry_feedback_overlays, _pending_parry_feedback_rewrite_count
     game_prefix = _original_detect_target_game_prefix(target_index)
     _current_game_prefix = game_prefix
     _pending_char_overlay = None
     _pending_hit_call_overlays = {}
     _pending_hit_call_rewrite_count = 0
+    _pending_parry_feedback_overlays = {}
+    _pending_parry_feedback_rewrite_count = 0
     _pending_buff_click_patch = buff_click.find_target(
         injector, target_index, game_prefix
     )
@@ -931,6 +1017,14 @@ def detect_target_game_prefix(
             char_descriptor,
             hit_method,
             hit_proto,
+        )
+        (
+            _pending_parry_feedback_overlays,
+            _pending_parry_feedback_rewrite_count,
+        ) = rewrite_parry_defense_verb_calls(
+            target_index,
+            char_descriptor,
+            _pending_hit_call_overlays,
         )
 
     return game_prefix
@@ -968,6 +1062,7 @@ def build_full_debug_payload(
         ("onIncomingAttack", f"({char_descriptor}{char_descriptor})V"),
         ("onIncomingAttackComplete", "()V"),
         ("shouldParry", f"({char_descriptor}{char_descriptor})Z"),
+        ("defenseVerb", f"({char_descriptor})Ljava/lang/String;"),
     )
     for hook_name, hook_proto in required_parry_hooks:
         hook_flags = rebased_total.methods.get((hook_name, hook_proto))
@@ -1391,29 +1486,45 @@ def patch_char_hit(
     return text[:start] + patched + text[end:]
 
 
-def write_hit_call_overlays(directory: Path) -> None:
+def write_combat_call_overlays(
+    directory: Path,
+    *,
+    parry: bool,
+    force: bool,
+) -> None:
     global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
-    if not _pending_hit_call_overlays:
-        return
+    global _pending_parry_feedback_overlays, _pending_parry_feedback_rewrite_count
 
-    for descriptor, patched in sorted(_pending_hit_call_overlays.items()):
+    overlays: dict[str, str] = {}
+    if parry or force:
+        overlays.update(_pending_hit_call_overlays)
+    if parry:
+        # Feedback overlays were derived from hit-call overlays, so replacing
+        # matching descriptors here preserves both rewrites in one class.
+        overlays.update(_pending_parry_feedback_overlays)
+
+    for descriptor, patched in sorted(overlays.items()):
         output = directory / Path(descriptor[1:-1] + ".smali")
         if output.exists():
             raise injector.InjectError(
-                "Injection staging already contains inherited-hit caller class: "
+                "Injection staging already contains combat caller class: "
                 + descriptor
             )
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(patched, encoding="utf-8")
 
-    injector.log(
-        "Canonicalized inherited static hit owner for "
-        + str(_pending_hit_call_rewrite_count)
-        + " call(s) across "
-        + str(len(_pending_hit_call_overlays))
-        + " class(es): OK"
-    )
-
+    if (parry or force) and _pending_hit_call_rewrite_count:
+        injector.log(
+            "Canonicalized inherited static hit owner for "
+            + str(_pending_hit_call_rewrite_count)
+            + " call(s): OK"
+        )
+    if parry and _pending_parry_feedback_rewrite_count:
+        injector.log(
+            "Routed Parry defense feedback for "
+            + str(_pending_parry_feedback_rewrite_count)
+            + " defenseVerb call(s): OK"
+        )
 
 def write_action_name_overlay(directory: Path) -> None:
     global _pending_action_name_overlay
@@ -1487,6 +1598,7 @@ def compile_smali_with_char_hook(
     global _pending_char_overlay, _pending_buff_click_patch
     global _pending_action_name_overlay
     global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
+    global _pending_parry_feedback_overlays, _pending_parry_feedback_rewrite_count
     if _pending_char_overlay is None:
         raise injector.InjectError("Char.attack overlay source was not captured")
     if _current_abi_profile is None:
@@ -1543,7 +1655,7 @@ def compile_smali_with_char_hook(
         f"{hit_method}{hit_proto} ({hit_capability.strategy}): OK"
     )
 
-    write_hit_call_overlays(directory)
+    write_combat_call_overlays(directory, parry=True, force=True)
     write_action_name_overlay(directory)
     write_buff_click_patch(
         directory,
@@ -1562,6 +1674,8 @@ def compile_smali_with_char_hook(
         _pending_action_name_overlay = None
         _pending_hit_call_overlays = {}
         _pending_hit_call_rewrite_count = 0
+        _pending_parry_feedback_overlays = {}
+        _pending_parry_feedback_rewrite_count = 0
 
 
 def _host_elf_machines() -> set[int] | None:
