@@ -86,13 +86,12 @@ def configure(public_module) -> None:
     def detect_target_game_prefix(target_index):
         game_prefix = public_module._original_detect_target_game_prefix(target_index)
         public_module._current_game_prefix = game_prefix
+        public_module._current_target_index = target_index
         public_module._ankh_parry_riposte_enabled = False
         public_module._ankh_instant_kill_enabled = False
         public_module._ankh_force_hit_enabled = False
         public_module._ankh_assassinate_enabled = False
         public_module._ankh_enemy_surge_enabled = False
-        public_module._pending_hit_call_overlays = {}
-        public_module._pending_hit_call_rewrite_count = 0
         public_module._pending_parry_feedback_overlays = {}
         public_module._pending_parry_feedback_rewrite_count = 0
         public_module._pending_direct_damage_overlays = {}
@@ -141,25 +140,13 @@ def configure(public_module) -> None:
         hit_proto = hit_capability.data.get("proto")
         if hit_capability.compatible and hit_method and hit_proto:
             (
-                public_module._pending_hit_call_overlays,
-                public_module._pending_hit_call_rewrite_count,
-            ) = public_module.canonicalize_inherited_static_hit_calls(
+                public_module._pending_parry_feedback_overlays,
+                public_module._pending_parry_feedback_rewrite_count,
+            ) = public_module.build_parry_feedback_overlays(
                 target_index,
                 char_descriptor,
                 hit_method,
                 hit_proto,
-            )
-            (
-                public_module._pending_parry_feedback_overlays,
-                public_module._pending_parry_feedback_rewrite_count,
-            ) = public_module.rewrite_parry_defense_verb_calls(
-                target_index,
-                char_descriptor,
-                public_module._pending_hit_call_overlays,
-            )
-            combined_overlays = dict(public_module._pending_hit_call_overlays)
-            combined_overlays.update(
-                public_module._pending_parry_feedback_overlays
             )
             (
                 public_module._pending_direct_damage_overlays,
@@ -167,7 +154,7 @@ def configure(public_module) -> None:
             ) = public_module.build_direct_damage_overlays(
                 target_index,
                 char_descriptor,
-                combined_overlays,
+                public_module._pending_parry_feedback_overlays,
             )
 
         return game_prefix
@@ -646,17 +633,34 @@ def configure(public_module) -> None:
                     )
 
             if parry_enabled:
+                hit_capability = public_module._current_abi_profile.get(
+                    "char.hitHook"
+                )
+                hit_method = hit_capability.data.get("method")
+                hit_proto = hit_capability.data.get("proto")
+                if not hit_method or not hit_proto:
+                    raise injector.InjectError(
+                        "Selected hit-check hook was not preserved"
+                    )
+                feedback_index = dict(public_module._current_target_index)
+                feedback_index[char_descriptor] = injector.SmaliClass.from_text(
+                    Path("Char.smali"),
+                    patched_char,
+                )
                 patched_char, char_feedback_count = (
-                    public_module.rewrite_char_parry_defense_verb_calls(
+                    public_module.rewrite_parry_feedback_in_hit_callers(
                         patched_char,
+                        feedback_index,
                         char_descriptor,
+                        hit_method,
+                        hit_proto,
                     )
                 )
                 if char_feedback_count:
                     injector.log(
                         "Routed Parry defense feedback for "
                         + str(char_feedback_count)
-                        + " Char defenseVerb call(s): OK"
+                        + " Char hit-caller defenseVerb call(s): OK"
                     )
 
                 char_item = injector.SmaliClass.from_text(
@@ -736,12 +740,11 @@ def configure(public_module) -> None:
             public_module._pending_buff_click_patch = None
             public_module._pending_action_name_overlay = None
             public_module._pending_char_overlay = None
-            public_module._pending_hit_call_overlays = {}
-            public_module._pending_hit_call_rewrite_count = 0
             public_module._pending_parry_feedback_overlays = {}
             public_module._pending_parry_feedback_rewrite_count = 0
             public_module._pending_direct_damage_overlays = {}
             public_module._pending_direct_damage_hook_count = 0
+            public_module._current_target_index = {}
 
     def output_path(target: Path) -> Path:
         return target.with_name(
