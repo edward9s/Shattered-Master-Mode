@@ -1015,64 +1015,28 @@ def patch_direct_damage_entry(
 ) -> str:
     proto = "(ILjava/lang/Object;)V"
     start, end, block = injector.method_block(text, "damage", proto)
-    marker = "ModParryRiposte;->onDirectDamage("
+    marker = "ModParryRiposte;->resolveDirectDamage("
     if marker in block:
         raise injector.InjectError(
             "damage(int,Object) already contains SMM direct-damage Parry hook: "
             + owner_descriptor
         )
 
-    locals_match = re.search(
-        r"(?m)^(?P<indent>\\s*)\\.locals\\s+(?P<count>\\d+)\\s*$",
-        block,
-    )
-    registers_match = re.search(
-        r"(?m)^(?P<indent>\\s*)\\.registers\\s+(?P<count>\\d+)\\s*$",
-        block,
-    )
-
-    if locals_match is not None:
-        local_count = int(locals_match.group("count"))
-    elif registers_match is not None:
-        total = int(registers_match.group("count"))
-        params = _smali_parameter_words(proto) + 1
-        local_count = total - params
-        if local_count < 0:
-            raise injector.InjectError(
-                "Invalid register count in damage(int,Object): "
-                + owner_descriptor
-            )
-    else:
-        raise injector.InjectError(
-            "damage(int,Object) has no .locals/.registers directive: "
-            + owner_descriptor
-        )
-
-    if local_count <= 0:
-        raise injector.InjectError(
-            "Cannot install register-stable direct-damage Parry hook in "
-            + owner_descriptor
-            + "->damage(int,Object): method has no local register"
-        )
-
-    # Reuse v0 at method entry instead of growing the register file. Growing
-    # .locals/.registers shifts every pN alias upward; legacy forks can sit on a
-    # 4-bit operand boundary where p0=v15 is valid but p0=v16 is not.
-    scratch = 0
-
     insert_at, indent = _first_smali_instruction(block)
     hook = (
-        "Lcom/spd/mod/mechanics/ModParryRiposte;->onDirectDamage("
+        "Lcom/spd/mod/mechanics/ModParryRiposte;->resolveDirectDamage("
         + char_descriptor
-        + "ILjava/lang/Object;)Z"
+        + "ILjava/lang/Object;)"
+        + char_descriptor
     )
     injected = (
-        f"{indent}# SMM direct-damage Parry/Riposte hook\\n"
-        f"{indent}invoke-static/range {{p0 .. p2}}, {hook}\\n"
-        f"{indent}move-result v{scratch}\\n"
-        f"{indent}if-eqz v{scratch}, :smm_direct_damage_native\\n"
-        f"{indent}return-void\\n"
-        f"{indent}:smm_direct_damage_native\\n"
+        f"{indent}# SMM direct-damage Parry/Riposte hook\n"
+        f"{indent}invoke-static/range {{p0 .. p2}}, {hook}\n"
+        f"{indent}move-result-object p0\n"
+        f"{indent}if-nez p0, :smm_direct_damage_native\n"
+        f"{indent}return-void\n"
+        f"{indent}:smm_direct_damage_native\n"
+        f"{indent}check-cast p0, {owner_descriptor}\n"
     )
     patched = block[:insert_at] + injected + block[insert_at:]
     return text[:start] + patched + text[end:]
@@ -1243,7 +1207,7 @@ def build_full_debug_payload(
     )
     required_parry_hooks = (
         ("onHitCheck", f"({char_descriptor}{char_descriptor})Z"),
-        ("onDirectDamage", f"({char_descriptor}ILjava/lang/Object;)Z"),
+        ("resolveDirectDamage", f"({char_descriptor}ILjava/lang/Object;){char_descriptor}"),
         ("defenseVerb", f"({char_descriptor})Ljava/lang/String;"),
     )
     for hook_name, hook_proto in required_parry_hooks:
