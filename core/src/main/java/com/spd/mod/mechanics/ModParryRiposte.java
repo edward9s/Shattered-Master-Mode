@@ -110,30 +110,32 @@ public class ModParryRiposte extends Buff {
      * Returning true requests that this hit check resolve as a miss.
      */
     public static boolean onHitCheck(Char attacker, Char defender) {
-        if (defender != null) {
-            Map<Char, Boolean> targets = PARRY_FEEDBACK_TARGETS.get();
-            if (targets != null) {
-                targets.remove(defender);
-                if (targets.isEmpty()) {
-                    PARRY_FEEDBACK_TARGETS.remove();
-                }
+        if (defender == null) {
+            return false;
+        }
+
+        Map<Char, Boolean> targets = PARRY_FEEDBACK_TARGETS.get();
+        if (targets != null) {
+            targets.remove(defender);
+            if (targets.isEmpty()) {
+                PARRY_FEEDBACK_TARGETS.remove();
             }
         }
 
-        if (attacker == null
-                || defender == null
-                || attacker == defender
-                || !attacker.isAlive()
-                || !defender.isAlive()) {
-            return false;
-        }
-
+        /*
+         * Combat semantics depend only on the buff actually being present on the
+         * defender. Delayed beam callbacks in older forks may run after the
+         * attacker's Actor state has already changed; attacker/defender liveness
+         * and Buff.target identity are therefore not valid Parry prerequisites.
+         */
         ModParryRiposte buff = find(defender);
-        if (buff == null || buff.target != defender) {
+        if (buff == null) {
             return false;
         }
 
-        if (buff.riposteEnabled) {
+        if (buff.riposteEnabled
+                && attacker != null
+                && attacker != defender) {
             queueRiposte(defender, attacker);
         }
 
