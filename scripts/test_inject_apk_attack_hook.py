@@ -19,12 +19,12 @@ class TerminalAttackHookTest(unittest.TestCase):
     def cls(text: str):
         return mod.injector.SmaliClass.from_text(pathlib.Path("Char.smali"), text)
 
+
     def test_mlpd_wrappers_converge_on_five_argument_terminal(self):
         terminal = f"({self.char}FFF{self.damage_type})Z"
         wrappers = [
             f"({self.char})Z",
             f"({self.char}F)Z",
-            f"({self.char}FFF)Z",
         ]
         chunks = [
             f".class public {self.char}\n",
@@ -47,56 +47,11 @@ class TerminalAttackHookTest(unittest.TestCase):
             ".end method\n",
         ])
         text = "".join(chunks)
-        char_class = self.cls(text)
-        capability = mod._probe_char_attack_hook({self.char: char_class}, self.game)
+        capability = mod._probe_char_attack_hook(
+            {self.char: self.cls(text)}, self.game
+        )
         self.assertEqual(mod.ABI_DIRECT, capability.strategy)
         self.assertEqual(terminal, capability.data.get("proto"))
-
-        patched = mod.patch_char_attack(text, self.char)
-        pre_hook = (
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack("
-            + self.char + self.char + ")V"
-        )
-        post_hook = (
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete()V"
-        )
-        self.assertEqual(1, patched.count(pre_hook))
-        self.assertEqual(1, patched.count(post_hook))
-        for proto in wrappers:
-            _, _, block = mod.injector.method_block(patched, "attack", proto)
-            self.assertNotIn(pre_hook, block)
-            self.assertNotIn(post_hook, block)
-        _, _, block = mod.injector.method_block(patched, "attack", terminal)
-        self.assertIn(pre_hook, block)
-        self.assertIn(post_hook, block)
-        self.assertLess(block.index(pre_hook), block.index("const/4 v0, 0x1"))
-        self.assertLess(block.index(post_hook), block.index("return v0"))
-
-
-    def test_completion_hook_is_added_before_every_terminal_return(self):
-        terminal = f"({self.char}FFF{self.damage_type})Z"
-        text = (
-            f".class public {self.char}\n"
-            ".super Ljava/lang/Object;\n"
-            f".method public attack{terminal}\n"
-            "    .locals 1\n"
-            "    if-eqz p1, :miss\n"
-            "    const/4 v0, 0x1\n"
-            "    return v0\n"
-            ":miss\n"
-            "    const/4 v0, 0x0\n"
-            "    return v0\n"
-            ".end method\n"
-        )
-        patched = mod.patch_char_attack(text, self.char)
-        post_hook = (
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete()V"
-        )
-        _, _, block = mod.injector.method_block(patched, "attack", terminal)
-        self.assertEqual(2, block.count(post_hook))
-        self.assertEqual(2, len(re.findall(
-            re.escape(post_hook) + r"\n\s*return v0", block
-        )))
 
     def test_multiple_terminal_overloads_are_rejected(self):
         first = f"({self.char})Z"
@@ -184,17 +139,6 @@ class TerminalAttackHookTest(unittest.TestCase):
             block.count("ModInstantKill;->resolveSuccessfulAttack("),
         )
 
-        patched = mod.patch_char_attack(patched, self.char, proto)
-        _, _, block = mod.injector.method_block(patched, "attack", proto)
-        self.assertEqual(
-            1,
-            block.count("ModParryRiposte;->onIncomingAttack("),
-        )
-        self.assertEqual(
-            3,
-            block.count("ModParryRiposte;->onIncomingAttackComplete()V"),
-        )
-
 
     def test_instant_kill_does_not_grow_high_register_methods(self):
         proto = f"({self.char}FFF)Z"
@@ -223,6 +167,7 @@ class TerminalAttackHookTest(unittest.TestCase):
         )
 
 
+
     def test_return_hooks_do_not_read_reused_attack_parameters(self):
         proto = f"({self.char}FFF)Z"
         text = (
@@ -236,23 +181,16 @@ class TerminalAttackHookTest(unittest.TestCase):
             ".end method\n"
         )
         patched = mod.patch_char_instant_kill(text, self.char, proto)
-        patched = mod.patch_char_attack(patched, self.char, proto)
         _, _, block = mod.injector.method_block(patched, "attack", proto)
 
         self.assertIn(".locals 2", block)
         tail = block[block.index("new-instance p1"):]
         self.assertIn("ModInstantKill;->finishAttack(Z)V", tail)
-        self.assertIn("ModParryRiposte;->onIncomingAttackComplete()V", tail)
         self.assertNotIn(
             "ModInstantKill;->resolveSuccessfulAttack(",
             tail,
         )
-        self.assertNotIn(
-            "ModParryRiposte;->onIncomingAttack("
-            + self.char + self.char + ")V",
-            tail,
-        )
-
+        self.assertNotIn("ModParryRiposte", block)
 
     def test_instant_kill_does_not_depend_on_mlpd_hit_branch_shape(self):
         terminal = f"({self.char}FFF{self.damage_type})Z"
@@ -692,7 +630,7 @@ class TerminalAttackHookTest(unittest.TestCase):
         _, _, wrapper = mod.injector.method_block(patched, "hit", legacy_hit)
         _, _, selected = mod.injector.method_block(patched, "hit", modern_hit)
         parry_hook = (
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->shouldParry("
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->onHitCheck("
             + self.char + self.char + ")Z"
         )
 
@@ -702,7 +640,8 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertLess(selected.index(parry_hook), selected.index("const/4 v0, 0x1"))
 
 
-    def test_force_hit_precedes_parry_in_shared_hit_hook(self):
+
+    def test_force_hit_overrides_parry_after_unified_hit_observation(self):
         hit_proto = f"({self.char}{self.char}Z)Z"
         text = (
             f".class public {self.char}\n"
@@ -728,15 +667,16 @@ class TerminalAttackHookTest(unittest.TestCase):
             + self.char + self.char + ")Z"
         )
         parry_hook = (
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->shouldParry("
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->onHitCheck("
             + self.char + self.char + ")Z"
         )
-        self.assertIn(force_hook, hit)
-        self.assertIn(parry_hook, hit)
-        self.assertLess(hit.index(force_hook), hit.index(parry_hook))
-        self.assertLess(hit.index("const/4 v0, 0x1"), hit.index(parry_hook))
+        self.assertEqual(2, hit.count(force_hook))
+        self.assertEqual(1, hit.count(parry_hook))
+        self.assertLess(hit.index(parry_hook), hit.index(force_hook))
+        self.assertIn(":smm_parry_riposte_return_miss", hit)
+        self.assertIn(":smm_parry_riposte_no_parry", hit)
+        self.assertIn("const/4 v0, 0x1", hit)
         self.assertIn("const/4 v0, 0x0", hit)
-
 
     def test_instant_kill_can_patch_without_force_hit_dependency(self):
         attack_proto = f"({self.char}FFF)Z"
@@ -877,7 +817,7 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(1, block.count(hook))
         self.assertIn(".locals 1", block)
         self.assertIn("move-result v0", block)
-        self.assertIn("if-eqz v0, :smm_force_hit_native", block)
+        self.assertIn("if-eqz v0, :smm_combat_hit_native", block)
         self.assertLess(block.index(hook), block.index(":smm_force_hit_native"))
         self.assertIn("return v0", block)
 
