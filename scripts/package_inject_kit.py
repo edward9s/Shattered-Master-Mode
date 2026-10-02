@@ -37,7 +37,7 @@ def validate_parry_donors(donor_apk: Path, donor_jar: Path) -> None:
                 + ", ".join(obsolete)
             )
         parry_class = jar.read(PARRY_CLASS)
-        for required in (b"onHitCheck", b"defenseVerb"):
+        for required in (b"onHitCheck", b"onDirectDamage", b"defenseVerb"):
             if required not in parry_class:
                 raise RuntimeError(
                     "JAR donor ModParryRiposte is stale; missing "
@@ -63,10 +63,13 @@ def validate_parry_donors(donor_apk: Path, donor_jar: Path) -> None:
         if not dex_names:
             raise RuntimeError("APK donor contains no classes*.dex")
         dex = b"".join(apk.read(name) for name in dex_names)
-        if b"onHitCheck" not in dex:
-            raise RuntimeError(
-                "APK donor is stale; ModParryRiposte.onHitCheck is absent from DEX"
-            )
+        for required in (b"onHitCheck", b"onDirectDamage"):
+            if required not in dex:
+                raise RuntimeError(
+                    "APK donor is stale; ModParryRiposte."
+                    + required.decode("ascii")
+                    + " is absent from DEX"
+                )
         for obsolete_name in (
             b"ModParryRiposte$IncomingAttackContext",
             b"ModParryRiposte$ParryDetachSink",
