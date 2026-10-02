@@ -211,6 +211,7 @@ public class SmmCharAttackPatcher {
     static final String FORCE_ACTIVE_DESC = "(L" + CHAR + ";)Z";
     static final String INSTANT_KILL_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
     static final String NO_ARGS_VOID_DESC = "()V";
+    static final String DEFENSE_FEEDBACK_DESC = "(L" + CHAR + ";)Ljava/lang/String;";
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
 
@@ -243,6 +244,12 @@ public class SmmCharAttackPatcher {
                 "shouldParry",
                 FORCE_HIT_DESC,
                 "ModParryRiposte hit-check hook API");
+        validatePublicStatic(
+                payloadJar,
+                MOD_PARRY_RIPOSTE,
+                "defenseVerb",
+                DEFENSE_FEEDBACK_DESC,
+                "ModParryRiposte defense-feedback hook API");
         validatePublicStatic(
                 payloadJar,
                 MOD_FORCE_HIT,
@@ -473,6 +480,18 @@ public class SmmCharAttackPatcher {
                         @Override
                         public void visitMethodInsn(int opcode, String owner, String methodName,
                                                     String methodDesc, boolean isInterface) {
+                            if (opcode == Opcodes.INVOKEVIRTUAL
+                                    && CHAR.equals(owner)
+                                    && "defenseVerb".equals(methodName)
+                                    && "()Ljava/lang/String;".equals(methodDesc)) {
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        MOD_PARRY_RIPOSTE,
+                                        "defenseVerb",
+                                        DEFENSE_FEEDBACK_DESC,
+                                        false);
+                                return;
+                            }
                             if (MOD_PARRY_RIPOSTE.equals(owner)
                                     && (("onIncomingAttack".equals(methodName)
                                             && INCOMING_DESC.equals(methodDesc))
@@ -649,6 +668,167 @@ public class SmmCharAttackPatcher {
 '''
 
 
+
+PARRY_FEEDBACK_HELPER = r'''
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.jar.*;
+import jdk.internal.org.objectweb.asm.*;
+
+public class SmmParryFeedbackPatcher {
+    static final int API = Opcodes.ASM8;
+    static final String CHAR = "__CHAR__";
+    static final String GAME_ROOT = "__GAME_ROOT__";
+    static final String MOD_PARRY_RIPOSTE = "com/spd/mod/mechanics/ModParryRiposte";
+    static final String DEFENSE_FEEDBACK_DESC = "(L" + CHAR + ";)Ljava/lang/String;";
+
+    static boolean isCharType(String type, Map<String, String> parents) {
+        HashSet<String> seen = new HashSet<>();
+        String current = type;
+        while (current != null && seen.add(current)) {
+            if (CHAR.equals(current)) return true;
+            current = parents.get(current);
+        }
+        return false;
+    }
+
+    static byte[] patch(
+            byte[] original,
+            Map<String, String> parents,
+            int[] changed) {
+        ClassReader reader = new ClassReader(original);
+        ClassWriter writer = new ClassWriter(0);
+        ClassVisitor visitor = new ClassVisitor(API, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
+                return new MethodVisitor(API, base) {
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean isInterface) {
+                        if (opcode == Opcodes.INVOKEVIRTUAL
+                                && "defenseVerb".equals(methodName)
+                                && "()Ljava/lang/String;".equals(methodDesc)
+                                && isCharType(owner, parents)) {
+                            changed[0]++;
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_PARRY_RIPOSTE,
+                                    "defenseVerb",
+                                    DEFENSE_FEEDBACK_DESC,
+                                    false);
+                            return;
+                        }
+                        super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+                    }
+                };
+            }
+        };
+        reader.accept(visitor, 0);
+        return writer.toByteArray();
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length != 2) {
+            throw new IllegalArgumentException(
+                    "Usage: SmmParryFeedbackPatcher <target.jar> <out-patches.jar>");
+        }
+        Path target = Paths.get(args[0]);
+        Path output = Paths.get(args[1]);
+
+        LinkedHashMap<String, byte[]> classes = new LinkedHashMap<>();
+        HashMap<String, String> parents = new HashMap<>();
+
+        try (JarFile jar = new JarFile(target.toFile())) {
+            Enumeration<JarEntry> entries = jar.entries();
+            while (entries.hasMoreElements()) {
+                JarEntry entry = entries.nextElement();
+                if (entry.isDirectory()
+                        || !entry.getName().startsWith(GAME_ROOT + "/")
+                        || !entry.getName().endsWith(".class")) {
+                    continue;
+                }
+                byte[] data;
+                try (InputStream in = jar.getInputStream(entry)) {
+                    data = in.readAllBytes();
+                }
+                ClassReader reader = new ClassReader(data);
+                classes.put(reader.getClassName(), data);
+                parents.put(reader.getClassName(), reader.getSuperName());
+            }
+        }
+
+        int patchedClasses = 0;
+        int patchedCalls = 0;
+        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(output))) {
+            for (Map.Entry<String, byte[]> item : classes.entrySet()) {
+                String name = item.getKey();
+                if (CHAR.equals(name)) continue;
+
+                int[] changed = {0};
+                byte[] patched = patch(item.getValue(), parents, changed);
+                if (changed[0] == 0) continue;
+
+                JarEntry entry = new JarEntry(name + ".class");
+                out.putNextEntry(entry);
+                out.write(patched);
+                out.closeEntry();
+                patchedClasses++;
+                patchedCalls += changed[0];
+            }
+        }
+
+        System.out.println(
+                "Parry defense feedback JAR patch: "
+                        + patchedCalls + " call(s) across "
+                        + patchedClasses + " class(es)");
+    }
+}
+'''
+
+
+def patch_parry_feedback_classes(
+    java: Path,
+    target: Path,
+    work: Path,
+    target_game_root: str,
+) -> dict[str, bytes]:
+    helper = work / "SmmParryFeedbackPatcher.java"
+    helper.write_text(
+        PARRY_FEEDBACK_HELPER
+        .replace("__CHAR__", target_game_root + "/actors/Char")
+        .replace("__GAME_ROOT__", target_game_root),
+        encoding="utf-8",
+    )
+    output = work / "parry-feedback-patches.jar"
+    injector.run([
+        java,
+        "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
+        helper,
+        target,
+        output,
+    ])
+    if not output.is_file():
+        raise injector.InjectError(
+            "Parry feedback bytecode helper did not produce a patch JAR"
+        )
+
+    patches: dict[str, bytes] = {}
+    with zipfile.ZipFile(output) as zf:
+        for name in zf.namelist():
+            if not name.endswith(".class"):
+                continue
+            data = zf.read(name)
+            if not data.startswith(injector.CLASS_MAGIC):
+                raise injector.InjectError(
+                    "Invalid Parry feedback patched class: " + name
+                )
+            patches[name] = data
+    return patches
+
+
 def patch_full_classes(
     java: Path,
     target: Path,
@@ -694,6 +874,7 @@ def rebuild_full_jar(
     patched_wnd_use_item: tuple[str, Path] | None,
     patched_buff_click: tuple[str, Path],
     patched_modankh: Path,
+    feedback_classes: dict[str, bytes],
     payload: dict[str, bytes],
     output: Path,
     dungeon_entry: str,
@@ -767,6 +948,8 @@ def rebuild_full_jar(
                     data = wnd_use_item_bytes
                 elif name == buff_entry:
                     data = buff_bytes
+                elif name in feedback_classes:
+                    data = feedback_classes[name]
                 else:
                     data = zin.read(name)
                 zout.writestr(injector.clone_zipinfo(info), data)
@@ -1675,6 +1858,7 @@ public class SmmAnkhCharAttackPatcher {
     static final String FORCE_ACTIVE_DESC = "(L" + CHAR + ";)Z";
     static final String FINISH_ATTACK_DESC = "(Z)V";
     static final String NO_ARGS_VOID_DESC = "()V";
+    static final String DEFENSE_FEEDBACK_DESC = "(L" + CHAR + ";)Ljava/lang/String;";
 
     static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
         try (JarFile jar = new JarFile(jarPath.toFile())) {
@@ -1912,6 +2096,25 @@ public class SmmAnkhCharAttackPatcher {
                         }
 
                         @Override
+                        public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                    String methodDesc, boolean isInterface) {
+                            if (parry
+                                    && opcode == Opcodes.INVOKEVIRTUAL
+                                    && CHAR.equals(owner)
+                                    && "defenseVerb".equals(methodName)
+                                    && "()Ljava/lang/String;".equals(methodDesc)) {
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        MOD_PARRY_RIPOSTE,
+                                        "defenseVerb",
+                                        DEFENSE_FEEDBACK_DESC,
+                                        false);
+                                return;
+                            }
+                            super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+                        }
+
+                        @Override
                         public void visitInsn(int opcode) {
                             if (opcode == Opcodes.IRETURN) {
                                 if (instant) {
@@ -2026,7 +2229,10 @@ public class SmmAnkhCharAttackPatcher {
                         NO_ARGS_VOID_DESC)
                 && hasPublicStaticHook(
                         payload, MOD_PARRY_RIPOSTE, "shouldParry",
-                        COMBAT_HOOK_DESC);
+                        COMBAT_HOOK_DESC)
+                && hasPublicStaticHook(
+                        payload, MOD_PARRY_RIPOSTE, "defenseVerb",
+                        DEFENSE_FEEDBACK_DESC);
         boolean donorInstant = hasPublicStaticHook(
                 payload, MOD_INSTANT_KILL, "resolveSuccessfulAttack",
                 COMBAT_HOOK_DESC)
@@ -2260,6 +2466,7 @@ def rebuild_ankh_jar(
     patched_wnd_use_item: tuple[str, Path] | None,
     patched_buff_click: tuple[str, Path],
     patched_modankh: Path,
+    feedback_classes: dict[str, bytes],
     payload: dict[str, bytes],
     output: Path,
     dungeon_entry: str,
@@ -2328,6 +2535,8 @@ def rebuild_ankh_jar(
                     data = wnd_use_item_bytes
                 elif info.filename == buff_entry:
                     data = buff_bytes
+                elif info.filename in feedback_classes:
+                    data = feedback_classes[info.filename]
                 else:
                     data = zin.read(info.filename)
                 zout.writestr(injector.clone_zipinfo(info), data)
@@ -2432,6 +2641,11 @@ def run_ankh_only(
         assassinate="assassinate" in payload_features,
         enemy_surge="enemy_surge" in payload_features,
     )
+    feedback_classes = (
+        patch_parry_feedback_classes(java, target, work, target_game_root)
+        if "parry" in payload_features
+        else {}
+    )
 
     payload = dict(core_payload)
     for feature in sorted(payload_features):
@@ -2447,6 +2661,7 @@ def run_ankh_only(
         patched_wnd_use_item,
         patched_buff_click,
         patched_modankh,
+        feedback_classes,
         payload,
         tmp,
         dungeon_entry,
@@ -2456,6 +2671,7 @@ def run_ankh_only(
         dungeon_entry,
         char_entry,
         injector.MOD_ANKH_ENTRY,
+        *sorted(feedback_classes),
         *sorted(payload),
     ]
     if patched_wnd_use_item is not None:
@@ -2616,6 +2832,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             assassinate=True,
             enemy_surge=True,
         )
+        feedback_classes = patch_parry_feedback_classes(
+            java, target, work, target_game_root
+        )
 
         injector.step("Repacking target JAR")
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -2627,6 +2846,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             patched_wnd_use_item,
             patched_buff_click,
             patched_modankh,
+            feedback_classes,
             payload,
             unsigned_tmp,
             dungeon_entry,
@@ -2635,6 +2855,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             wnd_entry,
             char_entry,
             patched_buff_click[0],
+            *sorted(feedback_classes),
             injector.MOD_ANKH_ENTRY,
             *payload_names,
         ]
