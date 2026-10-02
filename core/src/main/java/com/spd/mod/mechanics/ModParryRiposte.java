@@ -28,7 +28,7 @@ public class ModParryRiposte extends Buff {
 
     private static final ThreadLocal<ArrayDeque<IncomingAttackContext>> INCOMING_ATTACK_CONTEXTS =
             new ThreadLocal<>();
-    private static final ThreadLocal<Char> PARRY_FEEDBACK_TARGET =
+    private static final ThreadLocal<Map<Char, Boolean>> PARRY_FEEDBACK_TARGETS =
             new ThreadLocal<>();
 
     private static final class IncomingAttackContext {
@@ -48,6 +48,15 @@ public class ModParryRiposte extends Buff {
             INCOMING_ATTACK_CONTEXTS.set(contexts);
         }
         return contexts;
+    }
+
+    private static Map<Char, Boolean> parryFeedbackTargets() {
+        Map<Char, Boolean> targets = PARRY_FEEDBACK_TARGETS.get();
+        if (targets == null) {
+            targets = new WeakHashMap<>();
+            PARRY_FEEDBACK_TARGETS.set(targets);
+        }
+        return targets;
     }
 
     /*
@@ -141,10 +150,18 @@ public class ModParryRiposte extends Buff {
      * Returning true means the native hit result is forced to miss.
      */
     public static boolean shouldParry(Char attacker, Char defender) {
-        // Every hit check starts a fresh feedback decision. This prevents a
-        // caller that does not render defenseVerb() from leaking stale Parry UI
-        // into a later miss.
-        PARRY_FEEDBACK_TARGET.remove();
+        if (defender != null) {
+            // A fresh hit check invalidates only this defender's stale UI
+            // marker, while preserving pending feedback for other targets in a
+            // multi-target attack.
+            Map<Char, Boolean> targets = PARRY_FEEDBACK_TARGETS.get();
+            if (targets != null) {
+                targets.remove(defender);
+                if (targets.isEmpty()) {
+                    PARRY_FEEDBACK_TARGETS.remove();
+                }
+            }
+        }
 
         if (attacker == null
                 || defender == null
@@ -159,7 +176,7 @@ public class ModParryRiposte extends Buff {
                 && buff.target == defender
                 && buff.parryEnabled;
         if (parried) {
-            PARRY_FEEDBACK_TARGET.set(defender);
+            parryFeedbackTargets().put(defender, Boolean.TRUE);
         }
         return parried;
     }
@@ -173,11 +190,13 @@ public class ModParryRiposte extends Buff {
      * the defender's native virtual defenseVerb() behavior unchanged.
      */
     public static String defenseVerb(Char defender) {
-        Char pending = PARRY_FEEDBACK_TARGET.get();
-        if (pending != defender) {
+        Map<Char, Boolean> targets = PARRY_FEEDBACK_TARGETS.get();
+        if (targets == null || targets.remove(defender) == null) {
             return defender.defenseVerb();
         }
-        PARRY_FEEDBACK_TARGET.remove();
+        if (targets.isEmpty()) {
+            PARRY_FEEDBACK_TARGETS.remove();
+        }
 
         if (defender.sprite != null && defender.sprite.visible) {
             Sample.INSTANCE.play(
@@ -198,9 +217,18 @@ public class ModParryRiposte extends Buff {
         IncomingAttackContext context = contexts.pop();
         if (contexts.isEmpty()) {
             INCOMING_ATTACK_CONTEXTS.remove();
-            // Normally consumed by defenseVerb() before attack() returns. Clear
-            // any leftover marker for attack paths that suppress miss feedback.
-            PARRY_FEEDBACK_TARGET.remove();
+        }
+
+        // Normally consumed by defenseVerb() before attack() returns. Clear
+        // only this defender if an attack path suppressed miss feedback.
+        if (context.defender != null) {
+            Map<Char, Boolean> targets = PARRY_FEEDBACK_TARGETS.get();
+            if (targets != null) {
+                targets.remove(context.defender);
+                if (targets.isEmpty()) {
+                    PARRY_FEEDBACK_TARGETS.remove();
+                }
+            }
         }
 
         if (context.attacker != null && context.defender != null) {
