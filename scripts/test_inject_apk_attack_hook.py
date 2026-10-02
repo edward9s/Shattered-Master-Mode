@@ -326,7 +326,7 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(1, hit.count(force_hook))
 
 
-    def test_ark_inherited_static_hit_callers_are_canonicalized(self):
+    def test_inherited_static_hit_owner_stays_unchanged_for_feedback(self):
         hit_proto = f"({self.char}{self.char}Z)Z"
         mob = self.game + "actors/mobs/Mob;"
         eye = self.game + "actors/mobs/Eye;"
@@ -352,6 +352,7 @@ class TerminalAttackHookTest(unittest.TestCase):
             "    .locals 1\n"
             "    const/4 v0, 0x1\n"
             f"    invoke-static {{p0, p0, v0}}, {eye}->hit{hit_proto}\n"
+            f"    invoke-virtual {{p0}}, {eye}->defenseVerb()Ljava/lang/String;\n"
             "    return-void\n"
             ".end method\n"
         )
@@ -361,7 +362,8 @@ class TerminalAttackHookTest(unittest.TestCase):
             ".method protected zap()V\n"
             "    .locals 1\n"
             "    const/4 v0, 0x1\n"
-            f"    invoke-static/range {{p0 .. p0}}, {bright}->hit{hit_proto}\n"
+            f"    invoke-static {{p0, p0, v0}}, {bright}->hit{hit_proto}\n"
+            f"    invoke-virtual {{p0}}, {bright}->defenseVerb()Ljava/lang/String;\n"
             "    return-void\n"
             ".end method\n"
         )
@@ -372,7 +374,7 @@ class TerminalAttackHookTest(unittest.TestCase):
             bright: self.cls(bright_text),
         }
 
-        overlays, count = mod.canonicalize_inherited_static_hit_calls(
+        overlays, count = mod.build_parry_feedback_overlays(
             index,
             self.char,
             "hit",
@@ -381,10 +383,16 @@ class TerminalAttackHookTest(unittest.TestCase):
 
         self.assertEqual(2, count)
         self.assertEqual({eye, bright}, set(overlays))
-        self.assertIn(f"{self.char}->hit{hit_proto}", overlays[eye])
-        self.assertIn(f"{self.char}->hit{hit_proto}", overlays[bright])
-        self.assertNotIn(f"{eye}->hit{hit_proto}", overlays[eye])
-        self.assertNotIn(f"{bright}->hit{hit_proto}", overlays[bright])
+        self.assertIn(f"{eye}->hit{hit_proto}", overlays[eye])
+        self.assertIn(f"{bright}->hit{hit_proto}", overlays[bright])
+        self.assertNotIn(f"{self.char}->hit{hit_proto}", overlays[eye])
+        hook = (
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->defenseVerb("
+            + self.char
+            + ")Ljava/lang/String;"
+        )
+        self.assertIn(hook, overlays[eye])
+        self.assertIn(hook, overlays[bright])
 
 
     def test_direct_damage_hook_patches_every_char_override_without_boss_names(self):
@@ -513,37 +521,58 @@ class TerminalAttackHookTest(unittest.TestCase):
         )
 
 
-    def test_char_local_parry_feedback_is_rewritten(self):
+    def test_char_local_parry_feedback_is_limited_to_hit_caller(self):
+        hit_proto = f"({self.char}{self.char}Z)Z"
         text = (
             f".class public {self.char}\n"
             ".super Ljava/lang/Object;\n"
-            ".method public attack()Z\n"
+            f".method public static hit{hit_proto}\n"
             "    .locals 1\n"
-            f"    invoke-virtual {{p0}}, {self.char}->defenseVerb()Ljava/lang/String;\n"
-            "    const/4 v0, 0x0\n"
+            "    const/4 v0, 0x1\n"
             "    return v0\n"
             ".end method\n"
+            ".method public attack()Z\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x1\n"
+            f"    invoke-static {{p0, p0, v0}}, {self.char}->hit{hit_proto}\n"
+            f"    invoke-virtual {{p0}}, {self.char}->defenseVerb()Ljava/lang/String;\n"
+            "    return v0\n"
+            ".end method\n"
+            ".method public unrelated()V\n"
+            "    .locals 0\n"
+            f"    invoke-virtual {{p0}}, {self.char}->defenseVerb()Ljava/lang/String;\n"
+            "    return-void\n"
+            ".end method\n"
         )
+        index = {self.char: self.cls(text)}
 
-        patched, count = mod.rewrite_char_parry_defense_verb_calls(
+        patched, count = mod.rewrite_parry_feedback_in_hit_callers(
             text,
+            index,
             self.char,
+            "hit",
+            hit_proto,
         )
 
         self.assertEqual(1, count)
+        _, _, attack = mod.injector.method_block(patched, "attack", "()Z")
+        _, _, unrelated = mod.injector.method_block(
+            patched, "unrelated", "()V"
+        )
         self.assertIn(
             "Lcom/spd/mod/mechanics/ModParryRiposte;->defenseVerb("
             + self.char
             + ")Ljava/lang/String;",
-            patched,
+            attack,
         )
-        self.assertNotIn(
+        self.assertIn(
             f"invoke-virtual {{p0}}, {self.char}->defenseVerb()Ljava/lang/String;",
-            patched,
+            unrelated,
         )
 
 
-    def test_parry_feedback_rewrites_every_char_virtual_call(self):
+    def test_parry_feedback_only_rewrites_hit_caller_methods(self):
+        hit_proto = f"({self.char}{self.char}Z)Z"
         mob = self.game + "actors/mobs/Mob;"
         hero = self.game + "actors/hero/Hero;"
         caller = self.game + "actors/mobs/TestCaller;"
@@ -552,44 +581,31 @@ class TerminalAttackHookTest(unittest.TestCase):
         char_text = (
             f".class public {self.char}\n"
             ".super Ljava/lang/Object;\n"
-            ".method public defenseVerb()Ljava/lang/String;\n"
+            f".method public static hit{hit_proto}\n"
             "    .locals 1\n"
-            "    const-string v0, \"dodge\"\n"
-            "    return-object v0\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
             ".end method\n"
         )
-        mob_text = (
-            f".class public {mob}\n"
-            f".super {self.char}\n"
-        )
-        hero_text = (
-            f".class public {hero}\n"
-            f".super {self.char}\n"
-            ".method public defenseVerb()Ljava/lang/String;\n"
-            "    .locals 1\n"
-            f"    invoke-super {{p0}}, {self.char}->defenseVerb()Ljava/lang/String;\n"
-            "    move-result-object v0\n"
-            "    return-object v0\n"
-            ".end method\n"
-        )
-        other_text = (
-            f".class public {other}\n"
-            ".super Ljava/lang/Object;\n"
-            ".method public defenseVerb()Ljava/lang/String;\n"
-            "    .locals 1\n"
-            "    const-string v0, \"other\"\n"
-            "    return-object v0\n"
-            ".end method\n"
-        )
+        mob_text = f".class public {mob}\n.super {self.char}\n"
+        hero_text = f".class public {hero}\n.super {self.char}\n"
+        other_text = f".class public {other}\n.super Ljava/lang/Object;\n"
         caller_text = (
             f".class public {caller}\n"
             ".super Ljava/lang/Object;\n"
-            ".method public test()V\n"
+            ".method public combat()V\n"
             "    .locals 1\n"
+            "    const/4 v0, 0x1\n"
+            f"    invoke-static {{p0, p0, v0}}, {mob}->hit{hit_proto}\n"
             f"    invoke-virtual {{p0}}, {self.char}->defenseVerb()Ljava/lang/String;\n"
             f"    invoke-virtual {{p0}}, {hero}->defenseVerb()Ljava/lang/String;\n"
             f"    invoke-virtual/range {{p0 .. p0}}, {mob}->defenseVerb()Ljava/lang/String;\n"
             f"    invoke-virtual {{p0}}, {other}->defenseVerb()Ljava/lang/String;\n"
+            "    return-void\n"
+            ".end method\n"
+            ".method public unrelated()V\n"
+            "    .locals 0\n"
+            f"    invoke-virtual {{p0}}, {hero}->defenseVerb()Ljava/lang/String;\n"
             "    return-void\n"
             ".end method\n"
         )
@@ -601,32 +617,37 @@ class TerminalAttackHookTest(unittest.TestCase):
             caller: self.cls(caller_text),
         }
 
-        overlays, count = mod.rewrite_parry_defense_verb_calls(
+        overlays, count = mod.build_parry_feedback_overlays(
             index,
             self.char,
+            "hit",
+            hit_proto,
         )
 
         self.assertEqual(3, count)
         self.assertEqual({caller}, set(overlays))
         patched = overlays[caller]
+        _, _, combat = mod.injector.method_block(patched, "combat", "()V")
+        _, _, unrelated = mod.injector.method_block(
+            patched, "unrelated", "()V"
+        )
         hook = (
             "Lcom/spd/mod/mechanics/ModParryRiposte;->defenseVerb("
             + self.char
             + ")Ljava/lang/String;"
         )
-        self.assertEqual(3, patched.count(hook))
+        self.assertEqual(3, combat.count(hook))
         self.assertIn(
             f"invoke-virtual {{p0}}, {other}->defenseVerb()Ljava/lang/String;",
-            patched,
+            combat,
         )
-        self.assertNotIn(hero, overlays)
         self.assertIn(
-            f"invoke-super {{p0}}, {self.char}->defenseVerb()Ljava/lang/String;",
-            hero_text,
+            f"invoke-virtual {{p0}}, {hero}->defenseVerb()Ljava/lang/String;",
+            unrelated,
         )
 
 
-    def test_ark_hit_and_parry_feedback_rewrites_compose(self):
+    def test_feedback_rewrite_does_not_rewrite_inherited_hit_owner(self):
         hit_proto = f"({self.char}{self.char}Z)Z"
         mob = self.game + "actors/mobs/Mob;"
         eye = self.game + "actors/mobs/Eye;"
@@ -639,16 +660,8 @@ class TerminalAttackHookTest(unittest.TestCase):
             "    const/4 v0, 0x1\n"
             "    return v0\n"
             ".end method\n"
-            ".method public defenseVerb()Ljava/lang/String;\n"
-            "    .locals 1\n"
-            "    const-string v0, \"dodge\"\n"
-            "    return-object v0\n"
-            ".end method\n"
         )
-        mob_text = (
-            f".class public {mob}\n"
-            f".super {self.char}\n"
-        )
+        mob_text = f".class public {mob}\n.super {self.char}\n"
         eye_text = (
             f".class public {eye}\n"
             f".super {mob}\n"
@@ -666,36 +679,26 @@ class TerminalAttackHookTest(unittest.TestCase):
             eye: self.cls(eye_text),
         }
 
-        hit_overlays, hit_count = mod.canonicalize_inherited_static_hit_calls(
+        overlays, count = mod.build_parry_feedback_overlays(
             index,
             self.char,
             "hit",
             hit_proto,
         )
-        feedback_overlays, feedback_count = mod.rewrite_parry_defense_verb_calls(
-            index,
-            self.char,
-            hit_overlays,
-        )
 
-        self.assertEqual(1, hit_count)
-        self.assertEqual(1, feedback_count)
-        patched = feedback_overlays[eye]
-        self.assertIn(f"{self.char}->hit{hit_proto}", patched)
+        self.assertEqual(1, count)
+        patched = overlays[eye]
+        self.assertIn(f"{eye}->hit{hit_proto}", patched)
+        self.assertNotIn(f"{self.char}->hit{hit_proto}", patched)
         self.assertIn(
             "Lcom/spd/mod/mechanics/ModParryRiposte;->defenseVerb("
             + self.char
             + ")Ljava/lang/String;",
             patched,
         )
-        self.assertNotIn(f"{eye}->hit{hit_proto}", patched)
-        self.assertNotIn(
-            f"{eye}->defenseVerb()Ljava/lang/String;",
-            patched,
-        )
 
 
-    def test_hidden_static_hit_is_not_canonicalized(self):
+    def test_hidden_static_hit_does_not_trigger_parry_feedback(self):
         hit_proto = f"({self.char}{self.char}Z)Z"
         special = self.game + "actors/mobs/Special;"
 
@@ -720,6 +723,7 @@ class TerminalAttackHookTest(unittest.TestCase):
             "    .locals 1\n"
             "    const/4 v0, 0x1\n"
             f"    invoke-static {{p0, p0, v0}}, {special}->hit{hit_proto}\n"
+            f"    invoke-virtual {{p0}}, {special}->defenseVerb()Ljava/lang/String;\n"
             "    return-void\n"
             ".end method\n"
         )
@@ -728,7 +732,7 @@ class TerminalAttackHookTest(unittest.TestCase):
             special: self.cls(special_text),
         }
 
-        overlays, count = mod.canonicalize_inherited_static_hit_calls(
+        overlays, count = mod.build_parry_feedback_overlays(
             index,
             self.char,
             "hit",
