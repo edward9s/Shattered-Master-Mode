@@ -53,6 +53,20 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(mod.ABI_DIRECT, capability.strategy)
         self.assertEqual(terminal, capability.data.get("proto"))
 
+    def test_ankh_only_does_not_require_attack_or_hit_optional_abis(self):
+        original = mod._ankh_only_mode
+        try:
+            mod._ankh_only_mode = True
+            profile = mod.detect_target_abi({}, self.game)
+        finally:
+            mod._ankh_only_mode = original
+
+        self.assertFalse(profile.get("char.incomingAttackHook").required)
+        self.assertFalse(profile.get("char.hitHook").required)
+        self.assertFalse(profile.get("char.incomingAttackHook").compatible)
+        self.assertFalse(profile.get("char.hitHook").compatible)
+
+
     def test_multiple_terminal_overloads_are_rejected(self):
         first = f"({self.char})Z"
         second = f"({self.char}F)Z"
