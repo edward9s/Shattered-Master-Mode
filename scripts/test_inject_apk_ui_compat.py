@@ -356,6 +356,57 @@ class ApkUiCompatTests(unittest.TestCase):
 
 
 
+
+    def test_enemy_surge_level_field_disambiguates_modern_from_legacy_alias(self):
+        level = GAME + "levels/Level;"
+        modern = GAME + "actors/mobs/MobSpawner;"
+        legacy = GAME + "levels/Level$Respawner;"
+        level_text = (
+            f".class public {level}\n"
+            ".super Ljava/lang/Object;\n"
+            f".field private respawner:{modern}\n"
+        )
+
+        def respawner_text(descriptor, limit_name):
+            return (
+                f".class public {descriptor}\n"
+                f".super {GAME}actors/Actor;\n\n"
+                ".method protected act()Z\n"
+                "    .locals 3\n"
+                f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+                f"    invoke-virtual {{v0}}, {level}->mobCount()I\n"
+                "    move-result v1\n"
+                f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+                f"    invoke-virtual {{v0}}, {level}->{limit_name}()I\n"
+                "    move-result v2\n"
+                f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+                f"    invoke-virtual {{v0}}, {level}->respawnCooldown()F\n"
+                "    move-result v1\n"
+                "    const/4 v0, 0x1\n"
+                "    return v0\n"
+                ".end method\n"
+            )
+
+        target = {
+            level: injector.SmaliClass.from_text(
+                pathlib.Path("Level.smali"), level_text
+            ),
+            modern: injector.SmaliClass.from_text(
+                pathlib.Path("MobSpawner.smali"),
+                respawner_text(modern, "mobLimit"),
+            ),
+            legacy: injector.SmaliClass.from_text(
+                pathlib.Path("Respawner.smali"),
+                respawner_text(legacy, "nMobs"),
+            ),
+        }
+        capability = public_apk.probe_enemy_surge_respawner(
+            target, GAME, required=False
+        )
+        self.assertTrue(capability.compatible)
+        self.assertEqual(modern, capability.data["descriptor"])
+
+
     def test_enemy_surge_discovers_r8_renamed_respawner_from_level_field(self):
         level = GAME + "levels/Level;"
         spawner = GAME + "actors/mobs/a;"
