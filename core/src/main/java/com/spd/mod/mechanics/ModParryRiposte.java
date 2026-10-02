@@ -157,8 +157,8 @@ public class ModParryRiposte extends Buff {
      * and call damage(int,Object) directly.
      *
      * The attacker is explicit when src is a Char. For marker-style sources
-     * (for example a nested DeathGaze class), infer the currently executing
-     * Char from Actor's scheduler state. Non-Char actors such as Buffs/Blobs do
+     * owned by a Char subclass, infer the currently executing Char from Actor's
+     * scheduler state. Non-Char actors such as Buffs/Blobs do
      * not become parryable merely because they deal damage.
      */
     public static boolean onDirectDamage(Char defender, int damage, Object src) {
@@ -205,8 +205,8 @@ public class ModParryRiposte extends Buff {
 
         /*
          * Only use scheduler inference for source-marker classes that belong to
-         * a Char type. This covers fork-defined direct attacks such as
-         * Eye.DeathGaze without turning Hunger, traps, Buffs, Blobs, etc. into
+         * a Char type. This covers fork-defined direct attack markers without
+         * turning Hunger, traps, Buffs, Blobs, etc. into
          * parryable attacks merely because a Char happened to trigger them.
          */
         if (!isCharOwnedSourceMarker(src)) {
