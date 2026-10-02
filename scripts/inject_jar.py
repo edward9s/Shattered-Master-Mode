@@ -2215,7 +2215,11 @@ public class SmmAnkhCharAttackPatcher {
                                              String signature, String[] exceptions) {
                 MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
 
-                if (parry) {
+                if (parry
+                        && scan.terminalDesc != null
+                        && "attack".equals(name)
+                        && scan.terminalDesc.equals(desc)
+                        && (access & Opcodes.ACC_STATIC) == 0) {
                     base = new MethodVisitor(API, base) {
                         @Override
                         public void visitMethodInsn(int opcode, String owner, String methodName,
@@ -2232,7 +2236,8 @@ public class SmmAnkhCharAttackPatcher {
                                         false);
                                 return;
                             }
-                            super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+                            super.visitMethodInsn(
+                                    opcode, owner, methodName, methodDesc, isInterface);
                         }
                     };
                 }
