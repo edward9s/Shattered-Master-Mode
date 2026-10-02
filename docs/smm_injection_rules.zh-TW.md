@@ -32,7 +32,7 @@ python inject_jar.py TARGET.jar --ankh-only
 - `ModInstantKill`：只依賴唯一的 terminal `Char.attack()` overload。Force Hit + Instant Kill 在 attack 入口直接結算；否則只有原生 terminal attack 本來就要 `return true` 時才執行 Instant Kill，因此原生 defense side effect 會先跑完。不再提供 `attackProc()` fallback，也不再分析 hit-success branch。
 - `ModForceHit` 才擁有 selected hit-check capability；`ModInstantKill` 不再依賴它。已知 direct ABI 依方法是否存在且可安全 patch 來採用：先 `Char.hit(Char, Char, float, boolean)`，再舊版 `Char.hit(Char, Char, boolean)`。只有兩種 direct ABI 都不存在時，才從 terminal `Char.attack()` structural trace 唯一可辨識的 static boolean helper。
 - `ModAssassinate`：完整 runtime UI / combat dependency closure 相容時才加入。側邊 Tag 與 map long-press layer 都在 runtime 自行掛載，不需要額外 patch `GameScene` 或 `Char`。
-- `ModEnemySurge`：gameplay + 設定視窗 dependency closure 相容時才加入。不需要額外 patch 敵人生成流程；Buff 直接使用 target 既有的 `Level.mobLimit()`、`mobCount()`、`respawnCooldown()`、`spawnMob(...)`。Source build 的 richer overlay 維持 optional，不納入 minimal payload。
+- `ModEnemySurge`：gameplay + 設定視窗 dependency closure 相容時才加入。不需要額外 patch 敵人生成流程。新版 Level API 以 runtime reflection 使用 `mobLimit()` / `mobCount()` / `spawnMob(...)`；Ark/舊 fork 若沒有這些 helper，改用 `nMobs()`、既有 `mobs` 集合，以及 `createMob()` + `randomRespawnCell(...)`。因此 optional compatibility 不得硬連結只存在於新版 SPD 的 spawn helper。Source build 的 richer overlay 維持 optional，不納入 minimal payload。
 
 五者都可透過 Debug Console 的 `affect ModParryRiposte` / `affect ModInstantKill` / `affect ModForceHit` / `affect ModAssassinate` / `affect ModEnemySurge` 套用。最小注入仍不安裝完整 SMM 選單。
 
@@ -64,7 +64,7 @@ JAR 注入不使用這把 APK 簽章金鑰。
 - `--ankh-only` 會把 Parry/Riposte、Instant Kill、Force Hit、Assassinate 與 Enemy Surge（包含各自的設定 UI）視為完整的選配 dependency closure 驗證。若某功能的 UI 或 target API 相依不相容，就在 patch `BuffIndicator` 前跳過整個選配功能；不得讓 click bridge 引用已被省略的 payload class。
 - Mod 系列 action 文字維持直接由程式碼提供。APK/JAR 若遇到舊版 `WndUseItem` 繞過 `Item.actionName()`、直接呼叫 `Messages.get(...)`，應只對該 legacy call site 做 ABI bridge，讓 `ac_*` 重新走 target 已存在的虛擬 `Item.actionName(action, hero)`；不要為 ModAnkh 修改 `items*.properties`。
 - 可設定的 SMM buff 在 source build、APK injection、JAR injection 都共用直接 `BuffIndicator` bridge：短按呼叫該 buff 自己的 `open()` / `openInfo()`，長按保留 target 原本的 buff info 行為。Full SMM 處理 Last Stand、Parry/Riposte、Instant Kill、Force Hit、Assassinate、Enemy Surge；`--ankh-only` 固定處理 Last Stand，並只加入通過相容性檢查的 Parry/Riposte / Instant Kill / Force Hit / Assassinate / Enemy Surge。`ModTotalInfoOverlay` 已移除；`ModLastStandTag` 屬於 narrow Last Stand 的保證核心。
-- Parry 與 Riposte 的戰鬥語意只由 selected `Char.hit(...)` hook 決定；每次 hit check 先執行 `ModParryRiposte.onHitCheck(attacker, defender)`，讓 Riposte 先觀察並排程，再由 Force Hit 覆蓋 Parry 結果。Instant Kill 才保留 terminal `Char.attack()` hook。APK/JAR/source 都不得再使用 Parry/Riposte 的 `Char.attack()` entry/completion lifecycle、Focus 或 `Actor.current` 作為主要戰鬥判定。
+- Parry 與 Riposte 的戰鬥語意只由 selected `Char.hit(...)` hook 決定；Parry 是否成立只取決於 defender 是否實際持有啟用中的 `ModParryRiposte`，不得把 attacker/defender 當下的 `isAlive()` 或 `Buff.target` identity 當成命中判定前置條件，以免舊 fork 的延遲 beam callback 被誤判。每次 hit check 先執行 `ModParryRiposte.onHitCheck(attacker, defender)`，讓 Riposte 先觀察並排程，再由 Force Hit 覆蓋 Parry 結果。Instant Kill 才保留 terminal `Char.attack()` hook。APK/JAR/source 都不得再使用 Parry/Riposte 的 `Char.attack()` entry/completion lifecycle、Focus 或 `Actor.current` 作為主要戰鬥判定。
 - 存檔匯入匯出不得硬連結會隨 SPD 世代變動的 desktop 檔案 API；`FileUtils.getFileHandle(...)`、舊式 `FileUtils.getDir(...)` 與 backing `File` 應在 runtime 解析，避免 APK 根本不會執行的 desktop 路徑先讓 payload compatibility validation 失敗。
 - Debug Console 指令可能觸發 target 本身既有的 bug；不要為了讓指令表面成功而順便修改無關的 target 遊戲邏輯。
 
