@@ -902,7 +902,7 @@ def probe_enemy_surge_respawner(
     required: bool = True,
 ) -> AbiCapability:
     level_descriptor = injector.game_descriptor(game_prefix, "levels/Level")
-    candidates = (
+    preferred = [
         (
             injector.game_descriptor(game_prefix, "actors/mobs/MobSpawner"),
             "MobSpawner",
@@ -911,24 +911,59 @@ def probe_enemy_surge_respawner(
             injector.game_descriptor(game_prefix, "levels/Level$Respawner"),
             "Level.Respawner",
         ),
-    )
+    ]
+
+    level_item = target_index.get(level_descriptor)
+    structural = []
+    if level_item is not None:
+        known = {descriptor for descriptor, _label in preferred}
+        for (_field_name, field_type), flags in level_item.fields.items():
+            if (
+                "static" not in flags
+                and field_type.startswith("L")
+                and field_type.endswith(";")
+                and field_type in target_index
+                and field_type not in known
+            ):
+                structural.append((field_type, "Level respawner field"))
+
     failures = []
-    for descriptor, label in candidates:
+    matches = []
+    for descriptor, label in [*preferred, *structural]:
         item = target_index.get(descriptor)
         if item is None:
-            failures.append(label + " class is missing")
+            if label != "Level respawner field":
+                failures.append(label + " class is missing")
             continue
         selected, detail = _select_enemy_surge_respawner_method(
             item, level_descriptor
         )
         if selected is None:
-            failures.append(label + ": " + detail)
+            if label != "Level respawner field":
+                failures.append(label + ": " + detail)
             continue
         method, proto, _shape = selected
+        matches.append((descriptor, label, method, proto, detail))
+
+    preferred_matches = [
+        match for match in matches if match[1] != "Level respawner field"
+    ]
+    if len(preferred_matches) == 1:
+        matches = preferred_matches
+    elif len(preferred_matches) > 1:
+        return AbiCapability(
+            "enemySurge.respawnerHook",
+            ABI_UNSUPPORTED,
+            "multiple known native respawner classes match structurally",
+            required=required,
+        )
+
+    if len(matches) == 1:
+        descriptor, label, method, proto, detail = matches[0]
         return AbiCapability(
             "enemySurge.respawnerHook",
             ABI_STRUCTURAL,
-            f"{label}.{method}{proto} exposes {detail}",
+            f"{label} {descriptor}.{method}{proto} exposes {detail}",
             required=required,
             data={
                 "descriptor": descriptor,
@@ -938,10 +973,16 @@ def probe_enemy_surge_respawner(
             },
         )
 
+    if matches:
+        failures.append(
+            "multiple Level field types match the native respawner shape: "
+            + ", ".join(match[0] for match in matches)
+        )
+
     return AbiCapability(
         "enemySurge.respawnerHook",
         ABI_UNSUPPORTED,
-        "; ".join(failures),
+        "; ".join(failures) or "no native respawner field matches structurally",
         required=required,
     )
 
