@@ -253,7 +253,7 @@ def configure(public_module) -> None:
             (
                 "parry",
                 parry_riposte,
-                ("char.incomingAttackHook", "char.hitHook"),
+                ("char.hitHook",),
                 "Parry/Riposte",
             ),
             ("instant", instant_kill, ("char.incomingAttackHook",), "Instant Kill"),
@@ -286,9 +286,7 @@ def configure(public_module) -> None:
                     injector.SOURCE_GAME_DESCRIPTOR_PREFIX + "actors/Char;"
                 )
                 required_hooks = (
-                    ("onIncomingAttack", f"({source_char}{source_char})V"),
-                    ("onIncomingAttackComplete", "()V"),
-                    ("shouldParry", f"({source_char}{source_char})Z"),
+                    ("onHitCheck", f"({source_char}{source_char})Z"),
                     ("defenseVerb", f"({source_char})Ljava/lang/String;"),
                 )
                 donor_parry = donor_index[root]
@@ -552,8 +550,8 @@ def configure(public_module) -> None:
             patched_char = original_char
             char_changed = False
 
-            # Parry and Force Hit share the selected Char.hit entry. Force Hit
-            # is emitted first so it keeps its established precedence over Parry.
+            # Parry/Riposte and Force Hit share one selected Char.hit entry.
+            # onHitCheck observes Riposte first; Force Hit still overrides Parry.
             if parry_enabled or force_enabled:
                 try:
                     hit_capability = public_module._current_abi_profile.get(
@@ -578,10 +576,10 @@ def configure(public_module) -> None:
                     if force_enabled:
                         enabled.append("Force Hit")
                     if parry_enabled:
-                        enabled.append("Parry")
+                        enabled.append("Parry/Riposte")
                     injector.log(
                         " + ".join(enabled)
-                        + " pre-hit hook "
+                        + " unified hit hook "
                         + f"{hit_method}{hit_proto} "
                         + f"({hit_capability.strategy}): OK"
                     )
@@ -629,37 +627,6 @@ def configure(public_module) -> None:
                     public_module._ankh_instant_kill_enabled = False
                     injector.log(
                         "Optional Instant Kill skipped: "
-                        + attack_capability.detail
-                    )
-
-            if parry_enabled:
-                attack_capability = public_module._current_abi_profile.get(
-                    "char.incomingAttackHook"
-                )
-                proto = attack_capability.data.get("proto")
-                if attack_capability.compatible and proto:
-                    try:
-                        patched_char = public_module.patch_char_attack(
-                            patched_char,
-                            char_descriptor,
-                            proto,
-                        )
-                        char_changed = True
-                        injector.log(
-                            f"Char.attack Parry/Riposte entry/return hooks ({proto}): OK"
-                        )
-                    except injector.InjectError as exc:
-                        parry_enabled = False
-                        public_module._ankh_parry_riposte_enabled = False
-                        injector.log(
-                            "Optional Parry/Riposte skipped after attack patch attempt: "
-                            + str(exc)
-                        )
-                else:
-                    parry_enabled = False
-                    public_module._ankh_parry_riposte_enabled = False
-                    injector.log(
-                        "Optional Parry/Riposte skipped: "
                         + attack_capability.detail
                     )
 
