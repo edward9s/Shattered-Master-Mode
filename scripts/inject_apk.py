@@ -1022,48 +1022,43 @@ def patch_direct_damage_entry(
             + owner_descriptor
         )
 
-    locals_match = re.search(r"(?m)^(?P<indent>\s*)\.locals\s+(?P<count>\d+)\s*$", block)
+    locals_match = re.search(
+        r"(?m)^(?P<indent>\\s*)\\.locals\\s+(?P<count>\\d+)\\s*$",
+        block,
+    )
     registers_match = re.search(
-        r"(?m)^(?P<indent>\s*)\.registers\s+(?P<count>\d+)\s*$",
+        r"(?m)^(?P<indent>\\s*)\\.registers\\s+(?P<count>\\d+)\\s*$",
         block,
     )
 
     if locals_match is not None:
-        scratch = int(locals_match.group("count"))
-        replacement = (
-            locals_match.group("indent")
-            + ".locals "
-            + str(scratch + 1)
-        )
-        block = (
-            block[:locals_match.start()]
-            + replacement
-            + block[locals_match.end():]
-        )
+        local_count = int(locals_match.group("count"))
     elif registers_match is not None:
         total = int(registers_match.group("count"))
         params = _smali_parameter_words(proto) + 1
-        scratch = total - params
-        if scratch < 0:
+        local_count = total - params
+        if local_count < 0:
             raise injector.InjectError(
                 "Invalid register count in damage(int,Object): "
                 + owner_descriptor
             )
-        replacement = (
-            registers_match.group("indent")
-            + ".registers "
-            + str(total + 1)
-        )
-        block = (
-            block[:registers_match.start()]
-            + replacement
-            + block[registers_match.end():]
-        )
     else:
         raise injector.InjectError(
             "damage(int,Object) has no .locals/.registers directive: "
             + owner_descriptor
         )
+
+    if local_count <= 0:
+        raise injector.InjectError(
+            "Cannot install register-stable direct-damage Parry hook in "
+            + owner_descriptor
+            + "->damage(int,Object): method has no local register"
+        )
+
+    # Reuse v0 at method entry instead of growing the register file. Growing
+    # .locals/.registers shifts every pN alias upward; legacy forks can sit on a
+    # 4-bit operand boundary where p0=v15 is valid but p0=v16 is not.
+    scratch = 0
 
     insert_at, indent = _first_smali_instruction(block)
     hook = (
@@ -1072,12 +1067,12 @@ def patch_direct_damage_entry(
         + "ILjava/lang/Object;)Z"
     )
     injected = (
-        f"{indent}# SMM direct-damage Parry/Riposte hook\n"
-        f"{indent}invoke-static/range {{p0 .. p2}}, {hook}\n"
-        f"{indent}move-result v{scratch}\n"
-        f"{indent}if-eqz v{scratch}, :smm_direct_damage_native\n"
-        f"{indent}return-void\n"
-        f"{indent}:smm_direct_damage_native\n"
+        f"{indent}# SMM direct-damage Parry/Riposte hook\\n"
+        f"{indent}invoke-static/range {{p0 .. p2}}, {hook}\\n"
+        f"{indent}move-result v{scratch}\\n"
+        f"{indent}if-eqz v{scratch}, :smm_direct_damage_native\\n"
+        f"{indent}return-void\\n"
+        f"{indent}:smm_direct_damage_native\\n"
     )
     patched = block[:insert_at] + injected + block[insert_at:]
     return text[:start] + patched + text[end:]
