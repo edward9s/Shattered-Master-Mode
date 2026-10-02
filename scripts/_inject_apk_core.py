@@ -1232,6 +1232,46 @@ def shifted_dex_name(number: int) -> str:
     return "classes.dex" if number == 1 else f"classes{number}.dex"
 
 
+DEX_ID_COUNT_OFFSETS = {
+    "strings": 0x38,
+    "types": 0x40,
+    "protos": 0x48,
+    "fields": 0x50,
+    "methods": 0x58,
+    "classes": 0x60,
+}
+
+
+def dex_id_counts(data: bytes) -> dict[str, int]:
+    if len(data) < 0x70 or not data.startswith(b"dex\n"):
+        raise InjectError("Invalid DEX while reading identifier counts")
+    return {
+        name: struct.unpack_from("<I", data, offset)[0]
+        for name, offset in DEX_ID_COUNT_OFFSETS.items()
+    }
+
+
+def validate_pruned_dex_does_not_grow(
+    name: str,
+    original: bytes,
+    replacement: bytes,
+) -> None:
+    before = dex_id_counts(original)
+    after = dex_id_counts(replacement)
+    grown = [
+        f"{key} {before[key]}->{after[key]}"
+        for key in DEX_ID_COUNT_OFFSETS
+        if after[key] > before[key]
+    ]
+    if grown:
+        raise InjectError(
+            "Pruned target DEX unexpectedly grew identifier tables in "
+            + name
+            + ": "
+            + ", ".join(grown)
+        )
+
+
 def clone_zipinfo(
     info: zipfile.ZipInfo,
     name: str | None = None,
@@ -1969,11 +2009,16 @@ def rebuild_apk(
                         inserted_overlay = True
 
                     replacement = replacements.get(info.filename)
-                    payload = (
-                        replacement.read_bytes()
-                        if replacement is not None
-                        else zin.read(info.filename)
-                    )
+                    original_payload = zin.read(info.filename)
+                    if replacement is not None:
+                        payload = replacement.read_bytes()
+                        validate_pruned_dex_does_not_grow(
+                            info.filename,
+                            original_payload,
+                            payload,
+                        )
+                    else:
+                        payload = original_payload
                     zout.writestr(
                         clone_zipinfo(info, mapped[info.filename]),
                         payload,
