@@ -9,11 +9,68 @@ import zipfile
 from pathlib import Path
 
 
+PARRY_CLASS = "com/spd/mod/mechanics/ModParryRiposte.class"
+OBSOLETE_PARRY_CLASSES = {
+    "com/spd/mod/mechanics/ModParryRiposte$IncomingAttackContext.class",
+    "com/spd/mod/mechanics/ModParryRiposte$ParryDetachSink.class",
+}
+
+
 def copy_required(src: Path, dst: Path) -> None:
     if not src.is_file():
         raise FileNotFoundError(src)
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
+
+
+def validate_parry_donors(donor_apk: Path, donor_jar: Path) -> None:
+    """Fail packaging if combat donor and injector source are from different generations."""
+
+    with zipfile.ZipFile(donor_jar) as jar:
+        names = set(jar.namelist())
+        if PARRY_CLASS not in names:
+            raise RuntimeError("JAR donor is missing ModParryRiposte.class")
+        obsolete = sorted(OBSOLETE_PARRY_CLASSES.intersection(names))
+        if obsolete:
+            raise RuntimeError(
+                "JAR donor still contains obsolete Parry lifecycle classes: "
+                + ", ".join(obsolete)
+            )
+        parry_class = jar.read(PARRY_CLASS)
+        for required in (b"onHitCheck", b"defenseVerb"):
+            if required not in parry_class:
+                raise RuntimeError(
+                    "JAR donor ModParryRiposte is stale; missing "
+                    + required.decode("ascii")
+                )
+        for obsolete_name in (
+            b"onIncomingAttack",
+            b"onIncomingAttackComplete",
+            b"shouldParry",
+        ):
+            if obsolete_name in parry_class:
+                raise RuntimeError(
+                    "JAR donor ModParryRiposte still exposes obsolete hook "
+                    + obsolete_name.decode("ascii")
+                )
+
+    with zipfile.ZipFile(donor_apk) as apk:
+        dex_names = sorted(
+            name
+            for name in apk.namelist()
+            if name.startswith("classes") and name.endswith(".dex")
+        )
+        if not dex_names:
+            raise RuntimeError("APK donor contains no classes*.dex")
+        dex = b"".join(apk.read(name) for name in dex_names)
+        if b"onHitCheck" not in dex:
+            raise RuntimeError(
+                "APK donor is stale; ModParryRiposte.onHitCheck is absent from DEX"
+            )
+        if b"ModParryRiposte$IncomingAttackContext" in dex:
+            raise RuntimeError(
+                "APK donor still contains obsolete ModParryRiposte$IncomingAttackContext"
+            )
 
 
 def populate_kit(
@@ -105,6 +162,8 @@ def main() -> int:
         raise FileNotFoundError(f"APK donor not found: {donor_apk}")
     if not donor_jar.is_file():
         raise FileNotFoundError(f"JAR donor not found: {donor_jar}")
+
+    validate_parry_donors(donor_apk, donor_jar)
 
     if args.zip:
         staging = output.parent / (output.stem + "-contents")
