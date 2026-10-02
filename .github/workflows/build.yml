@@ -102,6 +102,8 @@ jobs:
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
       - name: Package
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python mod/scripts/package_release.py \
             "${{ env.UPSTREAM_TAG }}" \
