@@ -95,6 +95,8 @@ def configure(public_module) -> None:
         public_module._pending_hit_call_rewrite_count = 0
         public_module._pending_parry_feedback_overlays = {}
         public_module._pending_parry_feedback_rewrite_count = 0
+        public_module._pending_direct_damage_overlays = {}
+        public_module._pending_direct_damage_hook_count = 0
 
         char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
         char_class = target_index.get(char_descriptor)
@@ -154,6 +156,18 @@ def configure(public_module) -> None:
                 target_index,
                 char_descriptor,
                 public_module._pending_hit_call_overlays,
+            )
+            combined_overlays = dict(public_module._pending_hit_call_overlays)
+            combined_overlays.update(
+                public_module._pending_parry_feedback_overlays
+            )
+            (
+                public_module._pending_direct_damage_overlays,
+                public_module._pending_direct_damage_hook_count,
+            ) = public_module.build_direct_damage_overlays(
+                target_index,
+                char_descriptor,
+                combined_overlays,
             )
 
         return game_prefix
@@ -287,6 +301,7 @@ def configure(public_module) -> None:
                 )
                 required_hooks = (
                     ("onHitCheck", f"({source_char}{source_char})Z"),
+                    ("onDirectDamage", f"({source_char}ILjava/lang/Object;)Z"),
                     ("defenseVerb", f"({source_char})Ljava/lang/String;"),
                 )
                 donor_parry = donor_index[root]
@@ -644,6 +659,25 @@ def configure(public_module) -> None:
                         + " Char defenseVerb call(s): OK"
                     )
 
+                char_item = injector.SmaliClass.from_text(
+                    Path("Char.smali"), patched_char
+                )
+                damage_flags = char_item.methods.get(
+                    ("damage", "(ILjava/lang/Object;)V")
+                )
+                if (
+                    damage_flags is not None
+                    and "static" not in damage_flags
+                    and "abstract" not in damage_flags
+                    and "native" not in damage_flags
+                ):
+                    patched_char = public_module.patch_direct_damage_entry(
+                        patched_char,
+                        char_descriptor,
+                        char_descriptor,
+                    )
+                    char_changed = True
+
             if char_changed:
                 char_path = directory / Path(char_descriptor[1:-1] + ".smali")
                 if char_path.exists():
@@ -706,6 +740,8 @@ def configure(public_module) -> None:
             public_module._pending_hit_call_rewrite_count = 0
             public_module._pending_parry_feedback_overlays = {}
             public_module._pending_parry_feedback_rewrite_count = 0
+            public_module._pending_direct_damage_overlays = {}
+            public_module._pending_direct_damage_hook_count = 0
 
     def output_path(target: Path) -> Path:
         return target.with_name(
@@ -713,8 +749,9 @@ def configure(public_module) -> None:
         )
 
     # Ankh-only guarantees the ModAnkh + Last Stand core, including the runtime
-    # Last Stand Tag. Parry/Riposte and Instant Kill require a safe terminal
-    # Char.attack hook; Force Hit separately requires a safe selected hit-check.
+    # Last Stand Tag. Parry/Riposte uses selected hit-check hooks plus generic
+    # Char damage-entry hooks for direct-damage attacks; Instant Kill uses a
+    # safe terminal Char.attack hook and Force Hit uses the selected hit-check.
     # No attackProc fallback is kept, so optional features never silently degrade
     # their semantics. Assassinate is separate and needs no extra Char hook.
     injector.detect_target_game_prefix = detect_target_game_prefix
