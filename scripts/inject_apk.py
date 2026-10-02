@@ -833,11 +833,11 @@ def _enemy_surge_respawner_shape(
     ]
     if len(named_limits) == 1:
         limit_index = named_limits[0]
-    elif not named_limits and len(int_calls) in {1, 2}:
-        # Modern R8 builds may rename/in-line enough surrounding code that only
-        # the two virtual int calls remain distinguishable. Vanilla order is
-        # current-count then population-limit, while legacy ARK has only limit.
-        limit_index = len(int_calls) - 1
+    elif not named_limits and len(int_calls) == 2:
+        # Modern R8 builds may rename both virtual int calls. Vanilla order is
+        # current-count then population-limit, so only the two-call shape is
+        # unambiguous enough to adapt structurally.
+        limit_index = 1
     else:
         return None, (
             "population-limit anchor is ambiguous "
