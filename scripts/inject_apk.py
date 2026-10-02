@@ -1107,9 +1107,7 @@ def build_full_debug_payload(
         injector.rebase_smali_text(donor_total.text, _current_game_prefix),
     )
     required_parry_hooks = (
-        ("onIncomingAttack", f"({char_descriptor}{char_descriptor})V"),
-        ("onIncomingAttackComplete", "()V"),
-        ("shouldParry", f"({char_descriptor}{char_descriptor})Z"),
+        ("onHitCheck", f"({char_descriptor}{char_descriptor})Z"),
         ("defenseVerb", f"({char_descriptor})Ljava/lang/String;"),
     )
     for hook_name, hook_proto in required_parry_hooks:
@@ -1388,83 +1386,6 @@ def patch_char_instant_kill(
     return text[:start] + block + text[end:]
 
 
-def patch_char_attack(
-    text: str,
-    char_descriptor: str,
-    proto: str | None = None,
-) -> str:
-    if proto is None:
-        char_class = injector.SmaliClass.from_text(Path("Char.smali"), text)
-        proto, detail = _terminal_char_attack_proto(char_class, char_descriptor)
-        if proto is None:
-            raise injector.InjectError(
-                "Unable to identify terminal Char.attack overload: " + detail
-            )
-    start, end, block = injector.method_block(text, "attack", proto)
-    pre_hook = (
-        "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttack("
-        f"{char_descriptor}{char_descriptor})V"
-    )
-    post_hook = (
-        "Lcom/spd/mod/mechanics/ModParryRiposte;->onIncomingAttackComplete()V"
-    )
-    if pre_hook in block or post_hook in block:
-        raise injector.InjectError(
-            "Char.attack already contains SMM incoming-attack hook"
-        )
-
-    begin_hook = (
-        "Lcom/spd/mod/mechanics/ModInstantKill;->beginAttack("
-        f"{char_descriptor}{char_descriptor})V"
-    )
-    begin_match = re.search(
-        r"(?m)^[ \t]*invoke-static/range \{p0 \.\. p1\},\s*"
-        + re.escape(begin_hook)
-        + r"\s*$",
-        block,
-    )
-    if begin_match is not None:
-        insert_at = begin_match.end()
-        indent = ""
-    else:
-        force_native = re.search(
-            r"(?m)^(?P<indent>[ \t]*):smm_instant_kill_force_native\s*\n",
-            block,
-        )
-        if force_native is not None:
-            insert_at = force_native.end()
-            indent = force_native.group("indent")
-        else:
-            insert_at, indent = _first_smali_instruction(block)
-
-    injected = (
-        f"\n{indent}# SMM independent Riposte incoming-attack hook\n"
-        f"{indent}invoke-static/range {{p0 .. p1}}, {pre_hook}\n"
-    )
-    patched = block[:insert_at] + injected + block[insert_at:]
-
-    return_re = re.compile(
-        r"(?m)^(?P<indent>[ \t]*)return\s+(?P<reg>[vp]\d+)\s*"
-        r"(?P<comment>#.*)?$"
-    )
-
-    def add_completion_hook(match: re.Match[str]) -> str:
-        ind = match.group("indent")
-        original = match.group(0)
-        return (
-            f"{ind}# SMM immediate Riposte completion hook\n"
-            f"{ind}invoke-static {{}}, {post_hook}\n"
-            f"{original}"
-        )
-
-    patched, return_count = return_re.subn(add_completion_hook, patched)
-    if return_count == 0:
-        raise injector.InjectError(
-            "Terminal Char.attack has no normal boolean return for Riposte completion"
-        )
-    return text[:start] + patched + text[end:]
-
-
 def patch_char_hit(
     text: str,
     char_descriptor: str,
@@ -1495,44 +1416,65 @@ def patch_char_hit(
         f"{char_descriptor}{char_descriptor})Z"
     )
     parry_hook = (
-        "Lcom/spd/mod/mechanics/ModParryRiposte;->shouldParry("
+        "Lcom/spd/mod/mechanics/ModParryRiposte;->onHitCheck("
         f"{char_descriptor}{char_descriptor})Z"
     )
     if force and force_hook in block:
         raise injector.InjectError("Char.hit already contains SMM Force Hit hook")
     if parry and parry_hook in block:
-        raise injector.InjectError("Char.hit already contains SMM Parry hook")
+        raise injector.InjectError("Char.hit already contains SMM Parry/Riposte hook")
 
     insert_at, indent = _first_smali_instruction(block)
     parts = []
 
-    if force:
+    if parry:
+        parts.extend([
+            f"{indent}# SMM unified Parry/Riposte hit observation\n",
+            f"{indent}invoke-static/range {{p0 .. p1}}, {parry_hook}\n",
+            f"{indent}move-result v0\n",
+        ])
+
+        if force:
+            parts.extend([
+                f"{indent}if-eqz v0, :smm_parry_riposte_no_parry\n",
+                f"{indent}# Force Hit overrides Parry but not Riposte observation\n",
+                f"{indent}invoke-static/range {{p0 .. p1}}, {force_hook}\n",
+                f"{indent}move-result v0\n",
+                f"{indent}if-eqz v0, :smm_parry_riposte_return_miss\n",
+                f"{indent}const/4 v0, 0x1\n",
+                f"{indent}return v0\n",
+                f"{indent}:smm_parry_riposte_return_miss\n",
+                f"{indent}const/4 v0, 0x0\n",
+                f"{indent}return v0\n",
+                f"{indent}:smm_parry_riposte_no_parry\n",
+                f"{indent}invoke-static/range {{p0 .. p1}}, {force_hook}\n",
+                f"{indent}move-result v0\n",
+                f"{indent}if-eqz v0, :smm_combat_hit_native\n",
+                f"{indent}const/4 v0, 0x1\n",
+                f"{indent}return v0\n",
+                f"{indent}:smm_combat_hit_native\n",
+            ])
+        else:
+            parts.extend([
+                f"{indent}if-eqz v0, :smm_combat_hit_native\n",
+                f"{indent}const/4 v0, 0x0\n",
+                f"{indent}return v0\n",
+                f"{indent}:smm_combat_hit_native\n",
+            ])
+    elif force:
         parts.extend([
             f"{indent}# SMM Force Hit pre-defense hook\n",
             f"{indent}invoke-static/range {{p0 .. p1}}, {force_hook}\n",
             f"{indent}move-result v0\n",
-            f"{indent}if-eqz v0, :smm_force_hit_native\n",
+            f"{indent}if-eqz v0, :smm_combat_hit_native\n",
             f"{indent}const/4 v0, 0x1\n",
             f"{indent}return v0\n",
-            f"{indent}:smm_force_hit_native\n",
-        ])
-
-    if parry:
-        parts.extend([
-            f"{indent}# SMM Parry pre-hit hook\n",
-            f"{indent}invoke-static/range {{p0 .. p1}}, {parry_hook}\n",
-            f"{indent}move-result v0\n",
-            f"{indent}if-eqz v0, :smm_parry_native\n",
-            f"{indent}const/4 v0, 0x0\n",
-            f"{indent}return v0\n",
-            f"{indent}:smm_parry_native\n",
+            f"{indent}:smm_combat_hit_native\n",
         ])
 
     parts.append("\n")
-    injected = "".join(parts)
-    patched = block[:insert_at] + injected + block[insert_at:]
+    patched = block[:insert_at] + "".join(parts) + block[insert_at:]
     return text[:start] + patched + text[end:]
-
 
 def write_combat_call_overlays(
     directory: Path,
@@ -1683,11 +1625,7 @@ def compile_smali_with_char_hook(
         force_combo=True,
     )
 
-    # Add Riposte hooks after the Instant Kill guards. patch_char_attack places
-    # its entry hook after the force+instant guard and covers all early returns.
-    # so every terminal-attack return remains covered.
-    patched_char = patch_char_attack(patched_char, char_descriptor, proto)
-
+    # Parry/Riposte is resolved only at the selected hit-check entry.
     patched_char = patch_char_hit(
         patched_char,
         char_descriptor,
@@ -1710,9 +1648,8 @@ def compile_smali_with_char_hook(
     injector.log(
         f"Char.attack Instant Kill force-entry + attack-context return hooks ({proto}): OK"
     )
-    injector.log(f"Char.attack entry/return Riposte hooks ({proto}): OK")
     injector.log(
-        "Force Hit + Parry pre-hit hooks "
+        "Unified Force Hit + Parry/Riposte hit hook "
         f"{hit_method}{hit_proto} ({hit_capability.strategy}): OK"
     )
     if char_feedback_count:
