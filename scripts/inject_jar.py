@@ -693,6 +693,7 @@ public class SmmParryFeedbackPatcher {
         LinkedHashSet<String> structuralHits = new LinkedHashSet<>();
         LinkedHashMap<String, LinkedHashSet<String>> attackEdges = new LinkedHashMap<>();
         LinkedHashMap<String, LinkedHashSet<String>> attackHitCalls = new LinkedHashMap<>();
+        LinkedHashMap<String, LinkedHashSet<String>> hitEdges = new LinkedHashMap<>();
 
         new ClassReader(original).accept(new ClassVisitor(API) {
             @Override
