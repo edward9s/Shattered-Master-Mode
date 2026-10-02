@@ -118,6 +118,31 @@ class ApkUiCompatTests(unittest.TestCase):
             self.assertEqual({"classes2.dex"}, set(replacements))
             self.assertTrue(replacements["classes2.dex"].is_file())
 
+    def test_pruned_dex_identifier_tables_must_not_grow(self):
+        original = bytearray(0x70)
+        replacement = bytearray(0x70)
+        original[:8] = b"dex\n035\0"
+        replacement[:8] = b"dex\n035\0"
+
+        for offset in injector.DEX_ID_COUNT_OFFSETS.values():
+            original[offset:offset + 4] = (10).to_bytes(4, "little")
+            replacement[offset:offset + 4] = (10).to_bytes(4, "little")
+
+        injector.validate_pruned_dex_does_not_grow(
+            "classes.dex",
+            bytes(original),
+            bytes(replacement),
+        )
+
+        method_offset = injector.DEX_ID_COUNT_OFFSETS["methods"]
+        replacement[method_offset:method_offset + 4] = (11).to_bytes(4, "little")
+        with self.assertRaises(injector.InjectError):
+            injector.validate_pruned_dex_does_not_grow(
+                "classes.dex",
+                bytes(original),
+                bytes(replacement),
+            )
+
     def test_rebuild_apk_uses_only_requested_pruned_dex_replacement(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
