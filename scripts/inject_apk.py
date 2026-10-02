@@ -246,8 +246,6 @@ _current_game_prefix: str | None = None
 _pending_char_overlay: tuple[str, str] | None = None
 _pending_buff_click_patch: tuple[str, str] | None = None
 _pending_action_name_overlay: tuple[str, str] | None = None
-_pending_hit_call_overlays: dict[str, str] = {}
-_pending_hit_call_rewrite_count = 0
 _pending_parry_feedback_overlays: dict[str, str] = {}
 _pending_parry_feedback_rewrite_count = 0
 _pending_direct_damage_overlays: dict[str, str] = {}
@@ -808,77 +806,6 @@ def _probe_hit_hook(
     )
 
 
-def canonicalize_inherited_static_hit_calls(
-    target_index: dict[str, injector.SmaliClass],
-    char_descriptor: str,
-    method_name: str,
-    proto: str,
-) -> tuple[dict[str, str], int]:
-    """Rewrite inherited static hit references to the actual Char declaration.
-
-    Some legacy D8 output encodes an unqualified inherited static call such as
-    Eye.hit(...) or YogFist$BrightFist.hit(...), even though only Char declares
-    the selected hit helper. Those references can bind to the untouched target
-    DEX instead of the patched Char overlay. Canonicalizing only references that
-    resolve exactly to Char keeps the source semantics while making the injected
-    hit hook authoritative. Hidden/overridden static methods are left untouched.
-    """
-
-    call_re = re.compile(
-        r"(?m)^(?P<prefix>\s*invoke-static(?:/range)?\s+\{[^}]*\},\s*)"
-        r"(?P<owner>L[^;\s]+;)->"
-        + re.escape(method_name)
-        + re.escape(proto)
-        + r"(?P<suffix>\s*(?:#.*)?)$"
-    )
-
-    overlays: dict[str, str] = {}
-    total = 0
-    key = (method_name, proto)
-
-    for descriptor, item in target_index.items():
-        if descriptor == char_descriptor:
-            continue
-
-        changed = 0
-
-        def repl(match: re.Match[str]) -> str:
-            nonlocal changed
-            owner = match.group("owner")
-            if owner == char_descriptor:
-                return match.group(0)
-
-            resolved = injector.resolve_member(
-                target_index,
-                owner,
-                key,
-                method=True,
-            )
-            if resolved is None:
-                return match.group(0)
-
-            resolved_owner, flags = resolved
-            if resolved_owner != char_descriptor or "static" not in flags:
-                return match.group(0)
-
-            changed += 1
-            return (
-                match.group("prefix")
-                + char_descriptor
-                + "->"
-                + method_name
-                + proto
-                + match.group("suffix")
-            )
-
-        patched = call_re.sub(repl, item.text)
-        if changed:
-            overlays[descriptor] = patched
-            total += changed
-
-    return overlays, total
-
-
 def _descriptor_extends(
     target_index: dict[str, injector.SmaliClass],
     descriptor: str,
@@ -897,87 +824,73 @@ def _descriptor_extends(
     return False
 
 
-def rewrite_char_parry_defense_verb_calls(
+def rewrite_parry_feedback_in_hit_callers(
     text: str,
+    target_index: dict[str, injector.SmaliClass],
     char_descriptor: str,
+    hit_method: str,
+    hit_proto: str,
 ) -> tuple[str, int]:
-    """Route Char's own virtual defenseVerb calls through the Parry bridge."""
-    call_re = re.compile(
-        r"(?m)^(?P<prefix>\s*)invoke-virtual(?P<range>/range)?\s+"
-        r"\{(?P<args>[^}]*)\},\s*"
-        + re.escape(char_descriptor)
-        + r"->defenseVerb\(\)Ljava/lang/String;"
-        r"(?P<suffix>\s*(?:#.*)?)$"
+    """Route defenseVerb() only inside methods that actually call selected hit().
+
+    The hit call itself is left untouched, including legacy subclass owners such
+    as Eye.hit(...). Shadow pruning guarantees the overlay Char is the only Char
+    definition at runtime, so rewriting inherited static owners is unnecessary.
+    """
+    hit_call_re = re.compile(
+        r"(?m)^\\s*invoke-static(?:/range)?\\s+\\{[^}]*\\},\\s*"
+        r"(?P<owner>L[^;\\s]+;)->"
+        + re.escape(hit_method)
+        + re.escape(hit_proto)
+        + r"\\s*(?:#.*)?$"
     )
-    hook = (
+    defense_call_re = re.compile(
+        r"(?m)^(?P<prefix>\\s*)invoke-virtual(?P<range>/range)?\\s+"
+        r"\\{(?P<args>[^}]*)\\},\\s*"
+        r"(?P<owner>L[^;\\s]+;)->defenseVerb\\(\\)Ljava/lang/String;"
+        r"(?P<suffix>\\s*(?:#.*)?)$"
+    )
+    method_re = re.compile(
+        r"(?ms)^\\.method\\b[^\\n]*\\n.*?^\\.end method\\s*$"
+    )
+    helper = (
         "Lcom/spd/mod/mechanics/ModParryRiposte;->defenseVerb("
         + char_descriptor
         + ")Ljava/lang/String;"
     )
-    changed = 0
-
-    def repl(match: re.Match[str]) -> str:
-        nonlocal changed
-        registers = _smali_invoke_registers(
-            match.group("args"),
-            bool(match.group("range")),
-        )
-        if registers is None or len(registers) != 1:
-            return match.group(0)
-
-        changed += 1
-        range_suffix = "/range" if match.group("range") else ""
-        return (
-            match.group("prefix")
-            + "invoke-static"
-            + range_suffix
-            + " {"
-            + match.group("args")
-            + "}, "
-            + hook
-            + match.group("suffix")
-        )
-
-    return call_re.sub(repl, text), changed
-
-
-def rewrite_parry_defense_verb_calls(
-    target_index: dict[str, injector.SmaliClass],
-    char_descriptor: str,
-    base_overlays: dict[str, str] | None = None,
-) -> tuple[dict[str, str], int]:
-    """Route Char defenseVerb() display calls through the SMM Parry bridge.
-
-    Only virtual calls whose declared receiver is Char or one of its subclasses
-    are rewritten. invoke-super is deliberately untouched so native overrides
-    keep their own fallback behavior. base_overlays lets this compose with the
-    inherited-static hit canonicalization without losing either rewrite.
-    """
-
-    call_re = re.compile(
-        r"(?m)^(?P<prefix>\s*)invoke-virtual(?P<range>/range)?\s+"
-        r"\{(?P<args>[^}]*)\},\s*"
-        r"(?P<owner>L[^;\s]+;)->defenseVerb\(\)Ljava/lang/String;"
-        r"(?P<suffix>\s*(?:#.*)?)$"
-    )
-    helper = "Lcom/spd/mod/mechanics/ModParryRiposte;->defenseVerb(" + char_descriptor + ")Ljava/lang/String;"
-
-    overlays: dict[str, str] = {}
+    hit_key = (hit_method, hit_proto)
     total = 0
-    base_overlays = base_overlays or {}
 
-    for descriptor, item in target_index.items():
-        # Char itself is patched later in the dedicated Char pipeline, after
-        # optional Parry hooks have definitively succeeded.
-        if descriptor == char_descriptor:
-            continue
-        source = base_overlays.get(descriptor, item.text)
-        changed = 0
+    def method_repl(method_match: re.Match[str]) -> str:
+        nonlocal total
+        block = method_match.group(0)
 
-        def repl(match: re.Match[str]) -> str:
-            nonlocal changed
+        calls_selected_hit = False
+        for hit_match in hit_call_re.finditer(block):
+            resolved = injector.resolve_member(
+                target_index,
+                hit_match.group("owner"),
+                hit_key,
+                method=True,
+            )
+            if resolved is None:
+                continue
+            resolved_owner, flags = resolved
+            if resolved_owner == char_descriptor and "static" in flags:
+                calls_selected_hit = True
+                break
+
+        if not calls_selected_hit:
+            return block
+
+        def defense_repl(match: re.Match[str]) -> str:
+            nonlocal total
             owner = match.group("owner")
-            if not _descriptor_extends(target_index, owner, char_descriptor):
+            if not _descriptor_extends(
+                target_index,
+                owner,
+                char_descriptor,
+            ):
                 return match.group(0)
 
             registers = _smali_invoke_registers(
@@ -987,7 +900,7 @@ def rewrite_parry_defense_verb_calls(
             if registers is None or len(registers) != 1:
                 return match.group(0)
 
-            changed += 1
+            total += 1
             range_suffix = "/range" if match.group("range") else ""
             return (
                 match.group("prefix")
@@ -1000,13 +913,36 @@ def rewrite_parry_defense_verb_calls(
                 + match.group("suffix")
             )
 
-        patched = call_re.sub(repl, source)
+        return defense_call_re.sub(defense_repl, block)
+
+    return method_re.sub(method_repl, text), total
+
+
+def build_parry_feedback_overlays(
+    target_index: dict[str, injector.SmaliClass],
+    char_descriptor: str,
+    hit_method: str,
+    hit_proto: str,
+) -> tuple[dict[str, str], int]:
+    """Patch only non-Char classes with hit-caller methods needing feedback."""
+    overlays: dict[str, str] = {}
+    total = 0
+
+    for descriptor, item in target_index.items():
+        if descriptor == char_descriptor:
+            continue
+        patched, changed = rewrite_parry_feedback_in_hit_callers(
+            item.text,
+            target_index,
+            char_descriptor,
+            hit_method,
+            hit_proto,
+        )
         if changed:
             overlays[descriptor] = patched
             total += changed
 
     return overlays, total
-
 
 def patch_direct_damage_entry(
     text: str,
@@ -1119,14 +1055,11 @@ def detect_target_game_prefix(
     global _current_abi_profile, _current_game_prefix
     global _pending_char_overlay, _pending_buff_click_patch
     global _pending_action_name_overlay
-    global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
     global _pending_parry_feedback_overlays, _pending_parry_feedback_rewrite_count
     global _pending_direct_damage_overlays, _pending_direct_damage_hook_count
     game_prefix = _original_detect_target_game_prefix(target_index)
     _current_game_prefix = game_prefix
     _pending_char_overlay = None
-    _pending_hit_call_overlays = {}
-    _pending_hit_call_rewrite_count = 0
     _pending_parry_feedback_overlays = {}
     _pending_parry_feedback_rewrite_count = 0
     _pending_direct_damage_overlays = {}
@@ -1147,31 +1080,21 @@ def detect_target_game_prefix(
     if hit_capability.compatible and hit_method and hit_proto:
         char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
         (
-            _pending_hit_call_overlays,
-            _pending_hit_call_rewrite_count,
-        ) = canonicalize_inherited_static_hit_calls(
+            _pending_parry_feedback_overlays,
+            _pending_parry_feedback_rewrite_count,
+        ) = build_parry_feedback_overlays(
             target_index,
             char_descriptor,
             hit_method,
             hit_proto,
         )
         (
-            _pending_parry_feedback_overlays,
-            _pending_parry_feedback_rewrite_count,
-        ) = rewrite_parry_defense_verb_calls(
-            target_index,
-            char_descriptor,
-            _pending_hit_call_overlays,
-        )
-        combined_overlays = dict(_pending_hit_call_overlays)
-        combined_overlays.update(_pending_parry_feedback_overlays)
-        (
             _pending_direct_damage_overlays,
             _pending_direct_damage_hook_count,
         ) = build_direct_damage_overlays(
             target_index,
             char_descriptor,
-            combined_overlays,
+            _pending_parry_feedback_overlays,
         )
 
     return game_prefix
@@ -1582,16 +1505,13 @@ def write_combat_call_overlays(
     parry: bool,
     force: bool,
 ) -> None:
-    global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
     global _pending_parry_feedback_overlays, _pending_parry_feedback_rewrite_count
     global _pending_direct_damage_overlays, _pending_direct_damage_hook_count
 
     overlays: dict[str, str] = {}
-    if parry or force:
-        overlays.update(_pending_hit_call_overlays)
     if parry:
-        # Later overlays were derived from earlier ones, so replacement order
-        # preserves all rewrites in one class.
+        # Direct-damage overlays are derived from feedback overlays, so later
+        # replacement preserves both changes when one class needs both.
         overlays.update(_pending_parry_feedback_overlays)
         overlays.update(_pending_direct_damage_overlays)
 
@@ -1614,12 +1534,6 @@ def write_combat_call_overlays(
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(patched, encoding="utf-8")
 
-    if (parry or force) and _pending_hit_call_rewrite_count:
-        injector.log(
-            "Canonicalized inherited static hit owner for "
-            + str(_pending_hit_call_rewrite_count)
-            + " call(s): OK"
-        )
     if parry and _pending_parry_feedback_rewrite_count:
         injector.log(
             "Routed Parry defense feedback for "
@@ -1704,7 +1618,6 @@ def compile_smali_with_char_hook(
 ) -> None:
     global _pending_char_overlay, _pending_buff_click_patch
     global _pending_action_name_overlay
-    global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
     global _pending_parry_feedback_overlays, _pending_parry_feedback_rewrite_count
     global _pending_direct_damage_overlays, _pending_direct_damage_hook_count
     if _pending_char_overlay is None:
@@ -1743,9 +1656,18 @@ def compile_smali_with_char_hook(
         force=True,
         parry=True,
     )
-    patched_char, char_feedback_count = rewrite_char_parry_defense_verb_calls(
+    patched_char, char_feedback_count = rewrite_parry_feedback_in_hit_callers(
         patched_char,
+        {
+            **getattr(injector, "_target_index_for_feedback", {}),
+            char_descriptor: injector.SmaliClass.from_text(
+                Path("Char.smali"),
+                patched_char,
+            ),
+        },
         char_descriptor,
+        hit_method,
+        hit_proto,
     )
     char_item = injector.SmaliClass.from_text(Path("Char.smali"), patched_char)
     char_damage_flags = char_item.methods.get(("damage", "(ILjava/lang/Object;)V"))
