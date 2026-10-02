@@ -215,7 +215,7 @@ public class ModEnemySurge extends Buff {
 
             if (compatibleSpawnMob(Dungeon.level, 12)) {
                 attempts++;
-                currentCount = Dungeon.level.mobCount();
+                currentCount = compatibleMobCount(Dungeon.level);
                 extraSpawnCountdown += extraSpawnInterval(currentCount);
             } else {
                 // Match the vanilla spawner's failed-placement retry cadence.
