@@ -943,7 +943,7 @@ public class ParryHarness {{
             parry_result = self._run_parry_harness(classes)
             self.assertEqual(0, parry_result.returncode, parry_result.stdout)
 
-    def test_ark_legacy_hit_supported_by_full_jar_for_force_and_instant(self):
+    def test_ark_legacy_hit_supported_by_full_jar_for_parry_force_and_instant(self):
         java = pathlib.Path(self._tool("java"))
         with tempfile.TemporaryDirectory() as tmp:
             work = pathlib.Path(tmp)
@@ -978,6 +978,10 @@ public class ParryHarness {{
             char_class.write_bytes(patched.read_bytes())
             harness = self._run_combat_harness(classes)
             self.assertEqual(0, harness.returncode, harness.stdout)
+            parry_harness = self._run_parry_harness(classes)
+            self.assertEqual(
+                0, parry_harness.returncode, parry_harness.stdout
+            )
 
     def test_legacy_wnduseitem_synthetic_bridge(self):
         java = pathlib.Path(self._tool("java"))
