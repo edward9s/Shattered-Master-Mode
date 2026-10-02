@@ -175,7 +175,7 @@ public class ModParryRiposte extends Buff {
     public static String defenseVerb(Char defender) {
         Char pending = PARRY_FEEDBACK_TARGET.get();
         if (pending != defender) {
-            return defender == null ? "" : defender.defenseVerb();
+            return defender.defenseVerb();
         }
         PARRY_FEEDBACK_TARGET.remove();
 
