@@ -55,7 +55,8 @@ public class ModForceHit extends Buff {
                 && defender != null
                 && attacker != defender
                 && isForceHitEnabled(attacker)
-                && defender.isAlive();
+                && defender.isAlive()
+                && !defender.isInvulnerable(attacker.getClass());
     }
 
     public boolean forceHitEnabled() {
