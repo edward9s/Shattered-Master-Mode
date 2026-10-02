@@ -29,6 +29,14 @@ public class ModEnemySurge extends Buff {
 
     private static Field respawnerField;
 
+    private static Class<?> resolvedLevelClass;
+    private static Method mobLimitMethod;
+    private static Method mobCountMethod;
+    private static Method spawnMobMethod;
+    private static Method legacyNMobsMethod;
+    private static Method legacyCreateMobMethod;
+    private static Method legacyRandomRespawnCellMethod;
+
     private int spawnMultiplier = 1;
     private boolean attractEnemies;
 
@@ -177,7 +185,7 @@ public class ModEnemySurge extends Buff {
         // RegularLevel.mobLimit() contains randomness. Sample the vanilla limit
         // only once per visited level so this buff does not consume RNG every turn.
         if (baseMobLimit < 0) {
-            baseMobLimit = Math.max(0, Dungeon.level.mobLimit());
+            baseMobLimit = Math.max(0, compatibleMobLimit(Dungeon.level));
         }
         if (baseMobLimit <= 0) {
             extraSpawnCountdown = Float.NaN;
@@ -185,7 +193,7 @@ public class ModEnemySurge extends Buff {
         }
 
         int effectiveLimit = baseMobLimit * spawnMultiplier;
-        int currentCount = Dungeon.level.mobCount();
+        int currentCount = compatibleMobCount(Dungeon.level);
         if (currentCount >= effectiveLimit) {
             extraSpawnCountdown = Float.NaN;
             return;
@@ -199,13 +207,13 @@ public class ModEnemySurge extends Buff {
         int attempts = 0;
 
         while (extraSpawnCountdown <= 0f && attempts < spawnMultiplier) {
-            currentCount = Dungeon.level.mobCount();
+            currentCount = compatibleMobCount(Dungeon.level);
             if (currentCount >= effectiveLimit) {
                 extraSpawnCountdown = Float.NaN;
                 break;
             }
 
-            if (Dungeon.level.spawnMob(12)) {
+            if (compatibleSpawnMob(Dungeon.level, 12)) {
                 attempts++;
                 currentCount = Dungeon.level.mobCount();
                 extraSpawnCountdown += extraSpawnInterval(currentCount);
@@ -215,6 +223,188 @@ public class ModEnemySurge extends Buff {
                 break;
             }
         }
+    }
+
+    private static synchronized void resolveLevelCompatibility(Level level) {
+        if (level == null) {
+            resolvedLevelClass = null;
+            mobLimitMethod = null;
+            mobCountMethod = null;
+            spawnMobMethod = null;
+            legacyNMobsMethod = null;
+            legacyCreateMobMethod = null;
+            legacyRandomRespawnCellMethod = null;
+            return;
+        }
+
+        Class<?> type = level.getClass();
+        if (resolvedLevelClass == type) {
+            return;
+        }
+
+        resolvedLevelClass = type;
+        mobLimitMethod = publicMethod(type, "mobLimit");
+        mobCountMethod = publicMethod(type, "mobCount");
+        spawnMobMethod = publicMethod(type, "spawnMob", Integer.TYPE);
+
+        legacyNMobsMethod = mobLimitMethod == null
+                ? publicMethod(type, "nMobs")
+                : null;
+        legacyCreateMobMethod = spawnMobMethod == null
+                ? publicMethod(type, "createMob")
+                : null;
+        legacyRandomRespawnCellMethod = spawnMobMethod == null
+                ? randomRespawnMethod(type)
+                : null;
+    }
+
+    private static Method publicMethod(
+            Class<?> type, String name, Class<?>... parameters) {
+        try {
+            Method method = type.getMethod(name, parameters);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | SecurityException ignored) {
+            return null;
+        }
+    }
+
+    private static Method randomRespawnMethod(Class<?> type) {
+        for (Method method : type.getMethods()) {
+            if (!"randomRespawnCell".equals(method.getName())) {
+                continue;
+            }
+            Class<?>[] parameters = method.getParameterTypes();
+            if (parameters.length == 0
+                    || (parameters.length == 1
+                    && parameters[0].isAssignableFrom(Mob.class))) {
+                try {
+                    method.setAccessible(true);
+                } catch (SecurityException ignored) {
+                }
+                return method;
+            }
+        }
+        return null;
+    }
+
+    private static int compatibleMobLimit(Level level) {
+        resolveLevelCompatibility(level);
+        Method method = mobLimitMethod != null
+                ? mobLimitMethod
+                : legacyNMobsMethod;
+        if (method == null) {
+            return 0;
+        }
+
+        try {
+            Object value = method.invoke(level);
+            return value instanceof Number
+                    ? Math.max(0, ((Number) value).intValue())
+                    : 0;
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return 0;
+        }
+    }
+
+    private static int compatibleMobCount(Level level) {
+        resolveLevelCompatibility(level);
+        if (mobCountMethod != null) {
+            try {
+                Object value = mobCountMethod.invoke(level);
+                if (value instanceof Number) {
+                    return Math.max(0, ((Number) value).intValue());
+                }
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // Fall through to the stable Level.mobs view.
+            }
+        }
+
+        int count = 0;
+        for (Mob mob : level.mobs.toArray(new Mob[0])) {
+            if (mob.alignment == Char.Alignment.ENEMY) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static boolean compatibleSpawnMob(Level level, int minDistance) {
+        resolveLevelCompatibility(level);
+
+        if (spawnMobMethod != null) {
+            try {
+                Object value = spawnMobMethod.invoke(level, minDistance);
+                return value instanceof Boolean && (Boolean) value;
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                return false;
+            }
+        }
+
+        if (legacyCreateMobMethod == null
+                || legacyRandomRespawnCellMethod == null
+                || Dungeon.hero == null) {
+            return false;
+        }
+
+        try {
+            Object created = legacyCreateMobMethod.invoke(level);
+            if (!(created instanceof Mob)) {
+                return false;
+            }
+
+            Mob mob = (Mob) created;
+            Object cellValue;
+            if (legacyRandomRespawnCellMethod.getParameterTypes().length == 0) {
+                cellValue = legacyRandomRespawnCellMethod.invoke(level);
+            } else {
+                cellValue = legacyRandomRespawnCellMethod.invoke(level, mob);
+            }
+            if (!(cellValue instanceof Number)) {
+                return false;
+            }
+
+            int cell = ((Number) cellValue).intValue();
+            if (cell < 0
+                    || (minDistance > 0
+                    && level.distance(Dungeon.hero.pos, cell) < minDistance)) {
+                return false;
+            }
+
+            setWanderingState(mob);
+            mob.pos = cell;
+            GameScene.add(mob);
+            return true;
+
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private static void setWanderingState(Mob mob) {
+        try {
+            Field state = findField(mob.getClass(), "state");
+            Field wandering = findField(mob.getClass(), "WANDERING");
+            if (state != null && wandering != null) {
+                state.set(mob, wandering.get(mob));
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // Default mob state is still valid; placement is the essential step.
+        }
+    }
+
+    private static Field findField(Class<?> type, String name) {
+        for (Class<?> current = type;
+                current != null;
+                current = current.getSuperclass()) {
+            try {
+                Field field = current.getDeclaredField(name);
+                field.setAccessible(true);
+                return field;
+            } catch (ReflectiveOperationException | SecurityException ignored) {
+            }
+        }
+        return null;
     }
 
     private float extraSpawnInterval(int currentCount) {
