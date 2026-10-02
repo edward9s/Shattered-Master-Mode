@@ -9,6 +9,7 @@ import _inject_action_name as action_name
 import _inject_apk_core as injector
 import _inject_buff_click as buff_click
 import _inject_apk_ankh as ankh_mode
+import inject_apk as public_apk
 
 
 GAME = "Lcom/shatteredpixel/shatteredpixeldungeon/"
@@ -231,6 +232,128 @@ class ApkUiCompatTests(unittest.TestCase):
             )
         )
 
+
+    def test_enemy_surge_modern_respawner_hook_uses_native_limit_and_cooldown(self):
+        level = GAME + "levels/Level;"
+        spawner = GAME + "actors/mobs/MobSpawner;"
+        text = (
+            f".class public {spawner}\n"
+            f".super {GAME}actors/Actor;\n\n"
+            ".method protected act()Z\n"
+            "    .locals 3\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->mobCount()I\n"
+            "    move-result v1\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->mobLimit()I\n"
+            "    move-result v2\n"
+            "    if-ge v1, v2, :done\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->respawnCooldown()F\n"
+            "    move-result v1\n"
+            f"    invoke-virtual {{p0, v1}}, {GAME}actors/Actor;->spend(F)V\n"
+            "    :done\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        item = injector.SmaliClass.from_text(pathlib.Path("MobSpawner.smali"), text)
+        capability = public_apk.probe_enemy_surge_respawner(
+            {spawner: item}, GAME, required=False
+        )
+        self.assertTrue(capability.compatible)
+        patched = public_apk.patch_enemy_surge_respawner(
+            text,
+            method=capability.data["method"],
+            proto=capability.data["proto"],
+            level_descriptor=capability.data["level_descriptor"],
+        )
+        self.assertEqual(
+            1,
+            patched.count("ModEnemySurge;->scaleMobLimit(I)I"),
+        )
+        self.assertEqual(
+            1,
+            patched.count("ModEnemySurge;->scaleRespawnCooldown(F)F"),
+        )
+
+    def test_enemy_surge_legacy_respawner_hook_supports_n_mobs(self):
+        level = GAME + "levels/Level;"
+        spawner = GAME + "levels/Level$Respawner;"
+        text = (
+            f".class public {spawner}\n"
+            f".super {GAME}actors/Actor;\n\n"
+            ".method protected act()Z\n"
+            "    .locals 2\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->nMobs()I\n"
+            "    move-result v1\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->respawnCooldown()F\n"
+            "    move-result v1\n"
+            f"    invoke-virtual {{p0, v1}}, {GAME}actors/Actor;->spend(F)V\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        item = injector.SmaliClass.from_text(pathlib.Path("Respawner.smali"), text)
+        capability = public_apk.probe_enemy_surge_respawner(
+            {spawner: item}, GAME, required=False
+        )
+        self.assertTrue(capability.compatible)
+        self.assertIn("Level.Respawner", capability.detail)
+        patched = public_apk.patch_enemy_surge_respawner(
+            text,
+            method=capability.data["method"],
+            proto=capability.data["proto"],
+            level_descriptor=capability.data["level_descriptor"],
+        )
+        self.assertIn("ModEnemySurge;->scaleMobLimit(I)I", patched)
+        self.assertIn("ModEnemySurge;->scaleRespawnCooldown(F)F", patched)
+
+    def test_enemy_surge_r8_shape_scales_second_level_int_call(self):
+        level = GAME + "levels/Level;"
+        spawner = GAME + "actors/mobs/MobSpawner;"
+        text = (
+            f".class public {spawner}\n"
+            f".super {GAME}actors/Actor;\n\n"
+            ".method protected a()Z\n"
+            "    .locals 3\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->a()I\n"
+            "    move-result v1\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->b()I\n"
+            "    move-result v2\n"
+            "    if-ge v1, v2, :done\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->c()F\n"
+            "    move-result v1\n"
+            f"    invoke-virtual {{p0, v1}}, {GAME}actors/Actor;->spend(F)V\n"
+            "    :done\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        item = injector.SmaliClass.from_text(pathlib.Path("MobSpawner.smali"), text)
+        capability = public_apk.probe_enemy_surge_respawner(
+            {spawner: item}, GAME, required=False
+        )
+        self.assertTrue(capability.compatible)
+        self.assertEqual("a", capability.data["method"])
+        patched = public_apk.patch_enemy_surge_respawner(
+            text,
+            method=capability.data["method"],
+            proto=capability.data["proto"],
+            level_descriptor=capability.data["level_descriptor"],
+        )
+        first = patched.index(f"{level}->a()I")
+        second = patched.index(f"{level}->b()I")
+        hook = patched.index("ModEnemySurge;->scaleMobLimit(I)I")
+        self.assertGreater(hook, second)
+        self.assertGreater(second, first)
+
+
     def test_ankh_apk_no_longer_patches_item_properties(self):
         self.assertFalse(hasattr(ankh_mode, "_ACTION_MESSAGE_BUNDLE_RE"))
         self.assertFalse(hasattr(ankh_mode, "_ACTION_MESSAGES"))
@@ -250,7 +373,7 @@ class ApkUiCompatTests(unittest.TestCase):
 
         class Profile:
             def get(self, key):
-                if key in {"char.incomingAttackHook", "char.hitHook"}:
+                if key in {"char.incomingAttackHook", "char.hitHook", "enemySurge.respawnerHook"}:
                     return SupportedCapability()
                 return UnsupportedCapability()
 
