@@ -246,6 +246,7 @@ _current_game_prefix: str | None = None
 _pending_char_overlay: tuple[str, str] | None = None
 _pending_buff_click_patch: tuple[str, str] | None = None
 _pending_action_name_overlay: tuple[str, str] | None = None
+_pending_enemy_surge_overlay: tuple[str, str, str, str] | None = None
 _ankh_only_mode = False
 
 
@@ -802,6 +803,212 @@ def _probe_hit_hook(
     )
 
 
+
+def _enemy_surge_call_matches(
+    block: str,
+    level_descriptor: str,
+    return_type: str,
+):
+    pattern = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)invoke-virtual(?:/range)?\s+"
+        r"\{(?P<args>[^}]*)\},\s*"
+        + re.escape(level_descriptor)
+        + r"->(?P<name>[A-Za-z_$][\w$]*)\(\)"
+        + re.escape(return_type)
+        + r"\s*\n"
+        r"(?P<move_indent>[ \t]*)move-result\s+(?P<reg>[vp]\d+)\s*$"
+    )
+    return list(pattern.finditer(block))
+
+
+def _enemy_surge_respawner_shape(
+    block: str,
+    level_descriptor: str,
+):
+    int_calls = _enemy_surge_call_matches(block, level_descriptor, "I")
+    named_limits = [
+        index
+        for index, match in enumerate(int_calls)
+        if match.group("name") in {"mobLimit", "nMobs"}
+    ]
+    if len(named_limits) == 1:
+        limit_index = named_limits[0]
+    elif not named_limits and len(int_calls) in {1, 2}:
+        # Modern R8 builds may rename/in-line enough surrounding code that only
+        # the two virtual int calls remain distinguishable. Vanilla order is
+        # current-count then population-limit, while legacy ARK has only limit.
+        limit_index = len(int_calls) - 1
+    else:
+        return None, (
+            "population-limit anchor is ambiguous "
+            f"({len(int_calls)} Level ()I call(s), "
+            f"{len(named_limits)} named limit call(s))"
+        )
+
+    float_calls = _enemy_surge_call_matches(block, level_descriptor, "F")
+    named_cooldowns = [
+        index
+        for index, match in enumerate(float_calls)
+        if match.group("name") == "respawnCooldown"
+    ]
+    if named_cooldowns:
+        cooldown_indexes = named_cooldowns
+    elif 1 <= len(float_calls) <= 3:
+        cooldown_indexes = list(range(len(float_calls)))
+    else:
+        return None, (
+            "respawn-cooldown anchor is ambiguous "
+            f"({len(float_calls)} Level ()F call(s))"
+        )
+
+    return (limit_index, cooldown_indexes), "native limit/cooldown anchors found"
+
+
+def _select_enemy_surge_respawner_method(
+    item: injector.SmaliClass,
+    level_descriptor: str,
+):
+    matches = []
+    diagnostics = []
+    for (name, proto), flags in item.methods.items():
+        if proto != "()Z" or "static" in flags:
+            continue
+        try:
+            _start, _end, block = injector.method_block(item.text, name, proto)
+        except injector.InjectError:
+            continue
+        shape, detail = _enemy_surge_respawner_shape(block, level_descriptor)
+        if shape is not None:
+            matches.append((name, proto, shape))
+        elif name == "act":
+            diagnostics.append(detail)
+
+    named = [entry for entry in matches if entry[0] == "act"]
+    if len(named) == 1:
+        return named[0], "act()Z"
+    if len(named) > 1:
+        return None, "multiple act()Z respawner candidates"
+    if len(matches) == 1:
+        return matches[0], f"structural {matches[0][0]}()Z"
+    if matches:
+        return None, f"multiple zero-arg boolean respawner candidates ({len(matches)})"
+    return None, (diagnostics[0] if diagnostics else "no compatible respawner method")
+
+
+def probe_enemy_surge_respawner(
+    target_index: dict[str, injector.SmaliClass],
+    game_prefix: str,
+    *,
+    required: bool = True,
+) -> AbiCapability:
+    level_descriptor = injector.game_descriptor(game_prefix, "levels/Level")
+    candidates = (
+        (
+            injector.game_descriptor(game_prefix, "actors/mobs/MobSpawner"),
+            "MobSpawner",
+        ),
+        (
+            injector.game_descriptor(game_prefix, "levels/Level$Respawner"),
+            "Level.Respawner",
+        ),
+    )
+    failures = []
+    for descriptor, label in candidates:
+        item = target_index.get(descriptor)
+        if item is None:
+            failures.append(label + " class is missing")
+            continue
+        selected, detail = _select_enemy_surge_respawner_method(
+            item, level_descriptor
+        )
+        if selected is None:
+            failures.append(label + ": " + detail)
+            continue
+        method, proto, _shape = selected
+        return AbiCapability(
+            "enemySurge.respawnerHook",
+            ABI_STRUCTURAL,
+            f"{label}.{method}{proto} exposes {detail}",
+            required=required,
+            data={
+                "descriptor": descriptor,
+                "method": method,
+                "proto": proto,
+                "level_descriptor": level_descriptor,
+            },
+        )
+
+    return AbiCapability(
+        "enemySurge.respawnerHook",
+        ABI_UNSUPPORTED,
+        "; ".join(failures),
+        required=required,
+    )
+
+
+def patch_enemy_surge_respawner(
+    text: str,
+    *,
+    method: str,
+    proto: str,
+    level_descriptor: str,
+) -> str:
+    surge = "Lcom/spd/mod/mechanics/ModEnemySurge;"
+    if (
+        surge + "->scaleMobLimit(I)I" in text
+        or surge + "->scaleRespawnCooldown(F)F" in text
+    ):
+        raise injector.InjectError("Enemy Surge respawner hook is already present")
+
+    start, end, block = injector.method_block(text, method, proto)
+    shape, detail = _enemy_surge_respawner_shape(block, level_descriptor)
+    if shape is None:
+        raise injector.InjectError(
+            "Enemy Surge respawner hook became incompatible: " + detail
+        )
+    limit_index, cooldown_indexes = shape
+
+    int_calls = _enemy_surge_call_matches(block, level_descriptor, "I")
+    float_calls = _enemy_surge_call_matches(block, level_descriptor, "F")
+    insertions: list[tuple[int, str]] = []
+
+    limit = int_calls[limit_index]
+    limit_indent = limit.group("move_indent")
+    limit_reg = limit.group("reg")
+    insertions.append((
+        limit.end(),
+        "\n"
+        + limit_indent
+        + "# SMM Enemy Surge population limit\n"
+        + limit_indent
+        + f"invoke-static {{{limit_reg}}}, {surge}->scaleMobLimit(I)I\n"
+        + limit_indent
+        + f"move-result {limit_reg}",
+    ))
+
+    for index in cooldown_indexes:
+        cooldown = float_calls[index]
+        cooldown_indent = cooldown.group("move_indent")
+        cooldown_reg = cooldown.group("reg")
+        insertions.append((
+            cooldown.end(),
+            "\n"
+            + cooldown_indent
+            + "# SMM Enemy Surge respawn cadence\n"
+            + cooldown_indent
+            + f"invoke-static {{{cooldown_reg}}}, "
+            + surge
+            + "->scaleRespawnCooldown(F)F\n"
+            + cooldown_indent
+            + f"move-result {cooldown_reg}",
+        ))
+
+    for offset, injected in sorted(insertions, reverse=True):
+        block = block[:offset] + injected + block[offset:]
+
+    return text[:start] + block + text[end:]
+
+
 ABI_PROBES: tuple[
     Callable[[dict[str, injector.SmaliClass], str], AbiCapability], ...
 ] = (
@@ -810,6 +1017,7 @@ ABI_PROBES: tuple[
     _probe_duelist_combo,
     _probe_char_attack_hook,
     _probe_hit_hook,
+    probe_enemy_surge_respawner,
 )
 
 
@@ -828,7 +1036,7 @@ def detect_target_game_prefix(
 ) -> str:
     global _current_abi_profile, _current_game_prefix
     global _pending_char_overlay, _pending_buff_click_patch
-    global _pending_action_name_overlay
+    global _pending_action_name_overlay, _pending_enemy_surge_overlay
     game_prefix = _original_detect_target_game_prefix(target_index)
     _current_game_prefix = game_prefix
     _pending_char_overlay = None
@@ -839,6 +1047,18 @@ def detect_target_game_prefix(
         injector, target_index, game_prefix
     )
     _current_abi_profile = detect_target_abi(target_index, game_prefix)
+    surge_capability = _current_abi_profile.get("enemySurge.respawnerHook")
+    if surge_capability.compatible:
+        surge_descriptor = surge_capability.data["descriptor"]
+        surge_item = target_index[surge_descriptor]
+        _pending_enemy_surge_overlay = (
+            surge_descriptor,
+            surge_item.text,
+            surge_capability.data["method"],
+            surge_capability.data["proto"],
+        )
+    else:
+        _pending_enemy_surge_overlay = None
     _current_abi_profile.log()
     _current_abi_profile.require_compatible()
     return game_prefix
@@ -1369,7 +1589,7 @@ def compile_smali_with_char_hook(
     api: int,
 ) -> None:
     global _pending_char_overlay, _pending_buff_click_patch
-    global _pending_action_name_overlay
+    global _pending_action_name_overlay, _pending_enemy_surge_overlay
     if _pending_char_overlay is None:
         raise injector.InjectError("Char.attack overlay source was not captured")
     if _current_abi_profile is None:
@@ -1426,6 +1646,32 @@ def compile_smali_with_char_hook(
         f"{hit_method}{hit_proto} ({hit_capability.strategy}): OK"
     )
 
+    if _pending_enemy_surge_overlay is None:
+        raise injector.InjectError("Enemy Surge respawner overlay source was not captured")
+    surge_descriptor, surge_text, surge_method, surge_proto = _pending_enemy_surge_overlay
+    surge_capability = _current_abi_profile.get("enemySurge.respawnerHook")
+    patched_surge = patch_enemy_surge_respawner(
+        surge_text,
+        method=surge_method,
+        proto=surge_proto,
+        level_descriptor=surge_capability.data["level_descriptor"],
+    )
+    surge_output = directory / Path(surge_descriptor[1:-1] + ".smali")
+    if surge_output.exists():
+        raise injector.InjectError(
+            "Overlay already contains target respawner class: " + surge_descriptor
+        )
+    surge_output.parent.mkdir(parents=True, exist_ok=True)
+    surge_output.write_text(patched_surge, encoding="utf-8")
+    injector.log(
+        "Enemy Surge native respawner hook "
+        + surge_method
+        + surge_proto
+        + " ("
+        + surge_capability.detail
+        + "): OK"
+    )
+
     write_action_name_overlay(directory)
     write_buff_click_patch(
         directory,
@@ -1442,6 +1688,7 @@ def compile_smali_with_char_hook(
         _pending_char_overlay = None
         _pending_buff_click_patch = None
         _pending_action_name_overlay = None
+        _pending_enemy_surge_overlay = None
 
 
 def _host_elf_machines() -> set[int] | None:
