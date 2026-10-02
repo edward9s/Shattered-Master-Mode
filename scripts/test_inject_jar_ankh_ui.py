@@ -176,6 +176,23 @@ class AnkhJarUiTests(unittest.TestCase):
         )
 
 
+    def test_jar_parry_feedback_bridge_is_all_char_and_virtual_only(self):
+        source = mod.PARRY_FEEDBACK_HELPER
+        self.assertIn('"defenseVerb".equals(methodName)', source)
+        self.assertIn("opcode == Opcodes.INVOKEVIRTUAL", source)
+        self.assertIn("isCharType(owner, parents)", source)
+        self.assertIn('"defenseVerb"', source)
+        self.assertIn("DEFENSE_FEEDBACK_DESC", source)
+        self.assertNotIn("Opcodes.INVOKESPECIAL\n                                && \"defenseVerb\"", source)
+
+        self.assertIn("DEFENSE_FEEDBACK_DESC", mod.CHAR_HELPER)
+        self.assertIn("DEFENSE_FEEDBACK_DESC", mod.ANKH_CHAR_HELPER)
+        self.assertIn(
+            'payload, MOD_PARRY_RIPOSTE, "defenseVerb"',
+            mod.ANKH_CHAR_HELPER,
+        )
+
+
     def test_last_stand_tag_keeps_legacy_safe_badge_icon(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         source = (
@@ -568,6 +585,9 @@ package {package}.actors;
 public class Char {{
     public static boolean nativeHit = true;
     public static boolean invulnerable = false;
+    public String defenseVerb() {
+        return "Dodge";
+    }
     public boolean attack(Char enemy) {{
         if (enemy == null) return false;
         if (invulnerable) return false;
@@ -632,6 +652,7 @@ public class ModParryRiposte {{
     public static boolean enabled;
     public static int incomingCalls;
     public static int completeCalls;
+    public static int feedbackCalls;
     public static void onIncomingAttack(Char attacker, Char defender) {{
         incomingCalls++;
     }}
@@ -713,6 +734,7 @@ public class ParryHarness {{
         ModInstantKill.enabled = false;
         ModParryRiposte.incomingCalls = 0;
         ModParryRiposte.completeCalls = 0;
+        ModParryRiposte.feedbackCalls = 0;
 
         Char.nativeHit = true;
         ModForceHit.enabled = false;
@@ -724,6 +746,7 @@ public class ParryHarness {{
                 "Parry did not block a direct guaranteed/magic hit");
 
         check(!attacker.attack(defender), "Parry did not force the normal attack to miss");
+        check(ModParryRiposte.feedbackCalls == 1, "Parry feedback bridge was not used");
         check(ModParryRiposte.incomingCalls == 1, "Parry/Riposte entry hook count mismatch");
         check(ModParryRiposte.completeCalls == 1, "Parry/Riposte completion hook count mismatch");
 
