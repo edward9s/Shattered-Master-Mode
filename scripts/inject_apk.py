@@ -250,6 +250,8 @@ _pending_hit_call_overlays: dict[str, str] = {}
 _pending_hit_call_rewrite_count = 0
 _pending_parry_feedback_overlays: dict[str, str] = {}
 _pending_parry_feedback_rewrite_count = 0
+_pending_direct_damage_overlays: dict[str, str] = {}
+_pending_direct_damage_hook_count = 0
 _ankh_only_mode = False
 
 
@@ -1006,6 +1008,123 @@ def rewrite_parry_defense_verb_calls(
     return overlays, total
 
 
+def patch_direct_damage_entry(
+    text: str,
+    owner_descriptor: str,
+    char_descriptor: str,
+) -> str:
+    proto = "(ILjava/lang/Object;)V"
+    start, end, block = injector.method_block(text, "damage", proto)
+    marker = "ModParryRiposte;->onDirectDamage("
+    if marker in block:
+        raise injector.InjectError(
+            "damage(int,Object) already contains SMM direct-damage Parry hook: "
+            + owner_descriptor
+        )
+
+    locals_match = re.search(r"(?m)^(?P<indent>\s*)\.locals\s+(?P<count>\d+)\s*$", block)
+    registers_match = re.search(
+        r"(?m)^(?P<indent>\s*)\.registers\s+(?P<count>\d+)\s*$",
+        block,
+    )
+
+    if locals_match is not None:
+        scratch = int(locals_match.group("count"))
+        replacement = (
+            locals_match.group("indent")
+            + ".locals "
+            + str(scratch + 1)
+        )
+        block = (
+            block[:locals_match.start()]
+            + replacement
+            + block[locals_match.end():]
+        )
+    elif registers_match is not None:
+        total = int(registers_match.group("count"))
+        params = _smali_parameter_words(proto) + 1
+        scratch = total - params
+        if scratch < 0:
+            raise injector.InjectError(
+                "Invalid register count in damage(int,Object): "
+                + owner_descriptor
+            )
+        replacement = (
+            registers_match.group("indent")
+            + ".registers "
+            + str(total + 1)
+        )
+        block = (
+            block[:registers_match.start()]
+            + replacement
+            + block[registers_match.end():]
+        )
+    else:
+        raise injector.InjectError(
+            "damage(int,Object) has no .locals/.registers directive: "
+            + owner_descriptor
+        )
+
+    insert_at, indent = _first_smali_instruction(block)
+    hook = (
+        "Lcom/spd/mod/mechanics/ModParryRiposte;->onDirectDamage("
+        + char_descriptor
+        + "ILjava/lang/Object;)Z"
+    )
+    injected = (
+        f"{indent}# SMM direct-damage Parry/Riposte hook\n"
+        f"{indent}invoke-static/range {{p0 .. p2}}, {hook}\n"
+        f"{indent}move-result v{scratch}\n"
+        f"{indent}if-eqz v{scratch}, :smm_direct_damage_native\n"
+        f"{indent}return-void\n"
+        f"{indent}:smm_direct_damage_native\n"
+    )
+    patched = block[:insert_at] + injected + block[insert_at:]
+    return text[:start] + patched + text[end:]
+
+
+def build_direct_damage_overlays(
+    target_index: dict[str, injector.SmaliClass],
+    char_descriptor: str,
+    base_overlays: dict[str, str] | None = None,
+) -> tuple[dict[str, str], int]:
+    """Patch every concrete Char-subclass damage(int,Object) override.
+
+    This catches fork-specific direct attacks that intentionally bypass hit(),
+    while staying independent of boss class names.
+    """
+    overlays: dict[str, str] = {}
+    total = 0
+    base_overlays = base_overlays or {}
+    proto = "(ILjava/lang/Object;)V"
+
+    for descriptor, item in target_index.items():
+        if descriptor == char_descriptor:
+            continue
+        if not _descriptor_extends(target_index, descriptor, char_descriptor):
+            continue
+
+        flags = item.methods.get(("damage", proto))
+        if (
+            flags is None
+            or "static" in flags
+            or "abstract" in flags
+            or "native" in flags
+        ):
+            continue
+
+        source = base_overlays.get(descriptor, item.text)
+        patched = patch_direct_damage_entry(
+            source,
+            descriptor,
+            char_descriptor,
+        )
+        overlays[descriptor] = patched
+        total += 1
+
+    return overlays, total
+
+
 ABI_PROBES: tuple[
     Callable[[dict[str, injector.SmaliClass], str], AbiCapability], ...
 ] = (
@@ -1043,6 +1162,7 @@ def detect_target_game_prefix(
     global _pending_action_name_overlay
     global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
     global _pending_parry_feedback_overlays, _pending_parry_feedback_rewrite_count
+    global _pending_direct_damage_overlays, _pending_direct_damage_hook_count
     game_prefix = _original_detect_target_game_prefix(target_index)
     _current_game_prefix = game_prefix
     _pending_char_overlay = None
@@ -1050,6 +1170,8 @@ def detect_target_game_prefix(
     _pending_hit_call_rewrite_count = 0
     _pending_parry_feedback_overlays = {}
     _pending_parry_feedback_rewrite_count = 0
+    _pending_direct_damage_overlays = {}
+    _pending_direct_damage_hook_count = 0
     _pending_buff_click_patch = buff_click.find_target(
         injector, target_index, game_prefix
     )
@@ -1081,6 +1203,16 @@ def detect_target_game_prefix(
             target_index,
             char_descriptor,
             _pending_hit_call_overlays,
+        )
+        combined_overlays = dict(_pending_hit_call_overlays)
+        combined_overlays.update(_pending_parry_feedback_overlays)
+        (
+            _pending_direct_damage_overlays,
+            _pending_direct_damage_hook_count,
+        ) = build_direct_damage_overlays(
+            target_index,
+            char_descriptor,
+            combined_overlays,
         )
 
     return game_prefix
@@ -1116,6 +1248,7 @@ def build_full_debug_payload(
     )
     required_parry_hooks = (
         ("onHitCheck", f"({char_descriptor}{char_descriptor})Z"),
+        ("onDirectDamage", f"({char_descriptor}ILjava/lang/Object;)Z"),
         ("defenseVerb", f"({char_descriptor})Ljava/lang/String;"),
     )
     for hook_name, hook_proto in required_parry_hooks:
@@ -1492,14 +1625,16 @@ def write_combat_call_overlays(
 ) -> None:
     global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
     global _pending_parry_feedback_overlays, _pending_parry_feedback_rewrite_count
+    global _pending_direct_damage_overlays, _pending_direct_damage_hook_count
 
     overlays: dict[str, str] = {}
     if parry or force:
         overlays.update(_pending_hit_call_overlays)
     if parry:
-        # Feedback overlays were derived from hit-call overlays, so replacing
-        # matching descriptors here preserves both rewrites in one class.
+        # Later overlays were derived from earlier ones, so replacement order
+        # preserves all rewrites in one class.
         overlays.update(_pending_parry_feedback_overlays)
+        overlays.update(_pending_direct_damage_overlays)
 
     char_descriptor = (
         _pending_char_overlay[0]
@@ -1531,6 +1666,12 @@ def write_combat_call_overlays(
             "Routed Parry defense feedback for "
             + str(_pending_parry_feedback_rewrite_count)
             + " defenseVerb call(s): OK"
+        )
+    if parry and _pending_direct_damage_hook_count:
+        injector.log(
+            "Hooked direct-damage Parry/Riposte in "
+            + str(_pending_direct_damage_hook_count)
+            + " Char damage override(s): OK"
         )
 
 def write_action_name_overlay(directory: Path) -> None:
@@ -1606,6 +1747,7 @@ def compile_smali_with_char_hook(
     global _pending_action_name_overlay
     global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
     global _pending_parry_feedback_overlays, _pending_parry_feedback_rewrite_count
+    global _pending_direct_damage_overlays, _pending_direct_damage_hook_count
     if _pending_char_overlay is None:
         raise injector.InjectError("Char.attack overlay source was not captured")
     if _current_abi_profile is None:
@@ -1646,6 +1788,19 @@ def compile_smali_with_char_hook(
         patched_char,
         char_descriptor,
     )
+    char_item = injector.SmaliClass.from_text(Path("Char.smali"), patched_char)
+    char_damage_flags = char_item.methods.get(("damage", "(ILjava/lang/Object;)V"))
+    if (
+        char_damage_flags is not None
+        and "static" not in char_damage_flags
+        and "abstract" not in char_damage_flags
+        and "native" not in char_damage_flags
+    ):
+        patched_char = patch_direct_damage_entry(
+            patched_char,
+            char_descriptor,
+            char_descriptor,
+        )
     char_output = directory / Path(char_descriptor[1:-1] + ".smali")
     if char_output.exists():
         raise injector.InjectError(
@@ -1688,6 +1843,8 @@ def compile_smali_with_char_hook(
         _pending_hit_call_rewrite_count = 0
         _pending_parry_feedback_overlays = {}
         _pending_parry_feedback_rewrite_count = 0
+        _pending_direct_damage_overlays = {}
+        _pending_direct_damage_hook_count = 0
 
 
 def _host_elf_machines() -> set[int] | None:
