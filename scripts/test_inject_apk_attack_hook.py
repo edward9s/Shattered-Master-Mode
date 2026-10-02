@@ -435,6 +435,36 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertNotIn(f"{bright}->hit{hit_proto}", overlays[bright])
 
 
+    def test_char_local_parry_feedback_is_rewritten(self):
+        text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            ".method public attack()Z\n"
+            "    .locals 1\n"
+            f"    invoke-virtual {{p0}}, {self.char}->defenseVerb()Ljava/lang/String;\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+
+        patched, count = mod.rewrite_char_parry_defense_verb_calls(
+            text,
+            self.char,
+        )
+
+        self.assertEqual(1, count)
+        self.assertIn(
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->defenseVerb("
+            + self.char
+            + ")Ljava/lang/String;",
+            patched,
+        )
+        self.assertNotIn(
+            f"invoke-virtual {{p0}}, {self.char}->defenseVerb()Ljava/lang/String;",
+            patched,
+        )
+
+
     def test_parry_feedback_rewrites_every_char_virtual_call(self):
         mob = self.game + "actors/mobs/Mob;"
         hero = self.game + "actors/hero/Hero;"
