@@ -243,6 +243,7 @@ _original_compile_smali = injector.compile_smali
 _full_donor_payload: dict[str, injector.SmaliClass] = {}
 _current_abi_profile: AbiProfile | None = None
 _current_game_prefix: str | None = None
+_current_target_index: dict[str, injector.SmaliClass] = {}
 _pending_char_overlay: tuple[str, str] | None = None
 _pending_buff_click_patch: tuple[str, str] | None = None
 _pending_action_name_overlay: tuple[str, str] | None = None
@@ -1052,13 +1053,14 @@ def detect_target_abi(
 def detect_target_game_prefix(
     target_index: dict[str, injector.SmaliClass],
 ) -> str:
-    global _current_abi_profile, _current_game_prefix
-    global _pending_char_overlay, _pending_buff_click_patch
+    global _current_abi_profile, _current_game_prefix, _current_target_index
+    global _pending_char_overlay, _pending_buff_click_patch, _current_target_index
     global _pending_action_name_overlay
     global _pending_parry_feedback_overlays, _pending_parry_feedback_rewrite_count
     global _pending_direct_damage_overlays, _pending_direct_damage_hook_count
     game_prefix = _original_detect_target_game_prefix(target_index)
     _current_game_prefix = game_prefix
+    _current_target_index = target_index
     _pending_char_overlay = None
     _pending_parry_feedback_overlays = {}
     _pending_parry_feedback_rewrite_count = 0
@@ -1616,7 +1618,7 @@ def compile_smali_with_char_hook(
     output: Path,
     api: int,
 ) -> None:
-    global _pending_char_overlay, _pending_buff_click_patch
+    global _pending_char_overlay, _pending_buff_click_patch, _current_target_index
     global _pending_action_name_overlay
     global _pending_parry_feedback_overlays, _pending_parry_feedback_rewrite_count
     global _pending_direct_damage_overlays, _pending_direct_damage_hook_count
@@ -1656,15 +1658,14 @@ def compile_smali_with_char_hook(
         force=True,
         parry=True,
     )
+    feedback_index = dict(_current_target_index)
+    feedback_index[char_descriptor] = injector.SmaliClass.from_text(
+        Path("Char.smali"),
+        patched_char,
+    )
     patched_char, char_feedback_count = rewrite_parry_feedback_in_hit_callers(
         patched_char,
-        {
-            **getattr(injector, "_target_index_for_feedback", {}),
-            char_descriptor: injector.SmaliClass.from_text(
-                Path("Char.smali"),
-                patched_char,
-            ),
-        },
+        feedback_index,
         char_descriptor,
         hit_method,
         hit_proto,
@@ -1720,12 +1721,11 @@ def compile_smali_with_char_hook(
         _pending_char_overlay = None
         _pending_buff_click_patch = None
         _pending_action_name_overlay = None
-        _pending_hit_call_overlays = {}
-        _pending_hit_call_rewrite_count = 0
         _pending_parry_feedback_overlays = {}
         _pending_parry_feedback_rewrite_count = 0
         _pending_direct_damage_overlays = {}
         _pending_direct_damage_hook_count = 0
+        _current_target_index = {}
 
 
 def _host_elf_machines() -> set[int] | None:
