@@ -2,11 +2,7 @@ package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Preparation;
-import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
-import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
-import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.TargetHealthIndicator;
 import com.spd.mod.journal.WndInstantKillInfo;
@@ -121,8 +117,7 @@ public class ModInstantKill extends Buff {
     @Override
     public String desc() {
         return "Successful attacks kill their target while enabled. "
-                + "With Force Hit enabled, the attack-entry hook can bypass "
-                + "native hit and invulnerability checks.";
+                + "The native attack still resolves its hit presentation and sound first.";
     }
 
 
@@ -154,9 +149,8 @@ public class ModInstantKill extends Buff {
 
     /**
      * Resolves Instant Kill for an attack that the native Char.attack path is
-     * already returning as successful. Native defense side effects run first.
-     * The Force Hit + Instant Kill entry hook may call this earlier to bypass
-     * native hit and invulnerability checks.
+     * already returning as successful. Native attack presentation, including
+     * weapon-specific hit sound, has already run before this hook resolves death.
      */
     public static boolean resolveSuccessfulAttack(Char attacker, Char defender) {
         ModInstantKill buff = find(attacker);
@@ -181,8 +175,6 @@ public class ModInstantKill extends Buff {
             return false;
         }
 
-        Wound.hit(defender);
-
         // TargetHealthIndicator keeps a direct Char reference and calls isAlive()
         // every frame. Brute.isAlive() has side effects: after a forced first-stage
         // death, a later UI query can trigger BruteRage on the already-removed Char
@@ -193,15 +185,7 @@ public class ModInstantKill extends Buff {
             TargetHealthIndicator.instance.target(null);
         }
 
-        if (!ModDeathCompat.kill(defender, attacker)) {
-            return false;
-        }
-        if (defender.sprite != null) {
-            defender.sprite.showStatus(
-                    CharSprite.NEGATIVE,
-                    Messages.get(Preparation.class, "assassinated"));
-        }
-        return true;
+        return ModDeathCompat.kill(defender, attacker);
     }
 
     @Override
