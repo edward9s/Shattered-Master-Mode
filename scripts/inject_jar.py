@@ -778,6 +778,236 @@ def rebuild_full_jar(
                 zout.writestr(injector.clone_zipinfo(wnd_info, name), payload[name])
 
 
+
+ENEMY_SURGE_RESPAWNER_HELPER = r'''
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.jar.*;
+import jdk.internal.org.objectweb.asm.*;
+
+public class SmmEnemySurgeRespawnerPatcher {
+    static final int API = Opcodes.ASM8;
+    static final String LEVEL = "__LEVEL__";
+    static final String MOB_SPAWNER = "__MOB_SPAWNER__";
+    static final String LEVEL_RESPAWNER = "__LEVEL_RESPAWNER__";
+    static final String MOD_ENEMY_SURGE = "com/spd/mod/mechanics/ModEnemySurge";
+
+    static byte[] readJarEntry(Path jarPath, String entryName) throws IOException {
+        try (JarFile jar = new JarFile(jarPath.toFile())) {
+            JarEntry entry = jar.getJarEntry(entryName);
+            if (entry == null) return null;
+            try (InputStream in = jar.getInputStream(entry)) {
+                return in.readAllBytes();
+            }
+        }
+    }
+
+    static String findRespawner(Path target) throws IOException {
+        byte[] levelBytes = readJarEntry(target, LEVEL + ".class");
+        if (levelBytes == null) return null;
+
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        new ClassReader(levelBytes).accept(new ClassVisitor(API) {
+            @Override
+            public FieldVisitor visitField(int access, String name, String desc,
+                                           String signature, Object value) {
+                if (("L" + MOB_SPAWNER + ";").equals(desc)) {
+                    candidates.add(MOB_SPAWNER);
+                } else if (("L" + LEVEL_RESPAWNER + ";").equals(desc)) {
+                    candidates.add(LEVEL_RESPAWNER);
+                }
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+
+        return candidates.size() == 1 ? candidates.iterator().next() : null;
+    }
+
+    static int[] shape(byte[] original) {
+        final int[] actMethods = {0};
+        final int[] limits = {0};
+        final int[] cooldowns = {0};
+
+        new ClassReader(original).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if (!"act".equals(name) || !"()Z".equals(desc)
+                        || (access & Opcodes.ACC_STATIC) != 0) {
+                    return null;
+                }
+                actMethods[0]++;
+                return new MethodVisitor(API) {
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String method,
+                                                String descriptor, boolean isInterface) {
+                        if (opcode == Opcodes.INVOKEVIRTUAL && LEVEL.equals(owner)) {
+                            if ("()I".equals(descriptor)
+                                    && ("mobLimit".equals(method) || "nMobs".equals(method))) {
+                                limits[0]++;
+                            } else if ("respawnCooldown".equals(method)
+                                    && "()F".equals(descriptor)) {
+                                cooldowns[0]++;
+                            }
+                        }
+                    }
+                };
+            }
+        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+
+        return new int[]{actMethods[0], limits[0], cooldowns[0]};
+    }
+
+    static byte[] patch(byte[] original) {
+        ClassReader reader = new ClassReader(original);
+        ClassWriter writer = new ClassWriter(0);
+        final int[] limits = {0};
+        final int[] cooldowns = {0};
+
+        reader.accept(new ClassVisitor(API, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
+                if (!"act".equals(name) || !"()Z".equals(desc)
+                        || (access & Opcodes.ACC_STATIC) != 0) {
+                    return base;
+                }
+                return new MethodVisitor(API, base) {
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String method,
+                                                String descriptor, boolean isInterface) {
+                        super.visitMethodInsn(opcode, owner, method, descriptor, isInterface);
+                        if (opcode != Opcodes.INVOKEVIRTUAL || !LEVEL.equals(owner)) {
+                            return;
+                        }
+                        if ("()I".equals(descriptor)
+                                && ("mobLimit".equals(method) || "nMobs".equals(method))) {
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_ENEMY_SURGE,
+                                    "scaleMobLimit",
+                                    "(I)I",
+                                    false);
+                            limits[0]++;
+                        } else if ("respawnCooldown".equals(method)
+                                && "()F".equals(descriptor)) {
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_ENEMY_SURGE,
+                                    "scaleRespawnCooldown",
+                                    "(F)F",
+                                    false);
+                            cooldowns[0]++;
+                        }
+                    }
+                };
+            }
+        }, 0);
+
+        if (limits[0] != 1 || cooldowns[0] < 1) {
+            throw new IllegalStateException(
+                    "Enemy Surge respawner rewrite count mismatch: limit="
+                            + limits[0] + ", cooldown=" + cooldowns[0]);
+        }
+        return writer.toByteArray();
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length != 3) {
+            throw new IllegalArgumentException(
+                    "Usage: SmmEnemySurgeRespawnerPatcher <target.jar> <output.class> <status.txt>");
+        }
+        Path target = Paths.get(args[0]);
+        Path output = Paths.get(args[1]);
+        Path status = Paths.get(args[2]);
+
+        String respawner = findRespawner(target);
+        if (respawner == null) {
+            Files.writeString(status, "unsupported: native respawner field is ambiguous or missing\n");
+            return;
+        }
+
+        byte[] original = readJarEntry(target, respawner + ".class");
+        if (original == null) {
+            Files.writeString(status, "unsupported: native respawner class is missing\n");
+            return;
+        }
+
+        int[] shape = shape(original);
+        if (shape[0] != 1 || shape[1] != 1 || shape[2] < 1) {
+            Files.writeString(
+                    status,
+                    "unsupported: act/limit/cooldown anchors="
+                            + shape[0] + "/" + shape[1] + "/" + shape[2] + "\n");
+            return;
+        }
+
+        Files.write(output, patch(original));
+        Files.writeString(status, respawner + ".class\n");
+        System.out.println(
+                "Enemy Surge native respawner hook: OK (" + respawner
+                        + "; cooldown anchors=" + shape[2] + ")");
+    }
+}
+'''
+
+
+def patch_enemy_surge_respawner_jar(
+    java: Path,
+    target: Path,
+    work: Path,
+    target_game_root: str,
+    *,
+    required: bool,
+) -> tuple[str, Path] | None:
+    helper = work / "SmmEnemySurgeRespawnerPatcher.java"
+    helper.write_text(
+        ENEMY_SURGE_RESPAWNER_HELPER
+        .replace("__LEVEL__", target_game_root + "/levels/Level")
+        .replace("__MOB_SPAWNER__", target_game_root + "/actors/mobs/MobSpawner")
+        .replace("__LEVEL_RESPAWNER__", target_game_root + "/levels/Level$Respawner"),
+        encoding="utf-8",
+    )
+    output = work / "EnemySurgeRespawner.class"
+    status = work / "enemy-surge-respawner-status.txt"
+    injector.run([
+        java,
+        "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
+        helper, target, output, status,
+    ])
+    if not status.is_file():
+        raise injector.InjectError(
+            "Enemy Surge respawner helper did not report compatibility status"
+        )
+    result = status.read_text(encoding="utf-8").strip()
+    if result.startswith("unsupported:"):
+        detail = result.partition(":")[2].strip()
+        if required:
+            raise injector.InjectError(
+                "Target native respawner is incompatible with Enemy Surge: " + detail
+            )
+        injector.log("Optional Enemy Surge skipped: " + detail)
+        return None
+
+    expected_prefixes = (
+        target_game_root + "/actors/mobs/MobSpawner",
+        target_game_root + "/levels/Level$Respawner",
+    )
+    if not result.endswith(".class") or not any(
+        result.startswith(prefix) for prefix in expected_prefixes
+    ):
+        raise injector.InjectError(
+            "Enemy Surge respawner helper reported an invalid entry: " + result
+        )
+    if not output.is_file() or not output.read_bytes().startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError(
+            "Enemy Surge respawner helper did not produce a valid class"
+        )
+    return result, output
+
+
 # ---------------------------------------------------------------------------
 # ModAnkh-only JAR mode
 # ---------------------------------------------------------------------------
