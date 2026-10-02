@@ -895,6 +895,50 @@ def _descriptor_extends(
     return False
 
 
+def rewrite_char_parry_defense_verb_calls(
+    text: str,
+    char_descriptor: str,
+) -> tuple[str, int]:
+    """Route Char's own virtual defenseVerb calls through the Parry bridge."""
+    call_re = re.compile(
+        r"(?m)^(?P<prefix>\s*)invoke-virtual(?P<range>/range)?\s+"
+        r"\{(?P<args>[^}]*)\},\s*"
+        + re.escape(char_descriptor)
+        + r"->defenseVerb\(\)Ljava/lang/String;"
+        r"(?P<suffix>\s*(?:#.*)?)$"
+    )
+    hook = (
+        "Lcom/spd/mod/mechanics/ModParryRiposte;->defenseVerb("
+        + char_descriptor
+        + ")Ljava/lang/String;"
+    )
+    changed = 0
+
+    def repl(match: re.Match[str]) -> str:
+        nonlocal changed
+        registers = _smali_invoke_registers(
+            match.group("args"),
+            bool(match.group("range")),
+        )
+        if registers is None or len(registers) != 1:
+            return match.group(0)
+
+        changed += 1
+        range_suffix = "/range" if match.group("range") else ""
+        return (
+            match.group("prefix")
+            + "invoke-static"
+            + range_suffix
+            + " {"
+            + match.group("args")
+            + "}, "
+            + hook
+            + match.group("suffix")
+        )
+
+    return call_re.sub(repl, text), changed
+
+
 def rewrite_parry_defense_verb_calls(
     target_index: dict[str, injector.SmaliClass],
     char_descriptor: str,
@@ -921,6 +965,10 @@ def rewrite_parry_defense_verb_calls(
     base_overlays = base_overlays or {}
 
     for descriptor, item in target_index.items():
+        # Char itself is patched later in the dedicated Char pipeline, after
+        # optional Parry hooks have definitively succeeded.
+        if descriptor == char_descriptor:
+            continue
         source = base_overlays.get(descriptor, item.text)
         changed = 0
 
@@ -1627,10 +1675,7 @@ def compile_smali_with_char_hook(
         )
 
     char_descriptor, original_char = _pending_char_overlay
-    patched_char = _pending_parry_feedback_overlays.get(
-        char_descriptor,
-        original_char,
-    )
+    patched_char = original_char
     patched_char = patch_char_instant_kill(
         patched_char,
         char_descriptor,
@@ -1651,6 +1696,10 @@ def compile_smali_with_char_hook(
         force=True,
         parry=True,
     )
+    patched_char, char_feedback_count = rewrite_char_parry_defense_verb_calls(
+        patched_char,
+        char_descriptor,
+    )
     char_output = directory / Path(char_descriptor[1:-1] + ".smali")
     if char_output.exists():
         raise injector.InjectError(
@@ -1666,6 +1715,12 @@ def compile_smali_with_char_hook(
         "Force Hit + Parry pre-hit hooks "
         f"{hit_method}{hit_proto} ({hit_capability.strategy}): OK"
     )
+    if char_feedback_count:
+        injector.log(
+            "Routed Parry defense feedback for "
+            + str(char_feedback_count)
+            + " Char defenseVerb call(s): OK"
+        )
 
     write_combat_call_overlays(directory, parry=True, force=True)
     write_action_name_overlay(directory)
