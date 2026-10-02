@@ -158,6 +158,7 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertNotIn("RenderedTextBlock", window)
 
 
+
     def test_parry_riposte_stays_portable_across_old_forks(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         source = (
@@ -165,22 +166,18 @@ class AnkhJarUiTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("class ModParryRiposte extends Buff", source)
-        self.assertNotIn("ChampionEnemy", source)
-        self.assertNotIn(
-            "import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.MonkEnergy",
-            source,
-        )
-        self.assertNotIn("HeroSubClass", source)
-        self.assertIn("resolveParryFocusClass()", source)
         self.assertIn(
-            '".actors.buffs.MonkEnergy$MonkAbility$Focus$FocusBuff"',
+            "public static boolean onHitCheck(Char attacker, Char defender)",
             source,
         )
-        self.assertIn("queueDirectHitRiposte(defender, attacker)", source)
-        self.assertIn(
-            "public static boolean shouldParry(Char attacker, Char defender)",
-            source,
-        )
+        self.assertIn("queueRiposte(defender, attacker)", source)
+        self.assertNotIn("onIncomingAttack", source)
+        self.assertNotIn("onIncomingAttackComplete", source)
+        self.assertNotIn("shouldParry", source)
+        self.assertNotIn("MonkEnergy", source)
+        self.assertNotIn("ParryDetachSink", source)
+        self.assertNotIn("currentAttackSource", source)
+        self.assertNotIn("java.lang.reflect.Field", source)
 
         combat_compat = (
             root / "core/src/main/java/com/spd/mod/mechanics/ModCombatCompat.java"
@@ -195,17 +192,22 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertIn('"defenseVerb".equals(methodName)', source)
         self.assertIn("opcode == Opcodes.INVOKEVIRTUAL", source)
         self.assertIn("isCharType(owner, parents)", source)
-        self.assertIn('"defenseVerb"', source)
-        self.assertIn("DEFENSE_FEEDBACK_DESC", source)
-        self.assertNotIn("Opcodes.INVOKESPECIAL\n                                && \"defenseVerb\"", source)
+        self.assertNotIn(
+            'Opcodes.INVOKESPECIAL\n                                && "defenseVerb"',
+            source,
+        )
 
-        self.assertIn("DEFENSE_FEEDBACK_DESC", mod.CHAR_HELPER)
-        self.assertIn("DEFENSE_FEEDBACK_DESC", mod.ANKH_CHAR_HELPER)
+        for helper in (mod.CHAR_HELPER, mod.ANKH_CHAR_HELPER):
+            self.assertIn("DEFENSE_FEEDBACK_DESC", helper)
+            self.assertIn('"onHitCheck"', helper)
+            self.assertNotIn('"onIncomingAttack"', helper)
+            self.assertNotIn('"onIncomingAttackComplete"', helper)
+            self.assertNotIn('"shouldParry"', helper)
+
         self.assertIn(
             'payload, MOD_PARRY_RIPOSTE, "defenseVerb"',
             mod.ANKH_CHAR_HELPER,
         )
-
 
     def test_last_stand_tag_keeps_legacy_safe_badge_icon(self):
         root = pathlib.Path(__file__).resolve().parents[1]
@@ -610,6 +612,7 @@ public class Char {{
         if (landed && unrelated == 1) {{
             return true;
         }}
+        enemy.defenseVerb();
         return false;
     }}
     public static boolean hit(Char attacker, Char defender, boolean magic) {{
@@ -696,20 +699,15 @@ package com.spd.mod.mechanics;
 import {package}.actors.Char;
 public class ModParryRiposte {{
     public static boolean enabled;
-    public static int incomingCalls;
-    public static int completeCalls;
+    public static int hitChecks;
     public static int feedbackCalls;
-    public static void onIncomingAttack(Char attacker, Char defender) {{
-        incomingCalls++;
-    }}
-    public static void onIncomingAttackComplete() {{
-        completeCalls++;
-    }}
-    public static void onIncomingAttackComplete(Char attacker, Char defender) {{
-        completeCalls++;
-    }}
-    public static boolean shouldParry(Char attacker, Char defender) {{
+    public static boolean onHitCheck(Char attacker, Char defender) {{
+        hitChecks++;
         return enabled;
+    }}
+    public static String defenseVerb(Char defender) {{
+        feedbackCalls++;
+        return "Parried";
     }}
 }}
 """,
@@ -778,29 +776,30 @@ public class ParryHarness {{
         Char defender = new Char();
         Char.invulnerable = false;
         ModInstantKill.enabled = false;
-        ModParryRiposte.incomingCalls = 0;
-        ModParryRiposte.completeCalls = 0;
+        ModParryRiposte.hitChecks = 0;
         ModParryRiposte.feedbackCalls = 0;
 
         Char.nativeHit = true;
         ModForceHit.enabled = false;
         ModParryRiposte.enabled = true;
 
-        // Eye/Yog-style guaranteed attacks call Char.hit(...) directly instead
-        // of Char.attack(). Parry must still override that direct hit check.
         check(!Char.hit(attacker, defender, true),
                 "Parry did not block a direct guaranteed/magic hit");
+        check(ModParryRiposte.hitChecks == 1,
+                "Direct hit did not reach unified Parry/Riposte hook");
 
-        check(!attacker.attack(defender), "Parry did not force the normal attack to miss");
-        check(ModParryRiposte.feedbackCalls == 1, "Parry feedback bridge was not used");
-        check(ModParryRiposte.incomingCalls == 1, "Parry/Riposte entry hook count mismatch");
-        check(ModParryRiposte.completeCalls == 1, "Parry/Riposte completion hook count mismatch");
+        check(!attacker.attack(defender),
+                "Parry did not force the normal attack to miss");
+        check(ModParryRiposte.hitChecks == 2,
+                "Normal attack did not use the same hit-check hook");
+        check(ModParryRiposte.feedbackCalls == 1,
+                "Parry feedback bridge was not used");
 
         Char.nativeHit = false;
         ModForceHit.enabled = true;
         check(attacker.attack(defender), "Force Hit did not override Parry");
-        check(ModParryRiposte.incomingCalls == 2, "Second Parry/Riposte entry hook missing");
-        check(ModParryRiposte.completeCalls == 2, "Second Parry/Riposte completion hook missing");
+        check(ModParryRiposte.hitChecks == 3,
+                "Force Hit suppressed Parry/Riposte hit observation");
     }}
 }}
 """,
