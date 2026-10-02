@@ -839,20 +839,20 @@ def rewrite_parry_feedback_in_hit_callers(
     definition at runtime, so rewriting inherited static owners is unnecessary.
     """
     hit_call_re = re.compile(
-        r"(?m)^\\s*invoke-static(?:/range)?\\s+\\{[^}]*\\},\\s*"
-        r"(?P<owner>L[^;\\s]+;)->"
+        r"(?m)^\s*invoke-static(?:/range)?\s+\{[^}]*\},\s*"
+        r"(?P<owner>L[^;\s]+;)->"
         + re.escape(hit_method)
         + re.escape(hit_proto)
-        + r"\\s*(?:#.*)?$"
+        + r"\s*(?:#.*)?$"
     )
     defense_call_re = re.compile(
-        r"(?m)^(?P<prefix>\\s*)invoke-virtual(?P<range>/range)?\\s+"
-        r"\\{(?P<args>[^}]*)\\},\\s*"
-        r"(?P<owner>L[^;\\s]+;)->defenseVerb\\(\\)Ljava/lang/String;"
-        r"(?P<suffix>\\s*(?:#.*)?)$"
+        r"(?m)^(?P<prefix>\s*)invoke-virtual(?P<range>/range)?\s+"
+        r"\{(?P<args>[^}]*)\},\s*"
+        r"(?P<owner>L[^;\s]+;)->defenseVerb\(\)Ljava/lang/String;"
+        r"(?P<suffix>\s*(?:#.*)?)$"
     )
     method_re = re.compile(
-        r"(?ms)^\\.method\\b[^\\n]*\\n.*?^\\.end method\\s*$"
+        r"(?ms)^\.method\b[^\n]*\n.*?^\.end method\s*$"
     )
     helper = (
         "Lcom/spd/mod/mechanics/ModParryRiposte;->defenseVerb("
