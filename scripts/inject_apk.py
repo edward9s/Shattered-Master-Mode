@@ -1317,7 +1317,6 @@ def patch_char_instant_kill(
     text: str,
     char_descriptor: str,
     proto: str | None = None,
-    force_combo: bool = True,
 ) -> str:
     if proto is None:
         char_class = injector.SmaliClass.from_text(Path("Char.smali"), text)
@@ -1339,25 +1338,13 @@ def patch_char_instant_kill(
     finish_hook = (
         "Lcom/spd/mod/mechanics/ModInstantKill;->finishAttack(Z)V"
     )
-    force_hook = (
-        "Lcom/spd/mod/mechanics/ModForceHit;->isForceHitEnabled("
-        f"{char_descriptor})Z"
-    )
     if (
         resolve_hook in block
         or begin_hook in block
         or finish_hook in block
-        or force_hook in block
-        or ":smm_instant_kill_force_native" in block
     ):
         raise injector.InjectError(
             "Char.attack already contains SMM Instant Kill hook"
-        )
-
-    if force_combo and _smali_local_register_count(block, proto, False) < 1:
-        raise injector.InjectError(
-            "Terminal Char.attack has no safe entry scratch register for "
-            "Force Hit + Instant Kill"
         )
 
     # Every native return balances exactly one beginAttack call. The return value
@@ -1387,25 +1374,10 @@ def patch_char_instant_kill(
         )
 
     entry_at, entry_indent = _first_smali_instruction(block)
-    if force_combo:
-        prologue = (
-            f"{entry_indent}# SMM Force Hit + Instant Kill attack-entry hook\n"
-            f"{entry_indent}invoke-static/range {{p0 .. p0}}, {force_hook}\n"
-            f"{entry_indent}move-result v0\n"
-            f"{entry_indent}if-eqz v0, :smm_instant_kill_force_native\n"
-            f"{entry_indent}invoke-static/range {{p0 .. p1}}, {resolve_hook}\n"
-            f"{entry_indent}move-result v0\n"
-            f"{entry_indent}if-eqz v0, :smm_instant_kill_force_native\n"
-            f"{entry_indent}const/4 v0, 0x1\n"
-            f"{entry_indent}return v0\n"
-            f"{entry_indent}:smm_instant_kill_force_native\n"
-            f"{entry_indent}invoke-static/range {{p0 .. p1}}, {begin_hook}\n\n"
-        )
-    else:
-        prologue = (
-            f"{entry_indent}# SMM Instant Kill attack-context entry\n"
-            f"{entry_indent}invoke-static/range {{p0 .. p1}}, {begin_hook}\n\n"
-        )
+    prologue = (
+        f"{entry_indent}# SMM Instant Kill attack-context entry\n"
+        f"{entry_indent}invoke-static/range {{p0 .. p1}}, {begin_hook}\n\n"
+    )
     block = block[:entry_at] + prologue + block[entry_at:]
 
     return text[:start] + block + text[end:]
@@ -1646,7 +1618,6 @@ def compile_smali_with_char_hook(
         patched_char,
         char_descriptor,
         proto,
-        force_combo=True,
     )
 
     # Parry/Riposte is resolved only at the selected hit-check entry.
