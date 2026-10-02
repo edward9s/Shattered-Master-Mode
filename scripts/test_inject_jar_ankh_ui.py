@@ -171,6 +171,13 @@ class AnkhJarUiTests(unittest.TestCase):
             source,
         )
         self.assertIn("queueRiposte(defender, attacker)", source)
+        on_hit = source[
+            source.index("public static boolean onHitCheck"):
+            source.index("public static String defenseVerb")
+        ]
+        self.assertNotIn("attacker.isAlive()", on_hit)
+        self.assertNotIn("defender.isAlive()", on_hit)
+        self.assertNotIn("buff.target != defender", on_hit)
         self.assertNotIn("onIncomingAttack", source)
         self.assertNotIn("onIncomingAttackComplete", source)
         self.assertNotIn("shouldParry", source)
