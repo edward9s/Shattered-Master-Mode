@@ -93,6 +93,8 @@ def configure(public_module) -> None:
         public_module._ankh_enemy_surge_enabled = False
         public_module._pending_hit_call_overlays = {}
         public_module._pending_hit_call_rewrite_count = 0
+        public_module._pending_parry_feedback_overlays = {}
+        public_module._pending_parry_feedback_rewrite_count = 0
 
         char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
         char_class = target_index.get(char_descriptor)
@@ -144,6 +146,14 @@ def configure(public_module) -> None:
                 char_descriptor,
                 hit_method,
                 hit_proto,
+            )
+            (
+                public_module._pending_parry_feedback_overlays,
+                public_module._pending_parry_feedback_rewrite_count,
+            ) = public_module.rewrite_parry_defense_verb_calls(
+                target_index,
+                char_descriptor,
+                public_module._pending_hit_call_overlays,
             )
 
         return game_prefix
@@ -279,6 +289,7 @@ def configure(public_module) -> None:
                     ("onIncomingAttack", f"({source_char}{source_char})V"),
                     ("onIncomingAttackComplete", "()V"),
                     ("shouldParry", f"({source_char}{source_char})Z"),
+                    ("defenseVerb", f"({source_char})Ljava/lang/String;"),
                 )
                 donor_parry = donor_index[root]
                 missing_hooks = [
@@ -662,7 +673,11 @@ def configure(public_module) -> None:
                 char_path.write_text(patched_char, encoding="utf-8")
 
         if parry_enabled or force_enabled:
-            public_module.write_hit_call_overlays(directory)
+            public_module.write_combat_call_overlays(
+                directory,
+                parry=parry_enabled,
+                force=force_enabled,
+            )
 
         public_module.write_buff_click_patch(
             directory,
@@ -708,6 +723,8 @@ def configure(public_module) -> None:
             public_module._pending_char_overlay = None
             public_module._pending_hit_call_overlays = {}
             public_module._pending_hit_call_rewrite_count = 0
+            public_module._pending_parry_feedback_overlays = {}
+            public_module._pending_parry_feedback_rewrite_count = 0
 
     def output_path(target: Path) -> Path:
         return target.with_name(
