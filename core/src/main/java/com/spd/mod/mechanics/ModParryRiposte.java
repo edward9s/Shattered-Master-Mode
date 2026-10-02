@@ -7,6 +7,7 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Monk;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.WndTotalBuffInfo;
 import com.watabou.noosa.Image;
@@ -190,6 +191,9 @@ public class ModParryRiposte extends Buff {
         }
 
         if (defender.sprite != null && defender.sprite.visible) {
+            defender.sprite.showStatus(
+                    CharSprite.NEUTRAL,
+                    Messages.get(Monk.class, "parried"));
             Sample.INSTANCE.play(
                     Assets.Sounds.HIT_PARRY,
                     1,
