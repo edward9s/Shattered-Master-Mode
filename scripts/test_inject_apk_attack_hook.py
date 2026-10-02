@@ -394,6 +394,77 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertIn(hook, overlays[bright])
 
 
+    def test_mlpd_legacy_hit_wrapper_gets_parry_feedback(self):
+        modern = f"({self.char}{self.char}FZ)Z"
+        legacy = f"({self.char}{self.char}Z)Z"
+        boss = self.game + "actors/Boss;"
+        yog = self.game + "actors/mobs/YogDzewa;"
+
+        char_text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public static hit{modern}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+            f".method public static synthetic hit{legacy}\n"
+            "    .locals 1\n"
+            "    const/high16 v0, 0x3f800000\n"
+            f"    invoke-static {{p0, p1, v0, p2}}, {self.char}->hit{modern}\n"
+            "    move-result v0\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        boss_text = (
+            f".class public {boss}\n"
+            f".super {self.char}\n"
+        )
+        yog_text = (
+            f".class public {yog}\n"
+            f".super {boss}\n"
+            ".method protected act()Z\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x1\n"
+            f"    invoke-static {{p0, p0, v0}}, {yog}->hit{legacy}\n"
+            f"    invoke-virtual {{p0}}, {self.char}->defenseVerb()Ljava/lang/String;\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        index = {
+            self.char: self.cls(char_text),
+            boss: self.cls(boss_text),
+            yog: self.cls(yog_text),
+        }
+
+        aliases = mod._char_hit_aliases(
+            index,
+            self.char,
+            "hit",
+            modern,
+        )
+        self.assertEqual({("hit", modern), ("hit", legacy)}, aliases)
+
+        overlays, count = mod.build_parry_feedback_overlays(
+            index,
+            self.char,
+            "hit",
+            modern,
+        )
+
+        self.assertEqual(1, count)
+        self.assertEqual({yog}, set(overlays))
+        patched = overlays[yog]
+        self.assertIn(f"{yog}->hit{legacy}", patched)
+        self.assertNotIn(f"{self.char}->hit{legacy}", patched)
+        self.assertIn(
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->defenseVerb("
+            + self.char
+            + ")Ljava/lang/String;",
+            patched,
+        )
+
+
     def test_direct_damage_hook_patches_every_char_override_without_boss_names(self):
         mob = self.game + "actors/mobs/Mob;"
         hero = self.game + "actors/hero/Hero;"
