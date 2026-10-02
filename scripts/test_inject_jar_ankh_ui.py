@@ -171,13 +171,13 @@ class AnkhJarUiTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "public static boolean onDirectDamage(Char defender, int damage, Object src)",
+            "public static Char resolveDirectDamage(Char defender, int damage, Object src)",
             source,
         )
         self.assertIn("queueRiposte(defender, attacker)", source)
         on_hit = source[
             source.index("public static boolean onHitCheck"):
-            source.index("public static boolean onDirectDamage")
+            source.index("public static Char resolveDirectDamage")
         ]
         self.assertNotIn("attacker.isAlive()", on_hit)
         self.assertNotIn("defender.isAlive()", on_hit)
@@ -191,7 +191,7 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertIn('getDeclaredField("current")', source)
         self.assertIn("getEnclosingClass()", source)
         direct_damage = source[
-            source.index("public static boolean onDirectDamage"):
+            source.index("public static Char resolveDirectDamage"):
             source.index("private static Char directDamageAttacker")
         ]
         self.assertIn("CharSprite.NEUTRAL", direct_damage)
