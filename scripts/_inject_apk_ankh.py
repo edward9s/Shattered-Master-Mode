@@ -549,14 +549,7 @@ def configure(public_module) -> None:
 
         if (parry_enabled or instant_enabled or force_enabled) and pending_char is not None:
             char_descriptor, original_char = pending_char
-            patched_char = (
-                public_module._pending_parry_feedback_overlays.get(
-                    char_descriptor,
-                    original_char,
-                )
-                if parry_enabled
-                else original_char
-            )
+            patched_char = original_char
             char_changed = False
 
             # Parry and Force Hit share the selected Char.hit entry. Force Hit
@@ -668,6 +661,20 @@ def configure(public_module) -> None:
                     injector.log(
                         "Optional Parry/Riposte skipped: "
                         + attack_capability.detail
+                    )
+
+            if parry_enabled:
+                patched_char, char_feedback_count = (
+                    public_module.rewrite_char_parry_defense_verb_calls(
+                        patched_char,
+                        char_descriptor,
+                    )
+                )
+                if char_feedback_count:
+                    injector.log(
+                        "Routed Parry defense feedback for "
+                        + str(char_feedback_count)
+                        + " Char defenseVerb call(s): OK"
                     )
 
             if char_changed:
