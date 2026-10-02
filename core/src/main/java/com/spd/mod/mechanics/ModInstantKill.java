@@ -22,6 +22,8 @@ public class ModInstantKill extends Buff {
     private static final String INSTANT_KILL = "instant_kill";
     private static final ThreadLocal<ArrayDeque<AttackContext>> ATTACK_CONTEXTS =
             new ThreadLocal<>();
+    private static final ThreadLocal<ArrayDeque<Char>> PRE_SHOWN_EXECUTION_WOUNDS =
+            new ThreadLocal<>();
     private boolean instantKill = true;
 
     private static final class AttackContext {
@@ -41,6 +43,40 @@ public class ModInstantKill extends Buff {
             ATTACK_CONTEXTS.set(contexts);
         }
         return contexts;
+    }
+
+    static void beginPreShownExecutionWound(Char defender) {
+        if (defender == null) {
+            return;
+        }
+        ArrayDeque<Char> stack = PRE_SHOWN_EXECUTION_WOUNDS.get();
+        if (stack == null) {
+            stack = new ArrayDeque<>();
+            PRE_SHOWN_EXECUTION_WOUNDS.set(stack);
+        }
+        stack.push(defender);
+    }
+
+    static void endPreShownExecutionWound(Char defender) {
+        ArrayDeque<Char> stack = PRE_SHOWN_EXECUTION_WOUNDS.get();
+        if (stack == null || stack.isEmpty()) {
+            return;
+        }
+        Char current = stack.pop();
+        if (current != defender) {
+            PRE_SHOWN_EXECUTION_WOUNDS.remove();
+            throw new IllegalStateException("Execution wound context stack mismatch");
+        }
+        if (stack.isEmpty()) {
+            PRE_SHOWN_EXECUTION_WOUNDS.remove();
+        }
+    }
+
+    private static boolean executionWoundAlreadyShown(Char defender) {
+        ArrayDeque<Char> stack = PRE_SHOWN_EXECUTION_WOUNDS.get();
+        return stack != null
+                && !stack.isEmpty()
+                && stack.peek() == defender;
     }
 
     {
@@ -179,7 +215,9 @@ public class ModInstantKill extends Buff {
             return false;
         }
 
-        Wound.hit(defender);
+        if (!executionWoundAlreadyShown(defender)) {
+            Wound.hit(defender);
+        }
 
         // TargetHealthIndicator keeps a direct Char reference and calls isAlive()
         // every frame. Brute.isAlive() has side effects: after a forced first-stage
