@@ -1503,7 +1503,16 @@ def write_combat_call_overlays(
         # matching descriptors here preserves both rewrites in one class.
         overlays.update(_pending_parry_feedback_overlays)
 
+    char_descriptor = (
+        _pending_char_overlay[0]
+        if _pending_char_overlay is not None
+        else None
+    )
     for descriptor, patched in sorted(overlays.items()):
+        # Char is emitted by the dedicated attack/hit pipeline so all Char
+        # changes live in one overlay class.
+        if descriptor == char_descriptor:
+            continue
         output = directory / Path(descriptor[1:-1] + ".smali")
         if output.exists():
             raise injector.InjectError(
@@ -1618,7 +1627,10 @@ def compile_smali_with_char_hook(
         )
 
     char_descriptor, original_char = _pending_char_overlay
-    patched_char = original_char
+    patched_char = _pending_parry_feedback_overlays.get(
+        char_descriptor,
+        original_char,
+    )
     patched_char = patch_char_instant_kill(
         patched_char,
         char_descriptor,
