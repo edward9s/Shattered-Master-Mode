@@ -606,6 +606,38 @@ public class Char {{
         )
         cls._write(
             src,
+            f"{GAME_ROOT}/actors/Eye.java",
+            f"""
+package {package}.actors;
+public class Eye extends Char {{
+    public String miss(Eye defender) {{
+        return defender.defenseVerb();
+    }}
+}}
+""",
+        )
+        cls._write(
+            src,
+            f"{GAME_ROOT}/actors/FeedbackHarness.java",
+            f"""
+package {package}.actors;
+import com.spd.mod.mechanics.ModParryRiposte;
+public class FeedbackHarness {{
+    public static void main(String[] args) {{
+        Eye eye = new Eye();
+        ModParryRiposte.feedbackCalls = 0;
+        String text = eye.miss(eye);
+        if (!"Parried".equals(text)) throw new AssertionError(text);
+        if (ModParryRiposte.feedbackCalls != 1) {{
+            throw new AssertionError("feedbackCalls=" + ModParryRiposte.feedbackCalls);
+        }}
+    }}
+}}
+""",
+        )
+
+        cls._write(
+            src,
             "com/spd/mod/mechanics/ModInstantKill.java",
             f"""
 package com.spd.mod.mechanics;
@@ -763,8 +795,10 @@ public class ParryHarness {{
         javac = cls._tool("javac")
         target_sources = [
             src / f"{GAME_ROOT}/actors/Char.java",
+            src / f"{GAME_ROOT}/actors/Eye.java",
             src / f"{GAME_ROOT}/actors/CombatHarness.java",
             src / f"{GAME_ROOT}/actors/ParryHarness.java",
+            src / f"{GAME_ROOT}/actors/FeedbackHarness.java",
             src / "com/spd/mod/mechanics/ModInstantKill.java",
             src / "com/spd/mod/mechanics/ModForceHit.java",
             src / "com/spd/mod/mechanics/ModParryRiposte.java",
@@ -837,6 +871,46 @@ public class ParryHarness {{
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
+
+    @staticmethod
+    def _run_feedback_harness(classes: pathlib.Path) -> subprocess.CompletedProcess[str]:
+        java = shutil.which("java")
+        if java is None:
+            raise unittest.SkipTest("java is unavailable")
+        return subprocess.run(
+            [
+                java,
+                "-cp",
+                str(classes),
+                f"{GAME_ROOT.replace('/', '.')}.actors.FeedbackHarness",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+
+    def test_nonhero_char_subclass_uses_jar_parry_feedback_bridge(self):
+        java = pathlib.Path(self._tool("java"))
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            target, _payload, classes = self._compile_ark_combat_target(work)
+
+            before = self._run_feedback_harness(classes)
+            self.assertNotEqual(0, before.returncode)
+
+            patches = mod.patch_parry_feedback_classes(
+                java, target, work, GAME_ROOT
+            )
+            self.assertIn(f"{GAME_ROOT}/actors/Eye.class", patches)
+            for entry, data in patches.items():
+                target_class = classes / entry
+                target_class.parent.mkdir(parents=True, exist_ok=True)
+                target_class.write_bytes(data)
+
+            after = self._run_feedback_harness(classes)
+            self.assertEqual(0, after.returncode, after.stdout)
+
 
     def test_ark_legacy_hit_supported_by_ankh_jar_for_parry_force_and_instant(self):
         java = pathlib.Path(self._tool("java"))
