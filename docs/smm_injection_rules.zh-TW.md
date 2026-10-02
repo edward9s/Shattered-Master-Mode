@@ -53,6 +53,7 @@ APK injector 第一次需要簽章時，會在 `smm-inject-donor.apk` 旁建立 
 JAR 注入不使用這把 APK 簽章金鑰。
 
 ## 相容性規則
+- APK 注入時，任何已放入 first-dex overlay 的 target class 都必須從其原始 target DEX 移除；不得同時保留 overlay 與原始 target DEX 的同 descriptor class。只允許重組「刪除 shadowed class」的受影響 DEX，不得往原 DEX 新增 class/reference；如此 index 只可能維持或下降，避免 jumbo index 風險，並確保 Ark 類 inherited-static `Eye.hit(...)` / `YogFist$BrightFist.hit(...)` 不會解析回原版 `Char.hit(...)`。
 
 - 以 target 實際編譯後的 API 為準，不以版本號推測相容性。
 - Fork package name 不同時，重新對應 SPD package reference。
@@ -63,7 +64,7 @@ JAR 注入不使用這把 APK 簽章金鑰。
 - `--ankh-only` 會把 Parry/Riposte、Instant Kill、Force Hit、Assassinate 與 Enemy Surge（包含各自的設定 UI）視為完整的選配 dependency closure 驗證。若某功能的 UI 或 target API 相依不相容，就在 patch `BuffIndicator` 前跳過整個選配功能；不得讓 click bridge 引用已被省略的 payload class。
 - Mod 系列 action 文字維持直接由程式碼提供。APK/JAR 若遇到舊版 `WndUseItem` 繞過 `Item.actionName()`、直接呼叫 `Messages.get(...)`，應只對該 legacy call site 做 ABI bridge，讓 `ac_*` 重新走 target 已存在的虛擬 `Item.actionName(action, hero)`；不要為 ModAnkh 修改 `items*.properties`。
 - 可設定的 SMM buff 在 source build、APK injection、JAR injection 都共用直接 `BuffIndicator` bridge：短按呼叫該 buff 自己的 `open()` / `openInfo()`，長按保留 target 原本的 buff info 行為。Full SMM 處理 Last Stand、Parry/Riposte、Instant Kill、Force Hit、Assassinate、Enemy Surge；`--ankh-only` 固定處理 Last Stand，並只加入通過相容性檢查的 Parry/Riposte / Instant Kill / Force Hit / Assassinate / Enemy Surge。`ModTotalInfoOverlay` 已移除；`ModLastStandTag` 屬於 narrow Last Stand 的保證核心。
-- 完整注入可以使用既有 SMM 選單與 Riposte `Char.attack()` hook。APK/JAR 都選出唯一 terminal `Char.attack()`。Instant Kill patch 成功的 boolean return，並在 attack 入口加上 Force Hit 組合 guard；不再追蹤 hit-success branch。Parry 與 Force Hit 共用 selected hit helper，而且 Force Hit 先判定。Riposte 改走最穩定的 `attack(Char)` wrapper，仍維持普通攻擊命中規則。最小注入不得安裝完整選單，但可以安裝上述狹窄用途的 Parry/Riposte / Instant Kill / Force Hit hook。
+- Parry 與 Riposte 的戰鬥語意只由 selected `Char.hit(...)` hook 決定；每次 hit check 先執行 `ModParryRiposte.onHitCheck(attacker, defender)`，讓 Riposte 先觀察並排程，再由 Force Hit 覆蓋 Parry 結果。Instant Kill 才保留 terminal `Char.attack()` hook。APK/JAR/source 都不得再使用 Parry/Riposte 的 `Char.attack()` entry/completion lifecycle、Focus 或 `Actor.current` 作為主要戰鬥判定。
 - 存檔匯入匯出不得硬連結會隨 SPD 世代變動的 desktop 檔案 API；`FileUtils.getFileHandle(...)`、舊式 `FileUtils.getDir(...)` 與 backing `File` 應在 runtime 解析，避免 APK 根本不會執行的 desktop 路徑先讓 payload compatibility validation 失敗。
 - Debug Console 指令可能觸發 target 本身既有的 bug；不要為了讓指令表面成功而順便修改無關的 target 遊戲邏輯。
 
