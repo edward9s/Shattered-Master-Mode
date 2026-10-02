@@ -170,10 +170,14 @@ class AnkhJarUiTests(unittest.TestCase):
             "public static boolean onHitCheck(Char attacker, Char defender)",
             source,
         )
+        self.assertIn(
+            "public static boolean onDirectDamage(Char defender, int damage, Object src)",
+            source,
+        )
         self.assertIn("queueRiposte(defender, attacker)", source)
         on_hit = source[
             source.index("public static boolean onHitCheck"):
-            source.index("public static String defenseVerb")
+            source.index("public static boolean onDirectDamage")
         ]
         self.assertNotIn("attacker.isAlive()", on_hit)
         self.assertNotIn("defender.isAlive()", on_hit)
@@ -184,7 +188,11 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertNotIn("MonkEnergy", source)
         self.assertNotIn("ParryDetachSink", source)
         self.assertNotIn("currentAttackSource", source)
-        self.assertNotIn("java.lang.reflect.Field", source)
+        self.assertIn('getDeclaredField("current")', source)
+        self.assertIn("getEnclosingClass()", source)
+        self.assertNotIn("Talulah", source)
+        self.assertNotIn("Yog", source)
+        self.assertNotIn("Eye", source)
 
         combat_compat = (
             root / "core/src/main/java/com/spd/mod/mechanics/ModCombatCompat.java"
