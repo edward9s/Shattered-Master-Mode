@@ -387,6 +387,96 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertNotIn(f"{bright}->hit{hit_proto}", overlays[bright])
 
 
+    def test_direct_damage_hook_patches_every_char_override_without_boss_names(self):
+        mob = self.game + "actors/mobs/Mob;"
+        hero = self.game + "actors/hero/Hero;"
+        talulah = self.game + "actors/mobs/Talulah;"
+        other = "Lexample/Other;"
+
+        char_text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            ".method public damage(ILjava/lang/Object;)V\n"
+            "    .locals 0\n"
+            "    return-void\n"
+            ".end method\n"
+        )
+        mob_text = (
+            f".class public {mob}\n"
+            f".super {self.char}\n"
+        )
+        hero_text = (
+            f".class public {hero}\n"
+            f".super {self.char}\n"
+            ".method public damage(ILjava/lang/Object;)V\n"
+            "    .locals 0\n"
+            "    return-void\n"
+            ".end method\n"
+        )
+        talulah_text = (
+            f".class public {talulah}\n"
+            f".super {mob}\n"
+        )
+        other_text = (
+            f".class public {other}\n"
+            ".super Ljava/lang/Object;\n"
+            ".method public damage(ILjava/lang/Object;)V\n"
+            "    .locals 0\n"
+            "    return-void\n"
+            ".end method\n"
+        )
+
+        index = {
+            self.char: self.cls(char_text),
+            mob: self.cls(mob_text),
+            hero: self.cls(hero_text),
+            talulah: self.cls(talulah_text),
+            other: self.cls(other_text),
+        }
+        overlays, count = mod.build_direct_damage_overlays(
+            index,
+            self.char,
+        )
+
+        self.assertEqual(1, count)
+        self.assertEqual({hero}, set(overlays))
+        patched = overlays[hero]
+        self.assertIn(".locals 1", patched)
+        self.assertIn(
+            "invoke-static/range {p0 .. p2}, "
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->onDirectDamage("
+            + self.char
+            + "ILjava/lang/Object;)Z",
+            patched,
+        )
+        self.assertIn(":smm_direct_damage_native", patched)
+        self.assertNotIn(talulah, overlays)
+        self.assertNotIn(other, overlays)
+
+    def test_direct_damage_hook_handles_registers_form(self):
+        hero = self.game + "actors/hero/Hero;"
+        text = (
+            f".class public {hero}\n"
+            f".super {self.char}\n"
+            ".method public damage(ILjava/lang/Object;)V\n"
+            "    .registers 3\n"
+            "    return-void\n"
+            ".end method\n"
+        )
+        patched = mod.patch_direct_damage_entry(
+            text,
+            hero,
+            self.char,
+        )
+        _, _, block = mod.injector.method_block(
+            patched,
+            "damage",
+            "(ILjava/lang/Object;)V",
+        )
+        self.assertIn(".registers 4", block)
+        self.assertIn("move-result v0", block)
+
+
     def test_char_local_parry_feedback_is_rewritten(self):
         text = (
             f".class public {self.char}\n"
