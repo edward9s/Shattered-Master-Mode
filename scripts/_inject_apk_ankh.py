@@ -91,6 +91,7 @@ def configure(public_module) -> None:
         public_module._ankh_force_hit_enabled = False
         public_module._ankh_assassinate_enabled = False
         public_module._ankh_enemy_surge_enabled = False
+        public_module._pending_enemy_surge_overlay = None
 
         char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
         char_class = target_index.get(char_descriptor)
@@ -126,6 +127,20 @@ def configure(public_module) -> None:
         )
         hit_capability.required = False
         profile.add(hit_capability)
+
+        surge_capability = public_module.probe_enemy_surge_respawner(
+            target_index, game_prefix, required=False
+        )
+        profile.add(surge_capability)
+        if surge_capability.compatible:
+            surge_descriptor = surge_capability.data["descriptor"]
+            surge_item = target_index[surge_descriptor]
+            public_module._pending_enemy_surge_overlay = (
+                surge_descriptor,
+                surge_item.text,
+                surge_capability.data["method"],
+                surge_capability.data["proto"],
+            )
 
         public_module._current_abi_profile = profile
         profile.log()
@@ -233,7 +248,7 @@ def configure(public_module) -> None:
             ("instant", instant_kill, ("char.incomingAttackHook",), "Instant Kill"),
             ("force", force_hit, ("char.hitHook",), "Force Hit"),
             ("assassinate", assassinate, (), "Assassinate"),
-            ("enemy_surge", enemy_surge, (), "Enemy Surge"),
+            ("enemy_surge", enemy_surge, ("enemySurge.respawnerHook",), "Enemy Surge"),
         )
         optional_closures = {}
 
@@ -478,6 +493,7 @@ def configure(public_module) -> None:
         api: int,
     ) -> None:
         pending_char = getattr(public_module, "_pending_char_overlay", None)
+        pending_surge = getattr(public_module, "_pending_enemy_surge_overlay", None)
         parry_enabled = bool(
             getattr(public_module, "_ankh_parry_riposte_enabled", False)
         )
@@ -645,6 +661,43 @@ def configure(public_module) -> None:
                 char_path.parent.mkdir(parents=True, exist_ok=True)
                 char_path.write_text(patched_char, encoding="utf-8")
 
+        if enemy_surge_enabled:
+            if pending_surge is None:
+                injector.log(
+                    "Optional Enemy Surge skipped: native respawner overlay is unavailable"
+                )
+                enemy_surge_enabled = False
+                public_module._ankh_enemy_surge_enabled = False
+            else:
+                surge_descriptor, surge_text, surge_method, surge_proto = pending_surge
+                surge_capability = public_module._current_abi_profile.get(
+                    "enemySurge.respawnerHook"
+                )
+                patched_surge = public_module.patch_enemy_surge_respawner(
+                    surge_text,
+                    method=surge_method,
+                    proto=surge_proto,
+                    level_descriptor=surge_capability.data["level_descriptor"],
+                )
+                surge_path = directory / Path(
+                    surge_descriptor[1:-1] + ".smali"
+                )
+                if surge_path.exists():
+                    raise injector.InjectError(
+                        "Overlay already contains target respawner class: "
+                        + surge_descriptor
+                    )
+                surge_path.parent.mkdir(parents=True, exist_ok=True)
+                surge_path.write_text(patched_surge, encoding="utf-8")
+                injector.log(
+                    "Enemy Surge native respawner hook "
+                    + surge_method
+                    + surge_proto
+                    + " ("
+                    + surge_capability.detail
+                    + "): OK"
+                )
+
         public_module.write_buff_click_patch(
             directory,
             parry=parry_enabled,
@@ -687,6 +740,7 @@ def configure(public_module) -> None:
             public_module._pending_buff_click_patch = None
             public_module._pending_action_name_overlay = None
             public_module._pending_char_overlay = None
+            public_module._pending_enemy_surge_overlay = None
 
     def output_path(target: Path) -> Path:
         return target.with_name(
