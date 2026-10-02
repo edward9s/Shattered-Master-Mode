@@ -1538,9 +1538,9 @@ def write_combat_call_overlays(
 
     if parry and _pending_parry_feedback_rewrite_count:
         injector.log(
-            "Routed Parry defense feedback for "
+            "Routed Parry feedback in "
             + str(_pending_parry_feedback_rewrite_count)
-            + " defenseVerb call(s): OK"
+            + " hit-caller defenseVerb call(s): OK"
         )
     if parry and _pending_direct_damage_hook_count:
         injector.log(
@@ -1699,9 +1699,9 @@ def compile_smali_with_char_hook(
     )
     if char_feedback_count:
         injector.log(
-            "Routed Parry defense feedback for "
+            "Routed Parry feedback in "
             + str(char_feedback_count)
-            + " Char defenseVerb call(s): OK"
+            + " Char hit-caller defenseVerb call(s): OK"
         )
 
     write_combat_call_overlays(directory, parry=True, force=True)
