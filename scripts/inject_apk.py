@@ -915,6 +915,7 @@ def probe_enemy_surge_respawner(
 
     level_item = target_index.get(level_descriptor)
     structural = []
+    level_field_types = set()
     if level_item is not None:
         known = {descriptor for descriptor, _label in preferred}
         for (_field_name, field_type), flags in level_item.fields.items():
@@ -923,9 +924,10 @@ def probe_enemy_surge_respawner(
                 and field_type.startswith("L")
                 and field_type.endswith(";")
                 and field_type in target_index
-                and field_type not in known
             ):
-                structural.append((field_type, "Level respawner field"))
+                level_field_types.add(field_type)
+                if field_type not in known:
+                    structural.append((field_type, "Level respawner field"))
 
     failures = []
     matches = []
@@ -945,18 +947,33 @@ def probe_enemy_surge_respawner(
         method, proto, _shape = selected
         matches.append((descriptor, label, method, proto, detail))
 
-    preferred_matches = [
-        match for match in matches if match[1] != "Level respawner field"
+    field_matches = [
+        match for match in matches if match[0] in level_field_types
     ]
-    if len(preferred_matches) == 1:
-        matches = preferred_matches
-    elif len(preferred_matches) > 1:
+    if len(field_matches) == 1:
+        matches = field_matches
+    elif len(field_matches) > 1:
         return AbiCapability(
             "enemySurge.respawnerHook",
             ABI_UNSUPPORTED,
-            "multiple known native respawner classes match structurally",
+            "multiple Level instance fields match the native respawner shape: "
+            + ", ".join(match[0] for match in field_matches),
             required=required,
         )
+    else:
+        preferred_matches = [
+            match for match in matches if match[1] != "Level respawner field"
+        ]
+        if len(preferred_matches) == 1:
+            matches = preferred_matches
+        elif len(preferred_matches) > 1:
+            return AbiCapability(
+                "enemySurge.respawnerHook",
+                ABI_UNSUPPORTED,
+                "multiple known native respawner classes match structurally "
+                "and Level has no unique matching field",
+                required=required,
+            )
 
     if len(matches) == 1:
         descriptor, label, method, proto, detail = matches[0]
