@@ -880,8 +880,8 @@ def _select_enemy_surge_respawner_method(
         shape, detail = _enemy_surge_respawner_shape(block, level_descriptor)
         if shape is not None:
             matches.append((name, proto, shape))
-        elif name == "act":
-            diagnostics.append(detail)
+        else:
+            diagnostics.append(f"{name}{proto}: {detail}")
 
     named = [entry for entry in matches if entry[0] == "act"]
     if len(named) == 1:
