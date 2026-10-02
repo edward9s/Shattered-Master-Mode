@@ -10,8 +10,8 @@ Scope is intentionally narrow:
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * adds the storage permissions required by ModDebug save/load;
   * otherwise leaves target resources and non-DEX APK entries untouched;
-  * builds one small first-dex overlay containing patched Dungeon + injected classes;
-  * preserves every original target DEX byte-for-byte and shifts them back one slot;
+  * builds one small first-dex overlay containing patched target classes + injected classes;
+  * removes each shadowed target class from its original DEX before shifting target DEX files;
   * validates injected executable target API references before packaging.
 
 The output keeps the target package name. Because it is re-signed, an installed
@@ -1144,6 +1144,80 @@ def compile_smali(
         raise InjectError(f"smali did not produce a valid dex: {output}")
 
 
+def compile_pruned_target_dexes(
+    java: Path,
+    smali_jar: Path,
+    decoded_target: Path,
+    overlay_root: Path,
+    target_index: dict[str, SmaliClass],
+    work: Path,
+    api: int,
+) -> tuple[dict[str, Path], list[str]]:
+    """Remove target classes shadowed by the overlay and rebuild only affected DEX files.
+
+    The old injector kept duplicate target class definitions in both the overlay
+    and shifted target DEX files. Legacy D8 can encode inherited static calls
+    against a subclass owner (for example Eye.hit even though Char declares hit),
+    and ART may resolve such references inside the original DEX before the overlay
+    class becomes authoritative.
+
+    Only class definitions are removed from target smali here; no target class or
+    reference is added. Reassembly therefore cannot increase the rank of any
+    string/type/field/method ID, which preserves the original non-jumbo safety
+    property while eliminating duplicate class definitions.
+    """
+
+    shadowed: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+
+    for path in overlay_root.rglob("*.smali"):
+        item = SmaliClass.parse(path)
+        if item.descriptor not in target_index or item.descriptor in seen:
+            continue
+        seen.add(item.descriptor)
+        source = target_index[item.descriptor].path
+        if not source.is_file():
+            raise InjectError(
+                "Overlay shadows target class but its original smali is missing: "
+                + item.descriptor
+            )
+        shadowed.append((item.descriptor, source))
+
+    if not shadowed:
+        return {}, []
+
+    dirs = smali_dirs(decoded_target)
+    affected: set[Path] = set()
+    removed: list[str] = []
+
+    for descriptor, source in sorted(shadowed):
+        owner_dir = None
+        for directory in dirs:
+            try:
+                source.relative_to(directory)
+                owner_dir = directory
+                break
+            except ValueError:
+                continue
+        if owner_dir is None:
+            raise InjectError(
+                "Cannot map shadowed target class back to its source DEX: "
+                + descriptor
+            )
+        source.unlink()
+        affected.add(owner_dir)
+        removed.append(descriptor)
+
+    replacements: dict[str, Path] = {}
+    for directory in sorted(affected, key=lambda p: dex_number(smali_dir_dex_name(p))):
+        dex_name = smali_dir_dex_name(directory)
+        output = work / ("pruned-" + dex_name)
+        compile_smali(java, smali_jar, directory, output, api)
+        replacements[dex_name] = output
+
+    return replacements, removed
+
+
 def dex_number(name: str) -> int:
     m = DEX_RE.match(name)
     if not m:
@@ -1831,18 +1905,25 @@ def rebuild_apk(
     overlay_dex: Path,
     output: Path,
     manifest: bytes | None = None,
+    target_dex_replacements: dict[str, Path] | None = None,
 ) -> list[tuple[str, str]]:
-    """Prepend a tiny overlay dex and preserve every target dex byte-for-byte.
+    """Prepend the overlay and shift target DEX files back one slot.
 
-    Reassembling a large R8 target dex can move a method/field/string index from
-    65535 to 65536 and make a non-jumbo instruction unencodable. Therefore the
-    injector never rewrites target dex content. The overlay is classes.dex and
-    original target dex files are renamed to classes2.dex, classes3.dex, ...
-    in their original order.
+    Target DEX files remain byte-for-byte original unless they contain a target
+    class that is also present in the overlay. Those DEX files are reassembled
+    after deleting only the shadowed class definitions, so the APK never contains
+    duplicate target classes.
     """
     overlay = overlay_dex.read_bytes()
     if not overlay.startswith(b"dex\n"):
         raise InjectError("Overlay is not a valid dex file")
+
+    replacements = target_dex_replacements or {}
+    for dex_name, replacement in replacements.items():
+        if not DEX_RE.match(dex_name):
+            raise InjectError("Invalid target DEX replacement name: " + dex_name)
+        if not replacement.is_file() or not replacement.read_bytes().startswith(b"dex\n"):
+            raise InjectError("Invalid target DEX replacement: " + str(replacement))
 
     with zipfile.ZipFile(target, "r") as zin:
         dex_infos = sorted(
@@ -1851,6 +1932,13 @@ def rebuild_apk(
         )
         if not dex_infos or dex_infos[0].filename != "classes.dex":
             raise InjectError("Target APK has no classes.dex")
+
+        original_names = {info.filename for info in dex_infos}
+        unknown = sorted(set(replacements).difference(original_names))
+        if unknown:
+            raise InjectError(
+                "Target DEX replacements do not exist in APK: " + ", ".join(unknown)
+            )
 
         mapping = [
             (info.filename, shifted_dex_name(index + 2))
@@ -1877,9 +1965,15 @@ def rebuild_apk(
                         )
                         inserted_overlay = True
 
+                    replacement = replacements.get(info.filename)
+                    payload = (
+                        replacement.read_bytes()
+                        if replacement is not None
+                        else zin.read(info.filename)
+                    )
                     zout.writestr(
                         clone_zipinfo(info, mapped[info.filename]),
-                        zin.read(info.filename),
+                        payload,
                     )
                     continue
 
@@ -2189,13 +2283,31 @@ def main(argv: Sequence[str] | None = None) -> int:
             api,
         )
 
-        step("Repacking APK with untouched target DEX files")
+        step("Removing overlay-shadowed classes from original target DEX files")
+        target_dex_replacements, shadowed = compile_pruned_target_dexes(
+            java.java,
+            smali,
+            tgt,
+            overlay_root,
+            target_index,
+            work,
+            api,
+        )
+        if shadowed:
+            log("Shadowed target classes removed from original DEX:")
+            for descriptor in shadowed:
+                log("  - " + descriptor)
+        else:
+            log("No target class definitions are shadowed by the overlay")
+
+        step("Repacking APK")
         unsigned = work / "unsigned.apk"
         dex_mapping = rebuild_apk(
             target,
             overlay_dex,
             unsigned,
             manifest_bytes,
+            target_dex_replacements,
         )
         with zipfile.ZipFile(unsigned) as zf:
             bad = zf.testzip()
@@ -2212,7 +2324,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         log("DEX layout:")
         log("  overlay -> classes.dex")
         for original, shifted in dex_mapping:
-            log(f"  {original} -> {shifted} (byte-for-byte)")
+            suffix = " (pruned/reassembled)" if original in target_dex_replacements else " (byte-for-byte)"
+            log(f"  {original} -> {shifted}" + suffix)
 
         step("Signing")
         if args.keystore:
