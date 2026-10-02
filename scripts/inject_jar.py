@@ -667,6 +667,12 @@ public class SmmParryFeedbackPatcher {
     static final String GAME_ROOT = "__GAME_ROOT__";
     static final String MOD_PARRY_RIPOSTE = "com/spd/mod/mechanics/ModParryRiposte";
     static final String DEFENSE_FEEDBACK_DESC = "(L" + CHAR + ";)Ljava/lang/String;";
+    static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
+    static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
+
+    static String methodKey(String name, String desc) {
+        return name + "\n" + desc;
+    }
 
     static boolean isCharType(String type, Map<String, String> parents) {
         HashSet<String> seen = new HashSet<>();
@@ -678,8 +684,166 @@ public class SmmParryFeedbackPatcher {
         return false;
     }
 
+    static boolean isAttack(String name, String desc, int access) {
+        Type[] args = Type.getArgumentTypes(desc);
+        return "attack".equals(name)
+                && (access & Opcodes.ACC_STATIC) == 0
+                && Type.BOOLEAN_TYPE.equals(Type.getReturnType(desc))
+                && args.length >= 1
+                && ("L" + CHAR + ";").equals(args[0].getDescriptor());
+    }
+
+    static boolean isStructuralHit(String desc, int access) {
+        Type[] args = Type.getArgumentTypes(desc);
+        return (access & Opcodes.ACC_STATIC) != 0
+                && Type.BOOLEAN_TYPE.equals(Type.getReturnType(desc))
+                && args.length >= 2
+                && ("L" + CHAR + ";").equals(args[0].getDescriptor())
+                && ("L" + CHAR + ";").equals(args[1].getDescriptor());
+    }
+
+    static final class Plan {
+        String terminalAttackDesc;
+        String hitMethod;
+        String hitDesc;
+    }
+
+    static Plan analyzeChar(byte[] original) {
+        Plan plan = new Plan();
+        LinkedHashSet<String> attacks = new LinkedHashSet<>();
+        LinkedHashSet<String> structuralHits = new LinkedHashSet<>();
+        LinkedHashMap<String, LinkedHashSet<String>> attackEdges = new LinkedHashMap<>();
+        LinkedHashMap<String, LinkedHashSet<String>> attackHitCalls = new LinkedHashMap<>();
+
+        new ClassReader(original).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if (isAttack(name, desc, access)) {
+                    attacks.add(desc);
+                    attackEdges.put(desc, new LinkedHashSet<>());
+                    attackHitCalls.put(desc, new LinkedHashSet<>());
+                }
+                if (isStructuralHit(desc, access)) {
+                    structuralHits.add(methodKey(name, desc));
+                }
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+
+        new ClassReader(original).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                if (!isAttack(name, desc, access)) return null;
+                return new MethodVisitor(API) {
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean isInterface) {
+                        if (!CHAR.equals(owner)) return;
+                        if ("attack".equals(methodName) && attacks.contains(methodDesc)) {
+                            attackEdges.get(desc).add(methodDesc);
+                        }
+                        String key = methodKey(methodName, methodDesc);
+                        if (opcode == Opcodes.INVOKESTATIC && structuralHits.contains(key)) {
+                            attackHitCalls.get(desc).add(key);
+                        }
+                    }
+                };
+            }
+        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+
+        LinkedHashSet<String> terminals = new LinkedHashSet<>();
+        for (String desc : attacks) {
+            if (attackEdges.get(desc).isEmpty()) terminals.add(desc);
+        }
+        if (terminals.size() != 1) {
+            throw new IllegalStateException(
+                    "Expected one terminal Char.attack overload, found "
+                            + terminals.size());
+        }
+        plan.terminalAttackDesc = terminals.iterator().next();
+
+        String selected = structuralHits.contains(methodKey("hit", MODERN_HIT_DESC))
+                ? methodKey("hit", MODERN_HIT_DESC)
+                : (structuralHits.contains(methodKey("hit", LEGACY_HIT_DESC))
+                    ? methodKey("hit", LEGACY_HIT_DESC)
+                    : null);
+        if (selected == null) {
+            LinkedHashSet<String> calledHits = attackHitCalls.get(plan.terminalAttackDesc);
+            if (calledHits == null || calledHits.size() != 1) {
+                throw new IllegalStateException(
+                        "Expected one selected Char hit-check, found "
+                                + (calledHits == null ? 0 : calledHits.size()));
+            }
+            selected = calledHits.iterator().next();
+        }
+
+        int split = selected.indexOf('\n');
+        plan.hitMethod = selected.substring(0, split);
+        plan.hitDesc = selected.substring(split + 1);
+        return plan;
+    }
+
+    static boolean resolvesToSelectedHit(
+            String owner,
+            Plan plan,
+            Map<String, String> parents,
+            Map<String, Map<String, Integer>> declarations) {
+        String key = methodKey(plan.hitMethod, plan.hitDesc);
+        HashSet<String> seen = new HashSet<>();
+        String current = owner;
+        while (current != null && seen.add(current)) {
+            Map<String, Integer> methods = declarations.get(current);
+            Integer access = methods == null ? null : methods.get(key);
+            if (access != null) {
+                return CHAR.equals(current)
+                        && (access & Opcodes.ACC_STATIC) != 0;
+            }
+            current = parents.get(current);
+        }
+        return false;
+    }
+
+    static Set<String> hitCallerMethods(
+            byte[] original,
+            Plan plan,
+            Map<String, String> parents,
+            Map<String, Map<String, Integer>> declarations) {
+        LinkedHashSet<String> callers = new LinkedHashSet<>();
+        new ClassReader(original).accept(new ClassVisitor(API) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc,
+                                             String signature, String[] exceptions) {
+                String callerKey = methodKey(name, desc);
+                return new MethodVisitor(API) {
+                    boolean selectedHit;
+
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean isInterface) {
+                        if (opcode == Opcodes.INVOKESTATIC
+                                && plan.hitMethod.equals(methodName)
+                                && plan.hitDesc.equals(methodDesc)
+                                && resolvesToSelectedHit(
+                                        owner, plan, parents, declarations)) {
+                            selectedHit = true;
+                        }
+                    }
+
+                    @Override
+                    public void visitEnd() {
+                        if (selectedHit) callers.add(callerKey);
+                    }
+                };
+            }
+        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        return callers;
+    }
+
     static byte[] patch(
             byte[] original,
+            Set<String> hitCallers,
             Map<String, String> parents,
             int[] changed) {
         ClassReader reader = new ClassReader(original);
@@ -689,6 +853,9 @@ public class SmmParryFeedbackPatcher {
             public MethodVisitor visitMethod(int access, String name, String desc,
                                              String signature, String[] exceptions) {
                 MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
+                if (!hitCallers.contains(methodKey(name, desc))) {
+                    return base;
+                }
                 return new MethodVisitor(API, base) {
                     @Override
                     public void visitMethodInsn(int opcode, String owner, String methodName,
@@ -725,6 +892,7 @@ public class SmmParryFeedbackPatcher {
 
         LinkedHashMap<String, byte[]> classes = new LinkedHashMap<>();
         HashMap<String, String> parents = new HashMap<>();
+        HashMap<String, Map<String, Integer>> declarations = new HashMap<>();
 
         try (JarFile jar = new JarFile(target.toFile())) {
             Enumeration<JarEntry> entries = jar.entries();
@@ -740,10 +908,29 @@ public class SmmParryFeedbackPatcher {
                     data = in.readAllBytes();
                 }
                 ClassReader reader = new ClassReader(data);
-                classes.put(reader.getClassName(), data);
-                parents.put(reader.getClassName(), reader.getSuperName());
+                String className = reader.getClassName();
+                classes.put(className, data);
+                parents.put(className, reader.getSuperName());
+
+                LinkedHashMap<String, Integer> methods = new LinkedHashMap<>();
+                reader.accept(new ClassVisitor(API) {
+                    @Override
+                    public MethodVisitor visitMethod(
+                            int access, String name, String desc,
+                            String signature, String[] exceptions) {
+                        methods.put(methodKey(name, desc), access);
+                        return null;
+                    }
+                }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+                declarations.put(className, methods);
             }
         }
+
+        byte[] charBytes = classes.get(CHAR);
+        if (charBytes == null) {
+            throw new IllegalStateException("Target JAR is missing Char");
+        }
+        Plan plan = analyzeChar(charBytes);
 
         int patchedClasses = 0;
         int patchedCalls = 0;
@@ -752,8 +939,13 @@ public class SmmParryFeedbackPatcher {
                 String name = item.getKey();
                 if (CHAR.equals(name)) continue;
 
+                Set<String> hitCallers = hitCallerMethods(
+                        item.getValue(), plan, parents, declarations);
+                if (hitCallers.isEmpty()) continue;
+
                 int[] changed = {0};
-                byte[] patched = patch(item.getValue(), parents, changed);
+                byte[] patched = patch(
+                        item.getValue(), hitCallers, parents, changed);
                 if (changed[0] == 0) continue;
 
                 JarEntry entry = new JarEntry(name + ".class");
@@ -766,7 +958,7 @@ public class SmmParryFeedbackPatcher {
         }
 
         System.out.println(
-                "Parry defense feedback JAR patch: "
+                "Parry hit-caller feedback JAR patch: "
                         + patchedCalls + " call(s) across "
                         + patchedClasses + " class(es)");
     }
