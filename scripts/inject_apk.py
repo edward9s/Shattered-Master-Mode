@@ -246,6 +246,8 @@ _current_game_prefix: str | None = None
 _pending_char_overlay: tuple[str, str] | None = None
 _pending_buff_click_patch: tuple[str, str] | None = None
 _pending_action_name_overlay: tuple[str, str] | None = None
+_pending_hit_call_overlays: dict[str, str] = {}
+_pending_hit_call_rewrite_count = 0
 _ankh_only_mode = False
 
 
@@ -802,6 +804,77 @@ def _probe_hit_hook(
     )
 
 
+def canonicalize_inherited_static_hit_calls(
+    target_index: dict[str, injector.SmaliClass],
+    char_descriptor: str,
+    method_name: str,
+    proto: str,
+) -> tuple[dict[str, str], int]:
+    """Rewrite inherited static hit references to the actual Char declaration.
+
+    Some legacy D8 output encodes an unqualified inherited static call such as
+    Eye.hit(...) or YogFist$BrightFist.hit(...), even though only Char declares
+    the selected hit helper. Those references can bind to the untouched target
+    DEX instead of the patched Char overlay. Canonicalizing only references that
+    resolve exactly to Char keeps the source semantics while making the injected
+    hit hook authoritative. Hidden/overridden static methods are left untouched.
+    """
+
+    call_re = re.compile(
+        r"(?m)^(?P<prefix>\s*invoke-static(?:/range)?\s+\{[^}]*\},\s*)"
+        r"(?P<owner>L[^;\s]+;)->"
+        + re.escape(method_name)
+        + re.escape(proto)
+        + r"(?P<suffix>\s*(?:#.*)?)$"
+    )
+
+    overlays: dict[str, str] = {}
+    total = 0
+    key = (method_name, proto)
+
+    for descriptor, item in target_index.items():
+        if descriptor == char_descriptor:
+            continue
+
+        changed = 0
+
+        def repl(match: re.Match[str]) -> str:
+            nonlocal changed
+            owner = match.group("owner")
+            if owner == char_descriptor:
+                return match.group(0)
+
+            resolved = injector.resolve_member(
+                target_index,
+                owner,
+                key,
+                method=True,
+            )
+            if resolved is None:
+                return match.group(0)
+
+            resolved_owner, flags = resolved
+            if resolved_owner != char_descriptor or "static" not in flags:
+                return match.group(0)
+
+            changed += 1
+            return (
+                match.group("prefix")
+                + char_descriptor
+                + "->"
+                + method_name
+                + proto
+                + match.group("suffix")
+            )
+
+        patched = call_re.sub(repl, item.text)
+        if changed:
+            overlays[descriptor] = patched
+            total += changed
+
+    return overlays, total
+
+
 ABI_PROBES: tuple[
     Callable[[dict[str, injector.SmaliClass], str], AbiCapability], ...
 ] = (
@@ -829,9 +902,12 @@ def detect_target_game_prefix(
     global _current_abi_profile, _current_game_prefix
     global _pending_char_overlay, _pending_buff_click_patch
     global _pending_action_name_overlay
+    global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
     game_prefix = _original_detect_target_game_prefix(target_index)
     _current_game_prefix = game_prefix
     _pending_char_overlay = None
+    _pending_hit_call_overlays = {}
+    _pending_hit_call_rewrite_count = 0
     _pending_buff_click_patch = buff_click.find_target(
         injector, target_index, game_prefix
     )
@@ -841,6 +917,22 @@ def detect_target_game_prefix(
     _current_abi_profile = detect_target_abi(target_index, game_prefix)
     _current_abi_profile.log()
     _current_abi_profile.require_compatible()
+
+    hit_capability = _current_abi_profile.get("char.hitHook")
+    hit_method = hit_capability.data.get("method")
+    hit_proto = hit_capability.data.get("proto")
+    if hit_capability.compatible and hit_method and hit_proto:
+        char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
+        (
+            _pending_hit_call_overlays,
+            _pending_hit_call_rewrite_count,
+        ) = canonicalize_inherited_static_hit_calls(
+            target_index,
+            char_descriptor,
+            hit_method,
+            hit_proto,
+        )
+
     return game_prefix
 
 
@@ -1299,6 +1391,30 @@ def patch_char_hit(
     return text[:start] + patched + text[end:]
 
 
+def write_hit_call_overlays(directory: Path) -> None:
+    global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
+    if not _pending_hit_call_overlays:
+        return
+
+    for descriptor, patched in sorted(_pending_hit_call_overlays.items()):
+        output = directory / Path(descriptor[1:-1] + ".smali")
+        if output.exists():
+            raise injector.InjectError(
+                "Injection staging already contains inherited-hit caller class: "
+                + descriptor
+            )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(patched, encoding="utf-8")
+
+    injector.log(
+        "Canonicalized inherited static hit owner for "
+        + str(_pending_hit_call_rewrite_count)
+        + " call(s) across "
+        + str(len(_pending_hit_call_overlays))
+        + " class(es): OK"
+    )
+
+
 def write_action_name_overlay(directory: Path) -> None:
     global _pending_action_name_overlay
     if _pending_action_name_overlay is None:
@@ -1370,6 +1486,7 @@ def compile_smali_with_char_hook(
 ) -> None:
     global _pending_char_overlay, _pending_buff_click_patch
     global _pending_action_name_overlay
+    global _pending_hit_call_overlays, _pending_hit_call_rewrite_count
     if _pending_char_overlay is None:
         raise injector.InjectError("Char.attack overlay source was not captured")
     if _current_abi_profile is None:
@@ -1426,6 +1543,7 @@ def compile_smali_with_char_hook(
         f"{hit_method}{hit_proto} ({hit_capability.strategy}): OK"
     )
 
+    write_hit_call_overlays(directory)
     write_action_name_overlay(directory)
     write_buff_click_patch(
         directory,
@@ -1442,6 +1560,8 @@ def compile_smali_with_char_hook(
         _pending_char_overlay = None
         _pending_buff_click_patch = None
         _pending_action_name_overlay = None
+        _pending_hit_call_overlays = {}
+        _pending_hit_call_rewrite_count = 0
 
 
 def _host_elf_machines() -> set[int] | None:
