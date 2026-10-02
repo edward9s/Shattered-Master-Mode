@@ -1144,6 +1144,9 @@ def compile_smali(
         raise InjectError(f"smali did not produce a valid dex: {output}")
 
 
+_assemble_smali_directory = compile_smali
+
+
 def compile_pruned_target_dexes(
     java: Path,
     smali_jar: Path,
@@ -1212,7 +1215,7 @@ def compile_pruned_target_dexes(
     for directory in sorted(affected, key=lambda p: dex_number(smali_dir_dex_name(p))):
         dex_name = smali_dir_dex_name(directory)
         output = work / ("pruned-" + dex_name)
-        compile_smali(java, smali_jar, directory, output, api)
+        _assemble_smali_directory(java, smali_jar, directory, output, api)
         replacements[dex_name] = output
 
     return replacements, removed
