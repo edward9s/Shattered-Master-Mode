@@ -1,6 +1,8 @@
 import pathlib
 import sys
+import tempfile
 import unittest
+import zipfile
 from types import SimpleNamespace
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -51,6 +53,102 @@ def button_text(descriptor=BUFF_BUTTON, *, native_long=False, info_click=True):
 
 
 class ApkUiCompatTests(unittest.TestCase):
+
+    def test_overlay_shadow_prunes_original_target_class_from_source_dex(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            target = root / "target"
+            source_dir = target / "smali_classes2"
+            source = source_dir / "com/example/Target.smali"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                ".class public Lcom/example/Target;\n"
+                ".super Ljava/lang/Object;\n",
+                encoding="utf-8",
+            )
+            untouched = source_dir / "com/example/Untouched.smali"
+            untouched.write_text(
+                ".class public Lcom/example/Untouched;\n"
+                ".super Ljava/lang/Object;\n",
+                encoding="utf-8",
+            )
+
+            overlay = root / "overlay"
+            patched = overlay / "com/example/Target.smali"
+            patched.parent.mkdir(parents=True)
+            patched.write_text(
+                ".class public Lcom/example/Target;\n"
+                ".super Ljava/lang/Object;\n",
+                encoding="utf-8",
+            )
+            mod = overlay / "com/spd/mod/Helper.smali"
+            mod.parent.mkdir(parents=True)
+            mod.write_text(
+                ".class public Lcom/spd/mod/Helper;\n"
+                ".super Ljava/lang/Object;\n",
+                encoding="utf-8",
+            )
+
+            index = injector.index_smali(target)
+            calls = []
+            original = injector._assemble_smali_directory
+
+            def fake_assemble(java, smali_jar, directory, output, api):
+                calls.append(directory)
+                output.write_bytes(b"dex\n035\0")
+
+            injector._assemble_smali_directory = fake_assemble
+            try:
+                replacements, removed = injector.compile_pruned_target_dexes(
+                    pathlib.Path("java"),
+                    pathlib.Path("smali.jar"),
+                    target,
+                    overlay,
+                    index,
+                    root,
+                    21,
+                )
+            finally:
+                injector._assemble_smali_directory = original
+
+            self.assertEqual(["Lcom/example/Target;"], removed)
+            self.assertFalse(source.exists())
+            self.assertTrue(untouched.exists())
+            self.assertEqual([source_dir], calls)
+            self.assertEqual({"classes2.dex"}, set(replacements))
+            self.assertTrue(replacements["classes2.dex"].is_file())
+
+    def test_rebuild_apk_uses_only_requested_pruned_dex_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            target = root / "target.apk"
+            with zipfile.ZipFile(target, "w") as zf:
+                zf.writestr("classes.dex", b"dex\nORIGINAL1")
+                zf.writestr("classes2.dex", b"dex\nORIGINAL2")
+                zf.writestr("asset.txt", b"asset")
+
+            overlay = root / "overlay.dex"
+            overlay.write_bytes(b"dex\nOVERLAY")
+            replacement = root / "pruned-classes.dex"
+            replacement.write_bytes(b"dex\nPRUNED1")
+            output = root / "out.apk"
+
+            mapping = injector.rebuild_apk(
+                target,
+                overlay,
+                output,
+                target_dex_replacements={"classes.dex": replacement},
+            )
+            self.assertEqual(
+                [("classes.dex", "classes2.dex"), ("classes2.dex", "classes3.dex")],
+                mapping,
+            )
+
+            with zipfile.ZipFile(output) as zf:
+                self.assertEqual(b"dex\nOVERLAY", zf.read("classes.dex"))
+                self.assertEqual(b"dex\nPRUNED1", zf.read("classes2.dex"))
+                self.assertEqual(b"dex\nORIGINAL2", zf.read("classes3.dex"))
+                self.assertEqual(b"asset", zf.read("asset.txt"))
 
     def test_full_buff_click_patch_dispatches_all_mod_buffs(self):
         handlers = buff_click.selected_handlers(
