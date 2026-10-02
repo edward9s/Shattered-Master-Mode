@@ -468,6 +468,7 @@ class ApkUiCompatTests(unittest.TestCase):
 
         fake_injector = SimpleNamespace(
             MOD_ANKH=mod_ankh,
+            SOURCE_GAME_DESCRIPTOR_PREFIX=GAME,
             TARGET_API_PREFIXES=("Ltarget/",),
             InjectError=FakeInjectError,
             smali_dependencies=dependencies,
