@@ -67,10 +67,18 @@ def validate_parry_donors(donor_apk: Path, donor_jar: Path) -> None:
             raise RuntimeError(
                 "APK donor is stale; ModParryRiposte.onHitCheck is absent from DEX"
             )
-        if b"ModParryRiposte$IncomingAttackContext" in dex:
-            raise RuntimeError(
-                "APK donor still contains obsolete ModParryRiposte$IncomingAttackContext"
-            )
+        for obsolete_name in (
+            b"ModParryRiposte$IncomingAttackContext",
+            b"ModParryRiposte$ParryDetachSink",
+            b"onIncomingAttack",
+            b"onIncomingAttackComplete",
+            b"shouldParry",
+        ):
+            if obsolete_name in dex:
+                raise RuntimeError(
+                    "APK donor still contains obsolete Parry ABI marker "
+                    + obsolete_name.decode("ascii")
+                )
 
 
 def populate_kit(
