@@ -47,6 +47,7 @@ def validate_parry_donors(donor_apk: Path, donor_jar: Path) -> None:
             b"onIncomingAttack",
             b"onIncomingAttackComplete",
             b"shouldParry",
+            b"onDirectDamage",
         ):
             if obsolete_name in parry_class:
                 raise RuntimeError(
