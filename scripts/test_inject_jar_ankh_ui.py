@@ -116,7 +116,7 @@ class AnkhJarUiTests(unittest.TestCase):
             root / "core/src/main/java/com/spd/mod/mechanics/ModParryRiposte.java"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            "boolean hit = riposter.attack(attacker);",
+            "ModCombatCompat.performRiposteAttack(riposter, attacker)",
             riposte_source,
         )
 
