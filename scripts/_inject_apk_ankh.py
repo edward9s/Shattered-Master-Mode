@@ -301,7 +301,7 @@ def configure(public_module) -> None:
                 )
                 required_hooks = (
                     ("onHitCheck", f"({source_char}{source_char})Z"),
-                    ("onDirectDamage", f"({source_char}ILjava/lang/Object;)Z"),
+                    ("resolveDirectDamage", f"({source_char}ILjava/lang/Object;){source_char}"),
                     ("defenseVerb", f"({source_char})Ljava/lang/String;"),
                 )
                 donor_parry = donor_index[root]
