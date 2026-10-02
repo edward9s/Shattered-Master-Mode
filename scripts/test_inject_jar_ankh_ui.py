@@ -210,25 +210,37 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertIn("Float.TYPE", combat_compat)
 
 
-    def test_jar_parry_feedback_bridge_is_all_char_and_virtual_only(self):
+    def test_jar_parry_feedback_is_limited_to_selected_hit_callers(self):
         source = mod.PARRY_FEEDBACK_HELPER
+        self.assertIn("hitCallerMethods(", source)
+        self.assertIn("resolvesToSelectedHit(", source)
+        self.assertIn(
+            "if (!hitCallers.contains(methodKey(name, desc)))",
+            source,
+        )
         self.assertIn('"defenseVerb".equals(methodName)', source)
         self.assertIn("opcode == Opcodes.INVOKEVIRTUAL", source)
         self.assertIn("isCharType(owner, parents)", source)
-        self.assertNotIn(
-            'Opcodes.INVOKESPECIAL\n                                && "defenseVerb"',
-            source,
-        )
+        self.assertNotIn("canonical", source.lower())
 
         for helper in (mod.CHAR_HELPER, mod.ANKH_CHAR_HELPER):
             self.assertIn("DEFENSE_FEEDBACK_DESC", helper)
             self.assertIn('"onHitCheck"', helper)
+            self.assertIn("terminal", helper)
             self.assertNotIn('"onIncomingAttack"', helper)
             self.assertNotIn('"onIncomingAttackComplete"', helper)
             self.assertNotIn('"shouldParry"', helper)
 
         self.assertIn(
             'payload, MOD_PARRY_RIPOSTE, "defenseVerb"',
+            mod.ANKH_CHAR_HELPER,
+        )
+        self.assertIn(
+            '&& plan.terminalAttackDesc.equals(desc)',
+            mod.CHAR_HELPER,
+        )
+        self.assertIn(
+            '&& scan.terminalDesc.equals(desc)',
             mod.ANKH_CHAR_HELPER,
         )
 
