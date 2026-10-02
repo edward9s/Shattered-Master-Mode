@@ -1960,39 +1960,43 @@ public class SmmAnkhCharAttackPatcher {
             }
         }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
 
-        LinkedHashSet<String> terminals = new LinkedHashSet<>();
-        for (String desc : attacks) {
-            if (attackEdges.get(desc).isEmpty()) terminals.add(desc);
-        }
-        if (terminals.size() != 1) {
-            scan.hitDetail = "expected one terminal Char.attack, found " + terminals.size();
-            return scan;
-        }
-        scan.terminalDesc = terminals.iterator().next();
-
-        LinkedHashSet<String> calledHits = attackHitCalls.get(scan.terminalDesc);
         String modernDirect = "hit\n" + MODERN_HIT_DESC;
         String legacyDirect = "hit\n" + LEGACY_HIT_DESC;
         String selected = hitCandidates.contains(modernDirect)
                 ? modernDirect
                 : (hitCandidates.contains(legacyDirect) ? legacyDirect : null);
 
-        if (selected != null) {
-            scan.hitDetail = "direct hit-check ";
-        } else if (calledHits.size() == 1) {
-            selected = calledHits.iterator().next();
-            scan.hitDetail = "structural hit-check ";
-        } else {
-            scan.hitDetail = "expected one callable hit-check in terminal Char.attack"
-                    + scan.terminalDesc + ", found " + calledHits.size()
-                    + ": " + calledHits;
-            return scan;
+        LinkedHashSet<String> terminals = new LinkedHashSet<>();
+        for (String desc : attacks) {
+            if (attackEdges.get(desc).isEmpty()) terminals.add(desc);
+        }
+        if (terminals.size() == 1) {
+            scan.terminalDesc = terminals.iterator().next();
         }
 
-        int split = selected.indexOf('\n');
-        scan.hitMethod = selected.substring(0, split);
-        scan.hitDesc = selected.substring(split + 1);
-        scan.hitDetail += scan.hitMethod + scan.hitDesc;
+        if (selected != null) {
+            scan.hitDetail = "direct hit-check ";
+        } else if (scan.terminalDesc != null) {
+            LinkedHashSet<String> calledHits = attackHitCalls.get(scan.terminalDesc);
+            if (calledHits.size() == 1) {
+                selected = calledHits.iterator().next();
+                scan.hitDetail = "structural hit-check ";
+            } else {
+                scan.hitDetail = "expected one callable hit-check in terminal Char.attack"
+                        + scan.terminalDesc + ", found " + calledHits.size()
+                        + ": " + calledHits;
+            }
+        } else {
+            scan.hitDetail = "no direct hit-check and expected one terminal Char.attack, found "
+                    + terminals.size();
+        }
+
+        if (selected != null) {
+            int split = selected.indexOf('\n');
+            scan.hitMethod = selected.substring(0, split);
+            scan.hitDesc = selected.substring(split + 1);
+            scan.hitDetail += scan.hitMethod + scan.hitDesc;
+        }
         return scan;
     }
 
@@ -2011,7 +2015,30 @@ public class SmmAnkhCharAttackPatcher {
                                              String signature, String[] exceptions) {
                 MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
 
-                if ((parry || instant)
+                if (parry) {
+                    base = new MethodVisitor(API, base) {
+                        @Override
+                        public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                    String methodDesc, boolean isInterface) {
+                            if (opcode == Opcodes.INVOKEVIRTUAL
+                                    && CHAR.equals(owner)
+                                    && "defenseVerb".equals(methodName)
+                                    && "()Ljava/lang/String;".equals(methodDesc)) {
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        MOD_PARRY_RIPOSTE,
+                                        "defenseVerb",
+                                        DEFENSE_FEEDBACK_DESC,
+                                        false);
+                                return;
+                            }
+                            super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+                        }
+                    };
+                }
+
+                if (instant
+                        && scan.terminalDesc != null
                         && "attack".equals(name)
                         && scan.terminalDesc.equals(desc)
                         && (access & Opcodes.ACC_STATIC) == 0) {
@@ -2058,25 +2085,6 @@ public class SmmAnkhCharAttackPatcher {
                                         false);
                             }
 
-                        }
-
-                        @Override
-                        public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                    String methodDesc, boolean isInterface) {
-                            if (parry
-                                    && opcode == Opcodes.INVOKEVIRTUAL
-                                    && CHAR.equals(owner)
-                                    && "defenseVerb".equals(methodName)
-                                    && "()Ljava/lang/String;".equals(methodDesc)) {
-                                super.visitMethodInsn(
-                                        Opcodes.INVOKESTATIC,
-                                        MOD_PARRY_RIPOSTE,
-                                        "defenseVerb",
-                                        DEFENSE_FEEDBACK_DESC,
-                                        false);
-                                return;
-                            }
-                            super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
                         }
 
                         @Override
@@ -2217,7 +2225,6 @@ public class SmmAnkhCharAttackPatcher {
 
         boolean parry = donorParry
                 && !scan.alreadyParry
-                && scan.terminalDesc != null
                 && scan.hitMethod != null
                 && scan.hitDesc != null;
         boolean instant = donorInstant
@@ -2234,7 +2241,8 @@ public class SmmAnkhCharAttackPatcher {
                             + scan.hitDetail);
         } else {
             System.out.println(
-                    "Optional Parry/Riposte skipped: no compatible terminal Char.attack");
+                    "Optional Parry/Riposte skipped: "
+                            + (scan.hitDetail == null ? "no compatible hit-check" : scan.hitDetail));
         }
         if (instant) {
             System.out.println(
