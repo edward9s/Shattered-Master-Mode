@@ -156,6 +156,24 @@ class AnkhJarUiTests(unittest.TestCase):
         )
         self.assertNotIn("ModEnemySurgeInfoOverlay", window)
         self.assertNotIn("RenderedTextBlock", window)
+        self.assertIn("public static int scaleMobLimit(int vanillaLimit)", surge)
+        self.assertIn(
+            "public static float scaleRespawnCooldown(float vanillaCooldown)",
+            surge,
+        )
+        self.assertNotIn(".mobCount()", surge)
+        self.assertNotIn(".mobLimit()", surge)
+        self.assertNotIn(".spawnMob(", surge)
+        self.assertNotIn("getDeclaredField(\"respawner\")", surge)
+
+
+
+    def test_enemy_surge_jar_helper_patches_native_respawner(self):
+        source = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
+        self.assertIn("SmmEnemySurgeRespawnerPatcher", source)
+        self.assertIn('"mobLimit".equals(method) || "nMobs".equals(method)', source)
+        self.assertIn('"scaleMobLimit"', source)
+        self.assertIn('"scaleRespawnCooldown"', source)
 
 
     def test_parry_riposte_stays_portable_across_old_forks(self):
