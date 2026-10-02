@@ -422,29 +422,29 @@ public class SmmCharAttackPatcher {
                                              String signature, String[] exceptions) {
                 MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
 
-                base = new MethodVisitor(API, base) {
-                    @Override
-                    public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                String methodDesc, boolean isInterface) {
-                        if (opcode == Opcodes.INVOKEVIRTUAL
-                                && CHAR.equals(owner)
-                                && "defenseVerb".equals(methodName)
-                                && "()Ljava/lang/String;".equals(methodDesc)) {
-                            super.visitMethodInsn(
-                                    Opcodes.INVOKESTATIC,
-                                    MOD_PARRY_RIPOSTE,
-                                    "defenseVerb",
-                                    DEFENSE_FEEDBACK_DESC,
-                                    false);
-                            return;
-                        }
-                        super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
-                    }
-                };
-
                 if ("attack".equals(name)
                         && plan.terminalAttackDesc.equals(desc)
                         && (access & Opcodes.ACC_STATIC) == 0) {
+                    base = new MethodVisitor(API, base) {
+                        @Override
+                        public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                    String methodDesc, boolean isInterface) {
+                            if (opcode == Opcodes.INVOKEVIRTUAL
+                                    && CHAR.equals(owner)
+                                    && "defenseVerb".equals(methodName)
+                                    && "()Ljava/lang/String;".equals(methodDesc)) {
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        MOD_PARRY_RIPOSTE,
+                                        "defenseVerb",
+                                        DEFENSE_FEEDBACK_DESC,
+                                        false);
+                                return;
+                            }
+                            super.visitMethodInsn(
+                                    opcode, owner, methodName, methodDesc, isInterface);
+                        }
+                    };
                     terminalAttackMethods[0]++;
                     return new MethodVisitor(API, base) {
                         @Override
