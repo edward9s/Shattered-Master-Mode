@@ -549,7 +549,14 @@ def configure(public_module) -> None:
 
         if (parry_enabled or instant_enabled or force_enabled) and pending_char is not None:
             char_descriptor, original_char = pending_char
-            patched_char = original_char
+            patched_char = (
+                public_module._pending_parry_feedback_overlays.get(
+                    char_descriptor,
+                    original_char,
+                )
+                if parry_enabled
+                else original_char
+            )
             char_changed = False
 
             # Parry and Force Hit share the selected Char.hit entry. Force Hit
