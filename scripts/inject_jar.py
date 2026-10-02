@@ -693,6 +693,7 @@ def rebuild_full_jar(
     patched_char: Path,
     patched_wnd_use_item: tuple[str, Path] | None,
     patched_buff_click: tuple[str, Path],
+    patched_enemy_surge_respawner: tuple[str, Path],
     patched_modankh: Path,
     payload: dict[str, bytes],
     output: Path,
@@ -713,6 +714,8 @@ def rebuild_full_jar(
     )
     buff_entry, buff_path = patched_buff_click
     buff_bytes = buff_path.read_bytes()
+    surge_entry, surge_path = patched_enemy_surge_respawner
+    surge_bytes = surge_path.read_bytes()
     modankh_bytes = patched_modankh.read_bytes()
     if not wnd_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched WndGame.class is invalid")
@@ -725,6 +728,8 @@ def rebuild_full_jar(
         raise injector.InjectError("Patched WndUseItem.class is invalid")
     if not buff_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched BuffIndicator button class is invalid")
+    if not surge_bytes.startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError("Patched Enemy Surge respawner class is invalid")
     if not modankh_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched ModAnkh.class is invalid")
     for name, data in payload.items():
@@ -739,6 +744,8 @@ def rebuild_full_jar(
             raise injector.InjectError(f"Target JAR has no {char_entry}")
         if buff_entry not in names:
             raise injector.InjectError(f"Target JAR has no {buff_entry}")
+        if surge_entry not in names:
+            raise injector.InjectError(f"Target JAR has no {surge_entry}")
         if injector.MOD_ANKH_ENTRY in names:
             raise injector.InjectError("Target JAR already contains ModAnkh; refusing a second injection")
 
@@ -767,6 +774,8 @@ def rebuild_full_jar(
                     data = wnd_use_item_bytes
                 elif name == buff_entry:
                     data = buff_bytes
+                elif name == surge_entry:
+                    data = surge_bytes
                 else:
                     data = zin.read(name)
                 zout.writestr(injector.clone_zipinfo(info), data)
@@ -2489,6 +2498,7 @@ def rebuild_ankh_jar(
     patched_char: Path | None,
     patched_wnd_use_item: tuple[str, Path] | None,
     patched_buff_click: tuple[str, Path],
+    patched_enemy_surge_respawner: tuple[str, Path] | None,
     patched_modankh: Path,
     payload: dict[str, bytes],
     output: Path,
@@ -2506,6 +2516,16 @@ def rebuild_ankh_jar(
     )
     buff_entry, buff_path = patched_buff_click
     buff_bytes = buff_path.read_bytes()
+    surge_entry = (
+        patched_enemy_surge_respawner[0]
+        if patched_enemy_surge_respawner is not None
+        else None
+    )
+    surge_bytes = (
+        patched_enemy_surge_respawner[1].read_bytes()
+        if patched_enemy_surge_respawner is not None
+        else None
+    )
     modankh_bytes = patched_modankh.read_bytes()
     if not dungeon_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched Dungeon.class is invalid")
@@ -2518,6 +2538,8 @@ def rebuild_ankh_jar(
         raise injector.InjectError("Patched WndUseItem.class is invalid")
     if not buff_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched BuffIndicator button class is invalid")
+    if surge_bytes is not None and not surge_bytes.startswith(injector.CLASS_MAGIC):
+        raise injector.InjectError("Patched Enemy Surge respawner class is invalid")
     if not modankh_bytes.startswith(injector.CLASS_MAGIC):
         raise injector.InjectError("Patched ModAnkh.class is invalid")
     for name, data in payload.items():
@@ -2534,6 +2556,8 @@ def rebuild_ankh_jar(
             raise injector.InjectError(f"Target JAR has no {char_entry}")
         if buff_entry not in names:
             raise injector.InjectError(f"Target JAR has no {buff_entry}")
+        if surge_entry is not None and surge_entry not in names:
+            raise injector.InjectError(f"Target JAR has no {surge_entry}")
         if injector.MOD_ANKH_ENTRY in names:
             raise injector.InjectError("Target JAR already contains ModAnkh; refusing a second injection")
         collisions = sorted((set(payload) | {injector.MOD_ANKH_ENTRY}) & names)
@@ -2558,6 +2582,8 @@ def rebuild_ankh_jar(
                     data = wnd_use_item_bytes
                 elif info.filename == buff_entry:
                     data = buff_bytes
+                elif surge_entry is not None and info.filename == surge_entry:
+                    data = surge_bytes
                 else:
                     data = zin.read(info.filename)
                 zout.writestr(injector.clone_zipinfo(info), data)
@@ -2645,6 +2671,18 @@ def run_ankh_only(
         patched_char = None
         enabled_features = set()
 
+    patched_enemy_surge_respawner = None
+    if "enemy_surge" in adapted_optional:
+        patched_enemy_surge_respawner = patch_enemy_surge_respawner_jar(
+            java,
+            target,
+            work,
+            target_game_root,
+            required=False,
+        )
+        if patched_enemy_surge_respawner is None:
+            adapted_optional.pop("enemy_surge", None)
+
     payload_features = set(enabled_features)
     if "assassinate" in adapted_optional:
         payload_features.add("assassinate")
@@ -2676,6 +2714,7 @@ def run_ankh_only(
         patched_char,
         patched_wnd_use_item,
         patched_buff_click,
+        patched_enemy_surge_respawner,
         patched_modankh,
         payload,
         tmp,
@@ -2691,6 +2730,8 @@ def run_ankh_only(
     if patched_wnd_use_item is not None:
         validate_entries.append(patched_wnd_use_item[0])
     validate_entries.append(patched_buff_click[0])
+    if patched_enemy_surge_respawner is not None:
+        validate_entries.append(patched_enemy_surge_respawner[0])
     injector.validate_jar(tmp, validate_entries)
     shutil.copy2(tmp, output)
 
@@ -2846,6 +2887,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             assassinate=True,
             enemy_surge=True,
         )
+        patched_enemy_surge_respawner = patch_enemy_surge_respawner_jar(
+            java,
+            target,
+            work,
+            target_game_root,
+            required=True,
+        )
+        if patched_enemy_surge_respawner is None:
+            raise injector.InjectError(
+                "Required Enemy Surge respawner patch unexpectedly returned no output"
+            )
 
         injector.step("Repacking target JAR")
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -2856,6 +2908,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             patched_char,
             patched_wnd_use_item,
             patched_buff_click,
+            patched_enemy_surge_respawner,
             patched_modankh,
             payload,
             unsigned_tmp,
@@ -2865,6 +2918,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             wnd_entry,
             char_entry,
             patched_buff_click[0],
+            patched_enemy_surge_respawner[0],
             injector.MOD_ANKH_ENTRY,
             *payload_names,
         ]
