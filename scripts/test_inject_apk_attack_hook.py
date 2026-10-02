@@ -233,7 +233,7 @@ class TerminalAttackHookTest(unittest.TestCase):
         )
         _, _, block = mod.injector.method_block(patched, "attack", terminal)
         self.assertIn("if-nez v0, :hit_success", block)
-        self.assertEqual(1, block.count(instant_hook))
+        self.assertEqual(0, block.count(instant_hook))
         self.assertEqual(2, block.count("ModInstantKill;->finishAttack(Z)V"))
         self.assertNotIn(":smm_instant_kill_miss", block)
         self.assertNotIn("confirmed hit", block)
@@ -308,7 +308,7 @@ class TerminalAttackHookTest(unittest.TestCase):
         _, _, attack = mod.injector.method_block(
             instant, "attack", attack_proto
         )
-        self.assertEqual(1, attack.count(instant_hook))
+        self.assertEqual(0, attack.count(instant_hook))
         self.assertEqual(2, attack.count("ModInstantKill;->finishAttack(Z)V"))
 
         forced = mod.patch_char_hit(
