@@ -190,6 +190,14 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertNotIn("currentAttackSource", source)
         self.assertIn('getDeclaredField("current")', source)
         self.assertIn("getEnclosingClass()", source)
+        direct_damage = source[
+            source.index("public static boolean onDirectDamage"):
+            source.index("private static Char directDamageAttacker")
+        ]
+        self.assertIn("CharSprite.NEUTRAL", direct_damage)
+        self.assertIn('Messages.get(Monk.class, "parried")', direct_damage)
+        self.assertIn("sprite.showStatus(", direct_damage)
+        self.assertNotIn("defenseVerb(defender)", direct_damage)
         self.assertNotIn("Talulah", source)
         self.assertNotIn("Yog", source)
         self.assertNotIn("Eye", source)
