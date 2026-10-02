@@ -1,14 +1,19 @@
 package com.spd.mod.mechanics;
 
+import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
+import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Monk;
+import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.spd.mod.journal.WndTotalBuffInfo;
 import com.watabou.noosa.Image;
+import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
+import com.watabou.utils.Random;
 
 import java.util.ArrayDeque;
 import java.util.Collections;
@@ -22,6 +27,8 @@ public class ModParryRiposte extends Buff {
     private static final String RIPOSTE_ENABLED = "riposte_enabled";
 
     private static final ThreadLocal<ArrayDeque<IncomingAttackContext>> INCOMING_ATTACK_CONTEXTS =
+            new ThreadLocal<>();
+    private static final ThreadLocal<Char> PARRY_FEEDBACK_TARGET =
             new ThreadLocal<>();
 
     private static final class IncomingAttackContext {
@@ -134,6 +141,11 @@ public class ModParryRiposte extends Buff {
      * Returning true means the native hit result is forced to miss.
      */
     public static boolean shouldParry(Char attacker, Char defender) {
+        // Every hit check starts a fresh feedback decision. This prevents a
+        // caller that does not render defenseVerb() from leaking stale Parry UI
+        // into a later miss.
+        PARRY_FEEDBACK_TARGET.remove();
+
         if (attacker == null
                 || defender == null
                 || attacker == defender
@@ -143,9 +155,34 @@ public class ModParryRiposte extends Buff {
         }
 
         ModParryRiposte buff = find(defender);
-        return buff != null
+        boolean parried = buff != null
                 && buff.target == defender
                 && buff.parryEnabled;
+        if (parried) {
+            PARRY_FEEDBACK_TARGET.set(defender);
+        }
+        return parried;
+    }
+
+    /**
+     * Hero.defenseVerb() overlay calls this before native defense feedback.
+     * A successful SMM Parry uses the same localized text and sound as Monk
+     * parry/focus, then consumes the one-shot marker.
+     */
+    public static String consumeParryDefenseVerb(Char defender) {
+        Char pending = PARRY_FEEDBACK_TARGET.get();
+        if (pending != defender) {
+            return null;
+        }
+        PARRY_FEEDBACK_TARGET.remove();
+
+        if (defender != null && defender.sprite != null && defender.sprite.visible) {
+            Sample.INSTANCE.play(
+                    Assets.Sounds.HIT_PARRY,
+                    1,
+                    Random.Float(0.96f, 1.05f));
+        }
+        return Messages.get(Monk.class, "parried");
     }
 
     /** Schedules the prepared Riposte after terminal Char.attack has completed. */
@@ -158,6 +195,9 @@ public class ModParryRiposte extends Buff {
         IncomingAttackContext context = contexts.pop();
         if (contexts.isEmpty()) {
             INCOMING_ATTACK_CONTEXTS.remove();
+            // Normally consumed by defenseVerb() before attack() returns. Clear
+            // any leftover marker for attack paths that suppress miss feedback.
+            PARRY_FEEDBACK_TARGET.remove();
         }
 
         if (context.attacker != null && context.defender != null) {
