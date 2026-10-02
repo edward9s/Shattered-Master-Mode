@@ -91,6 +91,8 @@ def configure(public_module) -> None:
         public_module._ankh_force_hit_enabled = False
         public_module._ankh_assassinate_enabled = False
         public_module._ankh_enemy_surge_enabled = False
+        public_module._pending_hit_call_overlays = {}
+        public_module._pending_hit_call_rewrite_count = 0
 
         char_descriptor = injector.game_descriptor(game_prefix, "actors/Char")
         char_class = target_index.get(char_descriptor)
@@ -130,6 +132,20 @@ def configure(public_module) -> None:
         public_module._current_abi_profile = profile
         profile.log()
         profile.require_compatible()
+
+        hit_method = hit_capability.data.get("method")
+        hit_proto = hit_capability.data.get("proto")
+        if hit_capability.compatible and hit_method and hit_proto:
+            (
+                public_module._pending_hit_call_overlays,
+                public_module._pending_hit_call_rewrite_count,
+            ) = public_module.canonicalize_inherited_static_hit_calls(
+                target_index,
+                char_descriptor,
+                hit_method,
+                hit_proto,
+            )
+
         return game_prefix
 
     def build_ankh_payload(donor_index, target_index):
@@ -645,6 +661,9 @@ def configure(public_module) -> None:
                 char_path.parent.mkdir(parents=True, exist_ok=True)
                 char_path.write_text(patched_char, encoding="utf-8")
 
+        if parry_enabled or force_enabled:
+            public_module.write_hit_call_overlays(directory)
+
         public_module.write_buff_click_patch(
             directory,
             parry=parry_enabled,
@@ -687,6 +706,8 @@ def configure(public_module) -> None:
             public_module._pending_buff_click_patch = None
             public_module._pending_action_name_overlay = None
             public_module._pending_char_overlay = None
+            public_module._pending_hit_call_overlays = {}
+            public_module._pending_hit_call_rewrite_count = 0
 
     def output_path(target: Path) -> Path:
         return target.with_name(
