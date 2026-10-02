@@ -263,28 +263,35 @@ def patch_defense_feedback(package_root: Path) -> None:
 
     for file_path in package_root.rglob('*.java'):
         content = file_path.read_text(encoding='utf-8')
-        changed = 0
+        masked = _mask_non_code(content)
+        replacements: list[tuple[int, int, str]] = []
 
-        def repl(match: re.Match[str]) -> str:
-            nonlocal changed
-            receiver = match.group('receiver')
+        for match in _DEFENSE_VERB_CALL_RE.finditer(masked):
+            receiver = content[
+                match.start('receiver'):match.end('receiver')
+            ]
             if receiver == 'super' or receiver.endswith('.super'):
-                return match.group(0)
+                continue
             if receiver.endswith('ModParryRiposte'):
-                return match.group(0)
+                continue
 
-            changed += 1
-            return (
+            replacements.append((
+                match.start(),
+                match.end(),
                 'com.spd.mod.mechanics.ModParryRiposte.defenseVerb('
                 + receiver
-                + ')'
-            )
+                + ')',
+            ))
 
-        patched = _DEFENSE_VERB_CALL_RE.sub(repl, content)
-        if changed:
-            file_path.write_text(patched, encoding='utf-8')
-            files += 1
-            total += changed
+        if not replacements:
+            continue
+
+        for begin, finish, replacement in reversed(replacements):
+            content = content[:begin] + replacement + content[finish:]
+
+        file_path.write_text(content, encoding='utf-8')
+        files += 1
+        total += len(replacements)
 
     if total == 0:
         raise RuntimeError(
@@ -295,7 +302,6 @@ def patch_defense_feedback(package_root: Path) -> None:
         f'Parry defense feedback routed through {total} call(s) '
         f'across {files} source file(s)'
     )
-
 
 def patch_buff_indicator(file_path: Path) -> None:
     content = file_path.read_text(encoding='utf-8')
