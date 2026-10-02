@@ -23,6 +23,12 @@ _HIT_METHOD_RE = re.compile(
     r'boolean\s+hit\s*\((?P<params>[^)]*)\)\s*\{)'
 )
 
+_DEFENSE_VERB_CALL_RE = re.compile(
+    r'(?<![\w$])'
+    r'(?P<receiver>(?:[A-Za-z_$][\w$]*\.)*[A-Za-z_$][\w$]*)'
+    r'\s*\.\s*defenseVerb\s*\(\s*\)'
+)
+
 
 def _mask_non_code(text: str) -> str:
     """Mask comments and string/char literals while preserving positions/newlines."""
@@ -245,6 +251,52 @@ def patch_char_hit(file_path: Path) -> None:
 
 
 
+def patch_defense_feedback(package_root: Path) -> None:
+    """Route every Char defenseVerb display call through ModParryRiposte.
+
+    The helper preserves normal virtual dispatch for non-SMM misses. Calls to
+    super.defenseVerb() are deliberately left alone so class overrides keep
+    their native fallback behavior.
+    """
+    total = 0
+    files = 0
+
+    for file_path in package_root.rglob('*.java'):
+        content = file_path.read_text(encoding='utf-8')
+        changed = 0
+
+        def repl(match: re.Match[str]) -> str:
+            nonlocal changed
+            receiver = match.group('receiver')
+            if receiver == 'super' or receiver.endswith('.super'):
+                return match.group(0)
+            if receiver.endswith('ModParryRiposte'):
+                return match.group(0)
+
+            changed += 1
+            return (
+                'com.spd.mod.mechanics.ModParryRiposte.defenseVerb('
+                + receiver
+                + ')'
+            )
+
+        patched = _DEFENSE_VERB_CALL_RE.sub(repl, content)
+        if changed:
+            file_path.write_text(patched, encoding='utf-8')
+            files += 1
+            total += changed
+
+    if total == 0:
+        raise RuntimeError(
+            f'No Char defenseVerb() display calls found under {package_root}'
+        )
+
+    print(
+        f'Parry defense feedback routed through {total} call(s) '
+        f'across {files} source file(s)'
+    )
+
+
 def patch_buff_indicator(file_path: Path) -> None:
     content = file_path.read_text(encoding='utf-8')
     marker = '// MASTER_MODE_BUFF_INFO'
@@ -416,6 +468,7 @@ if not char_path.is_file():
     raise RuntimeError(f"Char.java not found beside WndGame package root: {char_path}")
 patch_char(char_path)
 patch_char_hit(char_path)
+patch_defense_feedback(package_root)
 
 buff_indicator_path = package_root / 'ui' / 'BuffIndicator.java'
 if not buff_indicator_path.is_file():
