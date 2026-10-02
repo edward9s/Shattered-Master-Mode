@@ -166,14 +166,28 @@ class AnkhJarUiTests(unittest.TestCase):
 
         self.assertIn("class ModParryRiposte extends Buff", source)
         self.assertNotIn("ChampionEnemy", source)
-        self.assertNotIn("MonkEnergy", source)
+        self.assertNotIn(
+            "import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.MonkEnergy",
+            source,
+        )
         self.assertNotIn("HeroSubClass", source)
-        self.assertNotIn("attack(attacker, 1f, 0f, 1f)", source)
-        self.assertIn("riposter.attack(attacker)", source)
+        self.assertIn("resolveParryFocusClass()", source)
+        self.assertIn(
+            '".actors.buffs.MonkEnergy$MonkAbility$Focus$FocusBuff"',
+            source,
+        )
+        self.assertIn("queueDirectHitRiposte(defender, attacker)", source)
         self.assertIn(
             "public static boolean shouldParry(Char attacker, Char defender)",
             source,
         )
+
+        combat_compat = (
+            root / "core/src/main/java/com/spd/mod/mechanics/ModCombatCompat.java"
+        ).read_text(encoding="utf-8")
+        self.assertIn("performRiposteAttack", combat_compat)
+        self.assertIn('"attack"', combat_compat)
+        self.assertIn("Float.TYPE", combat_compat)
 
 
     def test_jar_parry_feedback_bridge_is_all_char_and_virtual_only(self):
