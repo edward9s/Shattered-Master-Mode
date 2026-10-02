@@ -106,6 +106,15 @@ class AnkhJarUiTests(unittest.TestCase):
             "TargetHealthIndicator.instance.target(null)",
             instant_source,
         )
+        self.assertIn("Wound.hit(defender);", instant_source)
+        self.assertIn(
+            'Messages.get(Preparation.class, "assassinated")',
+            instant_source,
+        )
+        self.assertIn(
+            "executionWoundAlreadyShown(defender)",
+            instant_source,
+        )
 
         force_source = (
             root / "core/src/main/java/com/spd/mod/mechanics/ModForceHit.java"
@@ -124,6 +133,16 @@ class AnkhJarUiTests(unittest.TestCase):
             root / "core/src/main/java/com/spd/mod/mechanics/ModAssassin.java"
         ).read_text(encoding="utf-8")
         self.assertIn("hit = attacker.attack(target);", assassin_source)
+        self.assertIn("Wound.hit(target);", assassin_source)
+        self.assertIn(
+            "ModInstantKill.beginPreShownExecutionWound(target)",
+            assassin_source,
+        )
+        self.assertIn(
+            "ModInstantKill.endPreShownExecutionWound(target)",
+            assassin_source,
+        )
+        self.assertIn("finally", assassin_source)
         self.assertNotIn("attacker.attack(target, 1f, 0f, 1f)", assassin_source)
         self.assertNotIn("attacker.invisible", assassin_source)
         self.assertNotIn("resolveBlockedAttack", assassin_source)
@@ -769,7 +788,7 @@ public class CombatHarness {{
         ModInstantKill.enabled = false;
         ModInstantKill.successfulCalls = 0;
         check(attacker.attack(defender), "Force Hit did not override legacy hit");
-        check(ModInstantKill.successfulCalls == 2, "Force Hit attack should check Instant Kill at entry and after forced hit");
+        check(ModInstantKill.successfulCalls == 1, "Force Hit attack should resolve Instant Kill only after native successful return");
 
         Char.nativeHit = true;
         ModForceHit.enabled = false;
@@ -788,8 +807,8 @@ public class CombatHarness {{
         ModForceHit.enabled = true;
         ModInstantKill.enabled = true;
         ModInstantKill.successfulCalls = 0;
-        check(attacker.attack(defender), "Force Hit + Instant Kill did not bypass invulnerability");
-        check(ModInstantKill.successfulCalls == 1, "Force Hit + Instant Kill did not resolve at attack entry");
+        check(!attacker.attack(defender), "Force Hit + Instant Kill bypassed attack-level invulnerability");
+        check(ModInstantKill.successfulCalls == 0, "Force Hit + Instant Kill resolved before native attack completion");
     }}
 }}
 """,
