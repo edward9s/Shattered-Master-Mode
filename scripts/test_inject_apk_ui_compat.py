@@ -354,6 +354,33 @@ class ApkUiCompatTests(unittest.TestCase):
         self.assertGreater(second, first)
 
 
+
+    def test_enemy_surge_rejects_single_unnamed_level_int_call(self):
+        level = GAME + "levels/Level;"
+        spawner = GAME + "actors/mobs/MobSpawner;"
+        text = (
+            f".class public {spawner}\n"
+            f".super {GAME}actors/Actor;\n\n"
+            ".method protected a()Z\n"
+            "    .locals 2\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->a()I\n"
+            "    move-result v1\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->b()F\n"
+            "    move-result v1\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        item = injector.SmaliClass.from_text(pathlib.Path("MobSpawner.smali"), text)
+        capability = public_apk.probe_enemy_surge_respawner(
+            {spawner: item}, GAME, required=False
+        )
+        self.assertFalse(capability.compatible)
+        self.assertIn("population-limit anchor is ambiguous", capability.detail)
+
+
     def test_ankh_apk_no_longer_patches_item_properties(self):
         self.assertFalse(hasattr(ankh_mode, "_ACTION_MESSAGE_BUNDLE_RE"))
         self.assertFalse(hasattr(ankh_mode, "_ACTION_MESSAGES"))
