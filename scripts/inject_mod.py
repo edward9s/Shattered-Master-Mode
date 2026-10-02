@@ -406,9 +406,14 @@ def patch_char(file_path: Path) -> None:
 
 
 def _patch_enemy_surge_body(body: str, label: str) -> str:
-    marker = '// MASTER_MODE_ENEMY_SURGE'
-    if marker in body:
-        return body
+    limit_hook = 'com.spd.mod.mechanics.ModEnemySurge.scaleMobLimit('
+    cooldown_hook = 'com.spd.mod.mechanics.ModEnemySurge.scaleRespawnCooldown('
+    if limit_hook in body or cooldown_hook in body:
+        if limit_hook in body and cooldown_hook in body:
+            return body
+        raise RuntimeError(
+            f'Partial Enemy Surge respawner hook found in {label}'
+        )
 
     limit_re = re.compile(
         r'Dungeon\.level\.(?P<method>mobLimit|nMobs)\(\)'
@@ -450,14 +455,7 @@ def _patch_enemy_surge_body(body: str, label: str) -> str:
         body,
     )
 
-    first_line_end = body.find('\n')
-    if first_line_end < 0:
-        raise RuntimeError(f'Malformed respawner body in {label}')
-    return (
-        body[:first_line_end + 1]
-        + '\t\t// MASTER_MODE_ENEMY_SURGE\n'
-        + body[first_line_end + 1:]
-    )
+    return body
 
 
 def patch_enemy_surge_respawner(package_root: Path) -> None:
