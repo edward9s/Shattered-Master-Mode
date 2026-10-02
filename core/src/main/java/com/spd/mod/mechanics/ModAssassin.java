@@ -66,9 +66,18 @@ public class ModAssassin {
 
         Wound.hit(target);
 
-        // Assassinate uses normal Char.attack accuracy. Force Hit is the only
-        // mechanic that converts this attack into a guaranteed hit.
-        boolean hit = attacker.attack(target);
+        // Assassinate owns this execution Wound visual. If Instant Kill resolves
+        // during the same synchronous attack, it must reuse the existing visual
+        // instead of emitting a second Wound effect.
+        boolean hit;
+        ModInstantKill.beginPreShownExecutionWound(target);
+        try {
+            // Assassinate uses normal Char.attack accuracy. Force Hit is the only
+            // mechanic that converts this attack into a guaranteed hit.
+            hit = attacker.attack(target);
+        } finally {
+            ModInstantKill.endPreShownExecutionWound(target);
+        }
 
         // Hero has class-specific onAttackComplete bookkeeping that this synchronous,
         // turn-free attack intentionally bypasses. Preserve only those Hero semantics.
