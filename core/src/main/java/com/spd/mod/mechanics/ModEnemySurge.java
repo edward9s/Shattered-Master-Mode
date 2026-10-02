@@ -5,20 +5,21 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
-import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.spd.mod.journal.WndEnemySurgeInfo;
 import com.watabou.noosa.Image;
 import com.watabou.utils.Bundle;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 /**
- * Permanent Master Mode buff that accelerates normal enemy respawning, raises
- * the natural enemy population limit, and can periodically beckon enemies
- * toward the bearer. Vanilla spawn selection and placement remain untouched.
+ * Permanent Master Mode buff that scales the target game's own natural
+ * respawner and can periodically beckon enemies toward the bearer.
+ *
+ * Respawn mechanics stay in the target game. Source/binary integration hooks
+ * pass the vanilla population limit and cooldown through the two static scale
+ * methods below, so fork-specific spawn selection and placement remain intact.
  */
 public class ModEnemySurge extends Buff {
 
@@ -27,14 +28,9 @@ public class ModEnemySurge extends Buff {
 
     private static final float ATTRACT_INTERVAL = 6f;
 
-    private static Field respawnerField;
-
     private int spawnMultiplier = 1;
     private boolean attractEnemies;
 
-    private transient Level trackedLevel;
-    private transient int baseMobLimit = -1;
-    private transient float extraSpawnCountdown = Float.NaN;
     private transient float attractCountdown;
 
     {
@@ -56,6 +52,38 @@ public class ModEnemySurge extends Buff {
             return surge;
         }
         return null;
+    }
+
+    private static ModEnemySurge active() {
+        for (Char ch : Actor.chars().toArray(new Char[0])) {
+            ModEnemySurge surge = find(ch);
+            if (surge != null && surge.target != null && surge.target.isAlive()) {
+                return surge;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Hook for the target game's native respawner population limit.
+     */
+    public static int scaleMobLimit(int vanillaLimit) {
+        ModEnemySurge surge = active();
+        if (surge == null || surge.spawnMultiplier <= 1) {
+            return vanillaLimit;
+        }
+        return Math.multiplyExact(vanillaLimit, surge.spawnMultiplier);
+    }
+
+    /**
+     * Hook for the target game's native respawn cadence.
+     */
+    public static float scaleRespawnCooldown(float vanillaCooldown) {
+        ModEnemySurge surge = active();
+        if (surge == null || surge.spawnMultiplier <= 1) {
+            return vanillaCooldown;
+        }
+        return vanillaCooldown / surge.spawnMultiplier;
     }
 
     public boolean isAttached() {
@@ -131,7 +159,6 @@ public class ModEnemySurge extends Buff {
 
     public void setSpawnMultiplier(int multiplier) {
         spawnMultiplier = Math.max(1, Math.min(10, multiplier));
-        extraSpawnCountdown = Float.NaN;
         refreshIndicators();
     }
 
@@ -152,97 +179,10 @@ public class ModEnemySurge extends Buff {
             return true;
         }
 
-        if (trackedLevel != Dungeon.level) {
-            trackedLevel = Dungeon.level;
-            baseMobLimit = -1;
-            extraSpawnCountdown = Float.NaN;
-            attractCountdown = 0f;
-        }
-
-        processExtraSpawns();
         processAttraction();
 
         spend(TICK);
         return true;
-    }
-
-    private void processExtraSpawns() {
-        // 1x is deliberately a complete no-op. Also never create natural
-        // spawning on a level where vanilla did not install its own respawner.
-        if (spawnMultiplier <= 1 || !hasVanillaRespawner()) {
-            extraSpawnCountdown = Float.NaN;
-            return;
-        }
-
-        // RegularLevel.mobLimit() contains randomness. Sample the vanilla limit
-        // only once per visited level so this buff does not consume RNG every turn.
-        if (baseMobLimit < 0) {
-            baseMobLimit = Math.max(0, Dungeon.level.mobLimit());
-        }
-        if (baseMobLimit <= 0) {
-            extraSpawnCountdown = Float.NaN;
-            return;
-        }
-
-        int effectiveLimit = baseMobLimit * spawnMultiplier;
-        int currentCount = Dungeon.level.mobCount();
-        if (currentCount >= effectiveLimit) {
-            extraSpawnCountdown = Float.NaN;
-            return;
-        }
-
-        if (Float.isNaN(extraSpawnCountdown)) {
-            extraSpawnCountdown = extraSpawnInterval(currentCount);
-        }
-
-        extraSpawnCountdown -= TICK;
-        int attempts = 0;
-
-        while (extraSpawnCountdown <= 0f && attempts < spawnMultiplier) {
-            currentCount = Dungeon.level.mobCount();
-            if (currentCount >= effectiveLimit) {
-                extraSpawnCountdown = Float.NaN;
-                break;
-            }
-
-            if (Dungeon.level.spawnMob(12)) {
-                attempts++;
-                currentCount = Dungeon.level.mobCount();
-                extraSpawnCountdown += extraSpawnInterval(currentCount);
-            } else {
-                // Match the vanilla spawner's failed-placement retry cadence.
-                extraSpawnCountdown = TICK;
-                break;
-            }
-        }
-    }
-
-    private float extraSpawnInterval(int currentCount) {
-        // Below the vanilla limit, the vanilla MobSpawner still contributes 1x,
-        // so this buff supplies only the remaining (N-1)x. Above that limit,
-        // vanilla stops spawning and this buff supplies the full Nx rate.
-        float extraRate = currentCount < baseMobLimit
-                ? spawnMultiplier - 1f
-                : spawnMultiplier;
-        return Math.max(0.1f, Dungeon.level.respawnCooldown() / extraRate);
-    }
-
-    private static boolean hasVanillaRespawner() {
-        if (Dungeon.level == null) {
-            return false;
-        }
-
-        try {
-            if (respawnerField == null) {
-                respawnerField = Level.class.getDeclaredField("respawner");
-                respawnerField.setAccessible(true);
-            }
-            return respawnerField.get(Dungeon.level) != null;
-        } catch (Exception ignored) {
-            // If the vanilla implementation changes, fail closed rather than
-            // introducing spawning on floors where vanilla may forbid it.
-            return false;
-        }
     }
 
     private void processAttraction() {
@@ -321,9 +261,6 @@ public class ModEnemySurge extends Buff {
         if (bundle.contains(ATTRACT_ENEMIES)) {
             attractEnemies = bundle.getBoolean(ATTRACT_ENEMIES);
         }
-        trackedLevel = null;
-        baseMobLimit = -1;
-        extraSpawnCountdown = Float.NaN;
         attractCountdown = 0f;
     }
 
