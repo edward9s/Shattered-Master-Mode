@@ -233,6 +233,9 @@ class AnkhJarUiTests(unittest.TestCase):
         source = mod.PARRY_FEEDBACK_HELPER
         self.assertIn("hitCallerMethods(", source)
         self.assertIn("resolvesToSelectedHit(", source)
+        self.assertIn("hitAliases", source)
+        self.assertIn("hitEdges", source)
+        self.assertIn("plan.hitAliases.add(selected)", source)
         self.assertIn(
             "if (!hitCallers.contains(methodKey(name, desc)))",
             source,
