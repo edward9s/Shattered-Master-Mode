@@ -355,6 +355,49 @@ class ApkUiCompatTests(unittest.TestCase):
 
 
 
+
+    def test_enemy_surge_discovers_r8_renamed_respawner_from_level_field(self):
+        level = GAME + "levels/Level;"
+        spawner = GAME + "actors/mobs/a;"
+        level_text = (
+            f".class public {level}\n"
+            ".super Ljava/lang/Object;\n"
+            f".field private x:{spawner}\n"
+        )
+        spawner_text = (
+            f".class public {spawner}\n"
+            f".super {GAME}actors/Actor;\n\n"
+            ".method protected a()Z\n"
+            "    .locals 3\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->a()I\n"
+            "    move-result v1\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->b()I\n"
+            "    move-result v2\n"
+            f"    sget-object v0, {GAME}Dungeon;->level:{level}\n"
+            f"    invoke-virtual {{v0}}, {level}->respawnCooldown()F\n"
+            "    move-result v1\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        level_item = injector.SmaliClass.from_text(
+            pathlib.Path("Level.smali"), level_text
+        )
+        spawner_item = injector.SmaliClass.from_text(
+            pathlib.Path("a.smali"), spawner_text
+        )
+        capability = public_apk.probe_enemy_surge_respawner(
+            {level: level_item, spawner: spawner_item},
+            GAME,
+            required=False,
+        )
+        self.assertTrue(capability.compatible)
+        self.assertEqual(spawner, capability.data["descriptor"])
+        self.assertIn("Level respawner field", capability.detail)
+
+
     def test_enemy_surge_rejects_single_unnamed_level_int_call(self):
         level = GAME + "levels/Level;"
         spawner = GAME + "actors/mobs/MobSpawner;"
