@@ -825,6 +825,65 @@ def _descriptor_extends(
     return False
 
 
+def _char_hit_aliases(
+    target_index: dict[str, injector.SmaliClass],
+    char_descriptor: str,
+    hit_method: str,
+    hit_proto: str,
+) -> set[tuple[str, str]]:
+    """Return Char-declared static hit wrappers that converge on selected hit."""
+    char_item = target_index.get(char_descriptor)
+    if char_item is None:
+        raise injector.InjectError(
+            "Target hierarchy is missing Char while resolving hit aliases"
+        )
+
+    aliases: set[tuple[str, str]] = {(hit_method, hit_proto)}
+    invoke_re = re.compile(
+        r"(?m)^\s*invoke-static(?:/range)?\s+\{[^}]*\},\s*"
+        r"(?P<owner>L[^;\s]+;)->"
+        r"(?P<name>[^\s(]+)"
+        r"(?P<proto>\([^)]*\).+?)"
+        r"\s*(?:#.*)?$"
+    )
+    wrapper_prefix = "(" + char_descriptor + char_descriptor
+
+    changed = True
+    while changed:
+        changed = False
+        for key, flags in char_item.methods.items():
+            name, proto = key
+            if key in aliases or "static" not in flags:
+                continue
+            if not proto.startswith(wrapper_prefix) or not proto.endswith(")Z"):
+                continue
+
+            _, _, block = injector.method_block(
+                char_item.text,
+                name,
+                proto,
+            )
+            for call in invoke_re.finditer(block):
+                called_key = (call.group("name"), call.group("proto"))
+                if called_key not in aliases:
+                    continue
+                resolved = injector.resolve_member(
+                    target_index,
+                    call.group("owner"),
+                    called_key,
+                    method=True,
+                )
+                if resolved is None:
+                    continue
+                resolved_owner, resolved_flags = resolved
+                if resolved_owner == char_descriptor and "static" in resolved_flags:
+                    aliases.add(key)
+                    changed = True
+                    break
+
+    return aliases
+
+
 def rewrite_parry_feedback_in_hit_callers(
     text: str,
     target_index: dict[str, injector.SmaliClass],
@@ -832,18 +891,24 @@ def rewrite_parry_feedback_in_hit_callers(
     hit_method: str,
     hit_proto: str,
 ) -> tuple[str, int]:
-    """Route defenseVerb() only inside methods that actually call selected hit().
+    """Route defenseVerb() only inside methods that call the selected hit path.
 
-    The hit call itself is left untouched, including legacy subclass owners such
-    as Eye.hit(...). Shadow pruning guarantees the overlay Char is the only Char
-    definition at runtime, so rewriting inherited static owners is unnecessary.
+    Calls may target the selected Char.hit directly or a Char-declared static
+    wrapper that converges on it. Inherited call owners are left untouched;
+    hidden subclass statics are rejected by member resolution.
     """
+    hit_aliases = _char_hit_aliases(
+        target_index,
+        char_descriptor,
+        hit_method,
+        hit_proto,
+    )
     hit_call_re = re.compile(
         r"(?m)^\s*invoke-static(?:/range)?\s+\{[^}]*\},\s*"
         r"(?P<owner>L[^;\s]+;)->"
-        + re.escape(hit_method)
-        + re.escape(hit_proto)
-        + r"\s*(?:#.*)?$"
+        r"(?P<name>[^\s(]+)"
+        r"(?P<proto>\([^)]*\).+?)"
+        r"\s*(?:#.*)?$"
     )
     defense_call_re = re.compile(
         r"(?m)^(?P<prefix>\s*)invoke-virtual(?P<range>/range)?\s+"
@@ -859,7 +924,6 @@ def rewrite_parry_feedback_in_hit_callers(
         + char_descriptor
         + ")Ljava/lang/String;"
     )
-    hit_key = (hit_method, hit_proto)
     total = 0
 
     def method_repl(method_match: re.Match[str]) -> str:
@@ -868,6 +932,9 @@ def rewrite_parry_feedback_in_hit_callers(
 
         calls_selected_hit = False
         for hit_match in hit_call_re.finditer(block):
+            hit_key = (hit_match.group("name"), hit_match.group("proto"))
+            if hit_key not in hit_aliases:
+                continue
             resolved = injector.resolve_member(
                 target_index,
                 hit_match.group("owner"),
@@ -925,7 +992,7 @@ def build_parry_feedback_overlays(
     hit_method: str,
     hit_proto: str,
 ) -> tuple[dict[str, str], int]:
-    """Patch only non-Char classes with hit-caller methods needing feedback."""
+    """Patch only non-Char classes whose methods call the selected hit path."""
     overlays: dict[str, str] = {}
     total = 0
 
@@ -944,6 +1011,7 @@ def build_parry_feedback_overlays(
             total += changed
 
     return overlays, total
+
 
 def patch_direct_damage_entry(
     text: str,
