@@ -165,18 +165,21 @@ public class ModParryRiposte extends Buff {
     }
 
     /**
-     * Hero.defenseVerb() overlay calls this before native defense feedback.
-     * A successful SMM Parry uses the same localized text and sound as Monk
-     * parry/focus, then consumes the one-shot marker.
+     * Central defense-feedback bridge for every Char. Injected/source call sites
+     * use this instead of calling defender.defenseVerb() directly.
+     *
+     * A successful SMM Parry consumes its one-shot marker and returns the same
+     * localized text/sound used by Monk parry/focus. Every non-SMM miss keeps
+     * the defender's native virtual defenseVerb() behavior unchanged.
      */
-    public static String consumeParryDefenseVerb(Char defender) {
+    public static String defenseVerb(Char defender) {
         Char pending = PARRY_FEEDBACK_TARGET.get();
         if (pending != defender) {
-            return null;
+            return defender == null ? "" : defender.defenseVerb();
         }
         PARRY_FEEDBACK_TARGET.remove();
 
-        if (defender != null && defender.sprite != null && defender.sprite.visible) {
+        if (defender.sprite != null && defender.sprite.visible) {
             Sample.INSTANCE.play(
                     Assets.Sounds.HIT_PARRY,
                     1,
