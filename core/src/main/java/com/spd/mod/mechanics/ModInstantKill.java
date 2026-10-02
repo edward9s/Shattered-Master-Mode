@@ -2,6 +2,10 @@ package com.spd.mod.mechanics;
 
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Preparation;
+import com.shatteredpixel.shatteredpixeldungeon.effects.Wound;
+import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
+import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 import com.shatteredpixel.shatteredpixeldungeon.ui.TargetHealthIndicator;
@@ -175,6 +179,8 @@ public class ModInstantKill extends Buff {
             return false;
         }
 
+        Wound.hit(defender);
+
         // TargetHealthIndicator keeps a direct Char reference and calls isAlive()
         // every frame. Brute.isAlive() has side effects: after a forced first-stage
         // death, a later UI query can trigger BruteRage on the already-removed Char
@@ -185,7 +191,15 @@ public class ModInstantKill extends Buff {
             TargetHealthIndicator.instance.target(null);
         }
 
-        return ModDeathCompat.kill(defender, attacker);
+        if (!ModDeathCompat.kill(defender, attacker)) {
+            return false;
+        }
+        if (defender.sprite != null) {
+            defender.sprite.showStatus(
+                    CharSprite.NEGATIVE,
+                    Messages.get(Preparation.class, "assassinated"));
+        }
+        return true;
     }
 
     @Override
