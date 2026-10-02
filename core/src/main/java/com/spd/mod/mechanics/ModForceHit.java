@@ -47,16 +47,15 @@ public class ModForceHit extends Buff {
 
     /**
      * The selected Char.hit check calls this before native accuracy/evasion logic.
-     * Force Hit alone does not bypass an earlier Char.attack invulnerability stop.
-     * Force Hit + Instant Kill is resolved separately at Char.attack entry.
+     * Force Hit changes hit resolution only; it does not bypass attack-level
+     * invulnerability or replace native attack presentation.
      */
     public static boolean forceHitCheck(Char attacker, Char defender) {
         return attacker != null
                 && defender != null
                 && attacker != defender
                 && isForceHitEnabled(attacker)
-                && defender.isAlive()
-                && !defender.isInvulnerable(attacker.getClass());
+                && defender.isAlive();
     }
 
     public boolean forceHitEnabled() {
@@ -116,9 +115,8 @@ public class ModForceHit extends Buff {
 
     @Override
     public String desc() {
-        return "Forces this character's hit checks to succeed. Force Hit alone does not "
-                + "bypass engine-level invulnerability; combined with Instant Kill, the "
-                + "attack-entry kill does.";
+        return "Forces this character's hit checks to succeed. "
+                + "It does not bypass attack-level invulnerability.";
     }
 
     @Override
