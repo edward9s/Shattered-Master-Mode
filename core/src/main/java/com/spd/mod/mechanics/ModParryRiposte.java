@@ -253,7 +253,6 @@ public class ModParryRiposte extends Buff {
             }
 
             RiposteActor actor = new RiposteActor(riposter, attacker);
-            actor.scheduled = true;
             PENDING_RIPOSTES.put(attacker, actor);
             Actor.add(actor);
         }
@@ -286,7 +285,6 @@ public class ModParryRiposte extends Buff {
         private final Char riposter;
         private final Char attacker;
         private boolean waitingForAnimation;
-        private boolean scheduled;
 
         RiposteActor(Char riposter, Char attacker) {
             this.riposter = riposter;
