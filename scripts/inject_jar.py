@@ -324,6 +324,7 @@ public class SmmCharAttackPatcher {
         LinkedHashSet<String> structuralHits = new LinkedHashSet<>();
         LinkedHashMap<String, LinkedHashSet<String>> attackEdges = new LinkedHashMap<>();
         LinkedHashMap<String, LinkedHashSet<String>> attackHitCalls = new LinkedHashMap<>();
+        LinkedHashMap<String, LinkedHashSet<String>> hitEdges = new LinkedHashMap<>();
 
         new ClassReader(original).accept(new ClassVisitor(API) {
             @Override
@@ -683,6 +684,7 @@ public class SmmParryFeedbackPatcher {
         String terminalAttackDesc;
         String hitMethod;
         String hitDesc;
+        final LinkedHashSet<String> hitAliases = new LinkedHashSet<>();
     }
 
     static Plan analyzeChar(byte[] original) {
@@ -702,7 +704,9 @@ public class SmmParryFeedbackPatcher {
                     attackHitCalls.put(desc, new LinkedHashSet<>());
                 }
                 if (isStructuralHit(desc, access)) {
-                    structuralHits.add(methodKey(name, desc));
+                    String key = methodKey(name, desc);
+                    structuralHits.add(key);
+                    hitEdges.put(key, new LinkedHashSet<>());
                 }
                 return null;
             }
@@ -712,18 +716,28 @@ public class SmmParryFeedbackPatcher {
             @Override
             public MethodVisitor visitMethod(int access, String name, String desc,
                                              String signature, String[] exceptions) {
-                if (!isAttack(name, desc, access)) return null;
+                boolean attack = isAttack(name, desc, access);
+                boolean structuralHit = isStructuralHit(desc, access);
+                if (!attack && !structuralHit) return null;
+                String callerKey = structuralHit ? methodKey(name, desc) : null;
                 return new MethodVisitor(API) {
                     @Override
                     public void visitMethodInsn(int opcode, String owner, String methodName,
                                                 String methodDesc, boolean isInterface) {
                         if (!CHAR.equals(owner)) return;
-                        if ("attack".equals(methodName) && attacks.contains(methodDesc)) {
+                        if (attack
+                                && "attack".equals(methodName)
+                                && attacks.contains(methodDesc)) {
                             attackEdges.get(desc).add(methodDesc);
                         }
                         String key = methodKey(methodName, methodDesc);
                         if (opcode == Opcodes.INVOKESTATIC && structuralHits.contains(key)) {
-                            attackHitCalls.get(desc).add(key);
+                            if (attack) {
+                                attackHitCalls.get(desc).add(key);
+                            }
+                            if (structuralHit) {
+                                hitEdges.get(callerKey).add(key);
+                            }
                         }
                     }
                 };
@@ -759,15 +773,38 @@ public class SmmParryFeedbackPatcher {
         int split = selected.indexOf('\n');
         plan.hitMethod = selected.substring(0, split);
         plan.hitDesc = selected.substring(split + 1);
+        plan.hitAliases.add(selected);
+
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (String candidate : structuralHits) {
+                if (plan.hitAliases.contains(candidate)) continue;
+                LinkedHashSet<String> calls = hitEdges.get(candidate);
+                if (calls == null) continue;
+                for (String called : calls) {
+                    if (plan.hitAliases.contains(called)) {
+                        plan.hitAliases.add(candidate);
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
         return plan;
     }
 
     static boolean resolvesToSelectedHit(
             String owner,
+            String methodName,
+            String methodDesc,
             Plan plan,
             Map<String, String> parents,
             Map<String, Map<String, Integer>> declarations) {
-        String key = methodKey(plan.hitMethod, plan.hitDesc);
+        String key = methodKey(methodName, methodDesc);
+        if (!plan.hitAliases.contains(key)) {
+            return false;
+        }
         HashSet<String> seen = new HashSet<>();
         String current = owner;
         while (current != null && seen.add(current)) {
@@ -800,10 +837,13 @@ public class SmmParryFeedbackPatcher {
                     public void visitMethodInsn(int opcode, String owner, String methodName,
                                                 String methodDesc, boolean isInterface) {
                         if (opcode == Opcodes.INVOKESTATIC
-                                && plan.hitMethod.equals(methodName)
-                                && plan.hitDesc.equals(methodDesc)
                                 && resolvesToSelectedHit(
-                                        owner, plan, parents, declarations)) {
+                                        owner,
+                                        methodName,
+                                        methodDesc,
+                                        plan,
+                                        parents,
+                                        declarations)) {
                             selectedHit = true;
                         }
                     }
