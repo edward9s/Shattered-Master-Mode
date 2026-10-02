@@ -162,19 +162,19 @@ public class ModParryRiposte extends Buff {
      * scheduler state. Non-Char actors such as Buffs/Blobs do
      * not become parryable merely because they deal damage.
      */
-    public static boolean onDirectDamage(Char defender, int damage, Object src) {
+    public static Char resolveDirectDamage(Char defender, int damage, Object src) {
         if (defender == null || damage < 0) {
-            return false;
+            return defender;
         }
 
         ModParryRiposte buff = find(defender);
         if (buff == null) {
-            return false;
+            return defender;
         }
 
         Char attacker = directDamageAttacker(defender, src);
         if (attacker == null) {
-            return false;
+            return defender;
         }
 
         if (buff.riposteEnabled) {
@@ -183,11 +183,11 @@ public class ModParryRiposte extends Buff {
 
         // Keep Force Hit precedence consistent with the hit() hook.
         if (ModForceHit.forceHitCheck(attacker, defender)) {
-            return false;
+            return defender;
         }
 
         if (!buff.parryEnabled) {
-            return false;
+            return defender;
         }
 
         if (defender.sprite != null && defender.sprite.visible) {
@@ -199,7 +199,7 @@ public class ModParryRiposte extends Buff {
                     1,
                     Random.Float(0.96f, 1.05f));
         }
-        return true;
+        return null;
     }
 
     private static Char directDamageAttacker(Char defender, Object src) {
