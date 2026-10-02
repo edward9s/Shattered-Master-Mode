@@ -441,19 +441,22 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(1, count)
         self.assertEqual({hero}, set(overlays))
         patched = overlays[hero]
-        self.assertIn(".locals 1", patched)
+        self.assertIn(".locals 0", patched)
         self.assertIn(
             "invoke-static/range {p0 .. p2}, "
-            "Lcom/spd/mod/mechanics/ModParryRiposte;->onDirectDamage("
+            "Lcom/spd/mod/mechanics/ModParryRiposte;->resolveDirectDamage("
             + self.char
-            + "ILjava/lang/Object;)Z",
+            + "ILjava/lang/Object;)"
+            + self.char,
             patched,
         )
+        self.assertIn("move-result-object p0", patched)
+        self.assertIn(f"check-cast p0, {hero}", patched)
         self.assertIn(":smm_direct_damage_native", patched)
         self.assertNotIn(talulah, overlays)
         self.assertNotIn(other, overlays)
 
-    def test_direct_damage_hook_handles_registers_form(self):
+    def test_direct_damage_hook_keeps_registers_form_unchanged(self):
         hero = self.game + "actors/hero/Hero;"
         text = (
             f".class public {hero}\n"
@@ -473,8 +476,41 @@ class TerminalAttackHookTest(unittest.TestCase):
             "damage",
             "(ILjava/lang/Object;)V",
         )
-        self.assertIn(".registers 4", block)
-        self.assertIn("move-result v0", block)
+        self.assertIn(".registers 3", block)
+        self.assertNotIn(".registers 4", block)
+        self.assertIn("move-result-object p0", block)
+        self.assertIn(f"check-cast p0, {hero}", block)
+
+    def test_direct_damage_hook_does_not_push_p0_past_v15_boundary(self):
+        hero = self.game + "actors/hero/Hero;"
+        text = (
+            f".class public {hero}\n"
+            f".super {self.char}\n"
+            ".method public damage(ILjava/lang/Object;)V\n"
+            "    .locals 15\n"
+            f"    invoke-virtual {{p0}}, {hero}->isAlive()Z\n"
+            "    move-result v0\n"
+            "    return-void\n"
+            ".end method\n"
+        )
+        patched = mod.patch_direct_damage_entry(
+            text,
+            hero,
+            self.char,
+        )
+        _, _, block = mod.injector.method_block(
+            patched,
+            "damage",
+            "(ILjava/lang/Object;)V",
+        )
+        self.assertIn(".locals 15", block)
+        self.assertNotIn(".locals 16", block)
+        self.assertNotIn("v16", block)
+        self.assertIn("move-result-object p0", block)
+        self.assertIn(
+            f"invoke-virtual {{p0}}, {hero}->isAlive()Z",
+            block,
+        )
 
 
     def test_char_local_parry_feedback_is_rewritten(self):
