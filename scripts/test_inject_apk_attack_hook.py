@@ -374,6 +374,111 @@ class TerminalAttackHookTest(unittest.TestCase):
         self.assertEqual(1, hit.count(force_hook))
 
 
+    def test_ark_inherited_static_hit_callers_are_canonicalized(self):
+        hit_proto = f"({self.char}{self.char}Z)Z"
+        mob = self.game + "actors/mobs/Mob;"
+        eye = self.game + "actors/mobs/Eye;"
+        bright = self.game + "actors/mobs/YogFist$BrightFist;"
+
+        char_text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public static hit{hit_proto}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        mob_text = (
+            f".class public {mob}\n"
+            f".super {self.char}\n"
+        )
+        eye_text = (
+            f".class public {eye}\n"
+            f".super {mob}\n"
+            ".method public deathGaze()V\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x1\n"
+            f"    invoke-static {{p0, p0, v0}}, {eye}->hit{hit_proto}\n"
+            "    return-void\n"
+            ".end method\n"
+        )
+        bright_text = (
+            f".class public {bright}\n"
+            f".super {mob}\n"
+            ".method protected zap()V\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x1\n"
+            f"    invoke-static/range {{p0 .. p0}}, {bright}->hit{hit_proto}\n"
+            "    return-void\n"
+            ".end method\n"
+        )
+        index = {
+            self.char: self.cls(char_text),
+            mob: self.cls(mob_text),
+            eye: self.cls(eye_text),
+            bright: self.cls(bright_text),
+        }
+
+        overlays, count = mod.canonicalize_inherited_static_hit_calls(
+            index,
+            self.char,
+            "hit",
+            hit_proto,
+        )
+
+        self.assertEqual(2, count)
+        self.assertEqual({eye, bright}, set(overlays))
+        self.assertIn(f"{self.char}->hit{hit_proto}", overlays[eye])
+        self.assertIn(f"{self.char}->hit{hit_proto}", overlays[bright])
+        self.assertNotIn(f"{eye}->hit{hit_proto}", overlays[eye])
+        self.assertNotIn(f"{bright}->hit{hit_proto}", overlays[bright])
+
+
+    def test_hidden_static_hit_is_not_canonicalized(self):
+        hit_proto = f"({self.char}{self.char}Z)Z"
+        special = self.game + "actors/mobs/Special;"
+
+        char_text = (
+            f".class public {self.char}\n"
+            ".super Ljava/lang/Object;\n"
+            f".method public static hit{hit_proto}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x1\n"
+            "    return v0\n"
+            ".end method\n"
+        )
+        special_text = (
+            f".class public {special}\n"
+            f".super {self.char}\n"
+            f".method public static hit{hit_proto}\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x0\n"
+            "    return v0\n"
+            ".end method\n"
+            ".method public test()V\n"
+            "    .locals 1\n"
+            "    const/4 v0, 0x1\n"
+            f"    invoke-static {{p0, p0, v0}}, {special}->hit{hit_proto}\n"
+            "    return-void\n"
+            ".end method\n"
+        )
+        index = {
+            self.char: self.cls(char_text),
+            special: self.cls(special_text),
+        }
+
+        overlays, count = mod.canonicalize_inherited_static_hit_calls(
+            index,
+            self.char,
+            "hit",
+            hit_proto,
+        )
+
+        self.assertEqual(0, count)
+        self.assertEqual({}, overlays)
+
+
     def test_parry_covers_modern_magic_hit_wrapper(self):
         legacy_hit = f"({self.char}{self.char}Z)Z"
         modern_hit = f"({self.char}{self.char}FZ)Z"
