@@ -457,7 +457,18 @@ class ApkUiCompatTests(unittest.TestCase):
         ankh_item = object()
         last_stand_item = SimpleNamespace(descriptor=last_stand)
         last_stand_tag_item = SimpleNamespace(descriptor=last_stand_tag)
-        parry_item = SimpleNamespace(descriptor=parry)
+        source_char = GAME + "actors/Char;"
+        parry_item = SimpleNamespace(
+            descriptor=parry,
+            methods={
+                ("onIncomingAttack", f"({source_char}{source_char})V"):
+                    frozenset({"public", "static"}),
+                ("onIncomingAttackComplete", "()V"):
+                    frozenset({"public", "static"}),
+                ("shouldParry", f"({source_char}{source_char})Z"):
+                    frozenset({"public", "static"}),
+            },
+        )
         assassinate_item = SimpleNamespace(descriptor=assassinate)
         enemy_surge_item = SimpleNamespace(descriptor=enemy_surge)
 
