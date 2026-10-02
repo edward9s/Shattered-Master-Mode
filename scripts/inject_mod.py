@@ -228,11 +228,11 @@ def _char_hit_method(content: str) -> tuple[str, str, int]:
 def patch_char_hit(file_path: Path) -> None:
     content = file_path.read_text(encoding='utf-8')
     force_marker = '// MASTER_MODE_FORCE_HIT'
-    parry_marker = '// MASTER_MODE_PARRY'
+    parry_marker = '// MASTER_MODE_PARRY_RIPOSTE_HIT'
 
     if force_marker in content or parry_marker in content:
         if force_marker in content and parry_marker in content:
-            print(f"Force Hit + Parry hooks already injected into {file_path}")
+            print(f"Force Hit + Parry/Riposte hit hook already injected into {file_path}")
             return
         raise RuntimeError(
             f"Partial Char.hit hook set found in {file_path}; refusing an ambiguous patch"
@@ -240,14 +240,15 @@ def patch_char_hit(file_path: Path) -> None:
 
     attacker, defender, open_brace = _char_hit_method(content)
     injected = (
-        "\n\t\t// MASTER_MODE_FORCE_HIT\n"
+        "\n\t\t// MASTER_MODE_PARRY_RIPOSTE_HIT\n"
+        f"\t\tboolean _smmParryRiposte = com.spd.mod.mechanics.ModParryRiposte.onHitCheck({attacker}, {defender});\n"
+        "\t\t// MASTER_MODE_FORCE_HIT\n"
         f"\t\tif (com.spd.mod.mechanics.ModForceHit.forceHitCheck({attacker}, {defender})) return true;\n"
-        "\t\t// MASTER_MODE_PARRY\n"
-        f"\t\tif (com.spd.mod.mechanics.ModParryRiposte.shouldParry({attacker}, {defender})) return false;\n"
+        "\t\tif (_smmParryRiposte) return false;\n"
     )
     content = content[:open_brace + 1] + injected + content[open_brace + 1:]
     file_path.write_text(content, encoding='utf-8')
-    print(f"Force Hit + Parry hooks injected successfully into {file_path}")
+    print(f"Unified Char.hit Force Hit + Parry/Riposte hook injected into {file_path}")
 
 
 
@@ -384,42 +385,25 @@ def patch_wndgame(file_path: Path) -> None:
 
 def patch_char(file_path: Path) -> None:
     content = file_path.read_text(encoding='utf-8')
-    pre_marker = '// MASTER_MODE_INCOMING_ATTACK'
-    completion_marker = '// MASTER_MODE_INCOMING_ATTACK_COMPLETE'
     instant_marker = '// MASTER_MODE_INSTANT_KILL'
 
-    if completion_marker in content or instant_marker in content:
-        if completion_marker in content and instant_marker in content:
-            print(f"Char.attack hooks already injected into {file_path}")
-            return
+    if instant_marker in content:
+        print(f"Char.attack Instant Kill hook already injected into {file_path}")
+        return
+
+    if ('// MASTER_MODE_INCOMING_ATTACK' in content
+            or 'ModParryRiposte.onIncomingAttack' in content
+            or 'ModParryRiposte.onIncomingAttackComplete' in content):
         raise RuntimeError(
-            f"Partial Char.attack hook set found in {file_path}; refusing an ambiguous patch"
+            f"Obsolete Char.attack Parry/Riposte hook found in {file_path}; "
+            "refusing to mix old and unified hit-check architectures"
         )
 
     defender, open_brace, close_brace = _terminal_attack_method(content)
     body = content[open_brace + 1:close_brace]
 
-    # Upgrade source trees that were already patched by the old pre-hook-only
-    # implementation instead of adding a duplicate onIncomingAttack() call.
-    old_pre_hook = re.compile(
-        r'\s*// MASTER_MODE_INCOMING_ATTACK\s*\n'
-        r'\s*com\.spd\.mod\.mechanics\.ModParryRiposte\.onIncomingAttack'
-        r'\(\s*this\s*,\s*' + re.escape(defender) + r'\s*\);\s*'
-    )
-    clean_body, old_hook_count = old_pre_hook.subn('\n', body, count=1)
-
-    if pre_marker in body and old_hook_count != 1:
-        raise RuntimeError(
-            f"Unrecognized existing incoming-attack hook in terminal Char.attack: {file_path}"
-        )
-    if pre_marker in content and pre_marker not in body:
-        raise RuntimeError(
-            f"Existing incoming-attack hook is not in terminal Char.attack: {file_path}"
-        )
-
-    # Instant Kill owns successful physical hits before any defenseProc() side
-    # effects. Match the terminal attack's single native hit(this, defender, ...)
-    # success branch and fail if that structural anchor is ambiguous.
+    # Instant Kill remains an attack-layer concern. Parry/Riposte is handled only
+    # by the selected Char.hit() hook.
     hit_success = re.compile(
         r'(?P<head>(?:}\s*else\s+)?if\s*\(\s*hit\s*\(\s*this\s*,\s*'
         + re.escape(defender)
@@ -429,9 +413,9 @@ def patch_char(file_path: Path) -> None:
         "\n\t\t\t// MASTER_MODE_INSTANT_KILL\n"
         f"\t\t\tif (com.spd.mod.mechanics.ModInstantKill.resolveSuccessfulAttack(this, {defender})) return true;"
     )
-    clean_body, instant_count = hit_success.subn(
+    patched_body, instant_count = hit_success.subn(
         lambda m: m.group('head') + instant_code,
-        clean_body,
+        body,
     )
     if instant_count != 1:
         raise RuntimeError(
@@ -439,35 +423,16 @@ def patch_char(file_path: Path) -> None:
             f"found {instant_count}: {file_path}"
         )
 
-    # try/finally preserves Java return-expression evaluation order: completion
-    # runs after the terminal attack result has been computed, while still
-    # guaranteeing every normal return path reaches onIncomingAttackComplete().
-    indented_body = re.sub(r'(?m)^', '\t', clean_body)
-    wrapped_body = (
-        "\n\t\t// MASTER_MODE_INCOMING_ATTACK\n"
-        f"\t\tcom.spd.mod.mechanics.ModParryRiposte.onIncomingAttack(this, {defender});\n"
-        "\t\ttry {"
-        f"{indented_body}"
-        "\n\t\t} finally {\n"
-        "\t\t\t// MASTER_MODE_INCOMING_ATTACK_COMPLETE\n"
-        f"\t\t\tcom.spd.mod.mechanics.ModParryRiposte.onIncomingAttackComplete(this, {defender});\n"
-        "\t\t}\n\t"
-    )
-
-    content = (
-        content[:open_brace + 1]
-        + wrapped_body
-        + content[close_brace:]
-    )
+    content = content[:open_brace + 1] + patched_body + content[close_brace:]
     file_path.write_text(content, encoding='utf-8')
-    print(f"Char.attack Riposte + Instant Kill hooks injected successfully into {file_path}")
+    print(f"Char.attack Instant Kill hook injected successfully into {file_path}")
 
 
 patch_wndgame(wnd_path)
 
 # WndGame and Char live under the detected SPD-family package root.
-# Derive Char.java from that root so source builds receive the same
-# terminal-attack Riposte lifecycle as APK injection.
+# Derive Char.java from that root. Instant Kill remains on Char.attack while
+# Force Hit / Parry / Riposte share the selected Char.hit() hook.
 package_root = wnd_path.parent.parent
 char_path = package_root / 'actors' / 'Char.java'
 if not char_path.is_file():
