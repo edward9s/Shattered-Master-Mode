@@ -38,6 +38,42 @@ final class ModCombatCompat {
         return duelistComboTrackerClass;
     }
 
+    static boolean performRiposteAttack(Char riposter, Char target) {
+        if (riposter == null || target == null) {
+            return false;
+        }
+
+        Method direct;
+        try {
+            direct = riposter.getClass().getMethod(
+                    "attack",
+                    Char.class,
+                    Float.TYPE,
+                    Float.TYPE,
+                    Float.TYPE);
+        } catch (NoSuchMethodException ignored) {
+            // Older SPD families expose only attack(Char); that method performs
+            // the attack directly and does not impose canAttack/range gating.
+            return riposter.attack(target);
+        }
+
+        try {
+            Object result = direct.invoke(riposter, target, 1f, 0f, 1f);
+            return result instanceof Boolean && (Boolean) result;
+        } catch (java.lang.reflect.InvocationTargetException exc) {
+            Throwable cause = exc.getCause();
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            }
+            if (cause instanceof Error) {
+                throw (Error) cause;
+            }
+            return false;
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+            return riposter.attack(target);
+        }
+    }
+
     static void recordRiposteHit(Char riposter, Char hitTarget) {
         if (!(riposter instanceof Hero)) {
             return;
