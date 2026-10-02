@@ -405,12 +405,123 @@ def patch_char(file_path: Path) -> None:
     print(f"Char.attack Riposte + Instant Kill hooks injected successfully into {file_path}")
 
 
+def _patch_enemy_surge_body(body: str, label: str) -> str:
+    marker = '// MASTER_MODE_ENEMY_SURGE'
+    if marker in body:
+        return body
+
+    limit_re = re.compile(
+        r'Dungeon\.level\.(?P<method>mobLimit|nMobs)\(\)'
+    )
+    limit_matches = list(limit_re.finditer(body))
+    if len(limit_matches) != 1:
+        raise RuntimeError(
+            f'Expected exactly one native population-limit call in {label}, '
+            f'found {len(limit_matches)}'
+        )
+
+    body = limit_re.sub(
+        lambda m: (
+            'com.spd.mod.mechanics.ModEnemySurge.scaleMobLimit('
+            + m.group(0)
+            + ')'
+        ),
+        body,
+        count=1,
+    )
+
+    cooldown_re = re.compile(
+        r'(?P<indent>^[ \t]*)spend\(\s*'
+        r'Dungeon\.level\.respawnCooldown\(\)\s*\);',
+        re.MULTILINE,
+    )
+    cooldown_matches = list(cooldown_re.finditer(body))
+    if not cooldown_matches:
+        raise RuntimeError(
+            f'Native respawn cooldown call not found in {label}'
+        )
+
+    body = cooldown_re.sub(
+        lambda m: (
+            m.group('indent')
+            + 'spend(com.spd.mod.mechanics.ModEnemySurge.'
+            + 'scaleRespawnCooldown(Dungeon.level.respawnCooldown()));'
+        ),
+        body,
+    )
+
+    first_line_end = body.find('\n')
+    if first_line_end < 0:
+        raise RuntimeError(f'Malformed respawner body in {label}')
+    return (
+        body[:first_line_end + 1]
+        + '\t\t// MASTER_MODE_ENEMY_SURGE\n'
+        + body[first_line_end + 1:]
+    )
+
+
+def patch_enemy_surge_respawner(package_root: Path) -> None:
+    level_path = package_root / 'levels' / 'Level.java'
+    if not level_path.is_file():
+        raise RuntimeError(f'Level.java not found: {level_path}')
+
+    level_text = level_path.read_text(encoding='utf-8')
+
+    if re.search(r'\bMobSpawner\s+respawner\s*;', level_text):
+        spawner_path = package_root / 'actors' / 'mobs' / 'MobSpawner.java'
+        if not spawner_path.is_file():
+            raise RuntimeError(
+                'Level uses MobSpawner but MobSpawner.java was not found: '
+                + str(spawner_path)
+            )
+        source = spawner_path.read_text(encoding='utf-8')
+        patched = _patch_enemy_surge_body(source, str(spawner_path))
+        if patched != source:
+            spawner_path.write_text(patched, encoding='utf-8')
+            print(f'Enemy Surge native respawner hook injected into {spawner_path}')
+        else:
+            print(f'Enemy Surge native respawner hook already injected into {spawner_path}')
+        return
+
+    if not re.search(r'\bRespawner\s+respawner\s*;', level_text):
+        raise RuntimeError(
+            'Unsupported native respawner shape: expected MobSpawner or Level.Respawner'
+        )
+
+    class_match = re.search(
+        r'\bclass\s+Respawner\s+extends\s+Actor\s*\{',
+        _mask_non_code(level_text),
+    )
+    if class_match is None:
+        raise RuntimeError(
+            'Level declares a Respawner field but Level.Respawner class was not found'
+        )
+
+    masked = _mask_non_code(level_text)
+    open_brace = masked.find('{', class_match.start(), class_match.end())
+    close_brace = _find_matching(masked, open_brace, '{', '}')
+    body = level_text[class_match.start():close_brace + 1]
+    patched_body = _patch_enemy_surge_body(body, str(level_path) + '::Respawner')
+    if patched_body == body:
+        print(f'Enemy Surge native respawner hook already injected into {level_path}')
+        return
+
+    level_text = (
+        level_text[:class_match.start()]
+        + patched_body
+        + level_text[close_brace + 1:]
+    )
+    level_path.write_text(level_text, encoding='utf-8')
+    print(f'Enemy Surge native respawner hook injected into {level_path}')
+
+
 patch_wndgame(wnd_path)
 
 # WndGame and Char live under the detected SPD-family package root.
 # Derive Char.java from that root so source builds receive the same
 # terminal-attack Riposte lifecycle as APK injection.
 package_root = wnd_path.parent.parent
+patch_enemy_surge_respawner(package_root)
 char_path = package_root / 'actors' / 'Char.java'
 if not char_path.is_file():
     raise RuntimeError(f"Char.java not found beside WndGame package root: {char_path}")
