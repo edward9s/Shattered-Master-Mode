@@ -211,6 +211,8 @@ public class SmmCharAttackPatcher {
     static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
     static final String FINISH_ATTACK_DESC = "(Z)V";
     static final String DEFENSE_FEEDBACK_DESC = "(L" + CHAR + ";)Ljava/lang/String;";
+    static final String DIRECT_DAMAGE_HOOK_DESC =
+            "(L" + CHAR + ";ILjava/lang/Object;)L" + CHAR + ";";
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
 
@@ -237,6 +239,12 @@ public class SmmCharAttackPatcher {
                 "defenseVerb",
                 DEFENSE_FEEDBACK_DESC,
                 "ModParryRiposte defense-feedback hook API");
+        validatePublicStatic(
+                payloadJar,
+                MOD_PARRY_RIPOSTE,
+                "resolveDirectDamage",
+                DIRECT_DAMAGE_HOOK_DESC,
+                "ModParryRiposte direct-damage hook API");
         validatePublicStatic(
                 payloadJar,
                 MOD_FORCE_HIT,
@@ -645,6 +653,9 @@ public class SmmParryFeedbackPatcher {
     static final String GAME_ROOT = "__GAME_ROOT__";
     static final String MOD_PARRY_RIPOSTE = "com/spd/mod/mechanics/ModParryRiposte";
     static final String DEFENSE_FEEDBACK_DESC = "(L" + CHAR + ";)Ljava/lang/String;";
+    static final String DIRECT_DAMAGE_DESC = "(ILjava/lang/Object;)V";
+    static final String DIRECT_DAMAGE_HOOK_DESC =
+            "(L" + CHAR + ";ILjava/lang/Object;)L" + CHAR + ";";
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
 
@@ -861,9 +872,11 @@ public class SmmParryFeedbackPatcher {
 
     static byte[] patch(
             byte[] original,
+            String className,
             Set<String> hitCallers,
             Map<String, String> parents,
-            int[] changed) {
+            int[] feedbackChanged,
+            int[] directDamageChanged) {
         ClassReader reader = new ClassReader(original);
         ClassWriter writer = new ClassWriter(0);
         ClassVisitor visitor = new ClassVisitor(API, writer) {
@@ -871,18 +884,57 @@ public class SmmParryFeedbackPatcher {
             public MethodVisitor visitMethod(int access, String name, String desc,
                                              String signature, String[] exceptions) {
                 MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
-                if (!hitCallers.contains(methodKey(name, desc))) {
+                boolean feedback = hitCallers.contains(methodKey(name, desc));
+                boolean directDamage = !CHAR.equals(className)
+                        && isCharType(className, parents)
+                        && "damage".equals(name)
+                        && DIRECT_DAMAGE_DESC.equals(desc)
+                        && (access & (Opcodes.ACC_STATIC
+                                | Opcodes.ACC_ABSTRACT
+                                | Opcodes.ACC_NATIVE)) == 0;
+                if (!feedback && !directDamage) {
                     return base;
                 }
                 return new MethodVisitor(API, base) {
                     @Override
+                    public void visitCode() {
+                        super.visitCode();
+                        if (!directDamage) return;
+
+                        Label nativeDamage = new Label();
+                        super.visitVarInsn(Opcodes.ALOAD, 0);
+                        super.visitVarInsn(Opcodes.ILOAD, 1);
+                        super.visitVarInsn(Opcodes.ALOAD, 2);
+                        super.visitMethodInsn(
+                                Opcodes.INVOKESTATIC,
+                                MOD_PARRY_RIPOSTE,
+                                "resolveDirectDamage",
+                                DIRECT_DAMAGE_HOOK_DESC,
+                                false);
+                        super.visitJumpInsn(Opcodes.IFNONNULL, nativeDamage);
+                        super.visitInsn(Opcodes.RETURN);
+                        super.visitLabel(nativeDamage);
+                        super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                        directDamageChanged[0]++;
+                    }
+
+                    @Override
                     public void visitMethodInsn(int opcode, String owner, String methodName,
                                                 String methodDesc, boolean isInterface) {
-                        if (opcode == Opcodes.INVOKEVIRTUAL
+                        if (directDamage
+                                && MOD_PARRY_RIPOSTE.equals(owner)
+                                && "resolveDirectDamage".equals(methodName)
+                                && DIRECT_DAMAGE_HOOK_DESC.equals(methodDesc)) {
+                            throw new IllegalStateException(
+                                    "damage(int,Object) already contains SMM direct-damage Parry hook: "
+                                            + className);
+                        }
+                        if (feedback
+                                && opcode == Opcodes.INVOKEVIRTUAL
                                 && "defenseVerb".equals(methodName)
                                 && "()Ljava/lang/String;".equals(methodDesc)
                                 && isCharType(owner, parents)) {
-                            changed[0]++;
+                            feedbackChanged[0]++;
                             super.visitMethodInsn(
                                     Opcodes.INVOKESTATIC,
                                     MOD_PARRY_RIPOSTE,
@@ -892,6 +944,11 @@ public class SmmParryFeedbackPatcher {
                             return;
                         }
                         super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+                    }
+
+                    @Override
+                    public void visitMaxs(int maxStack, int maxLocals) {
+                        super.visitMaxs(maxStack + (directDamage ? 3 : 0), maxLocals);
                     }
                 };
             }
@@ -951,7 +1008,8 @@ public class SmmParryFeedbackPatcher {
         Plan plan = analyzeChar(charBytes);
 
         int patchedClasses = 0;
-        int patchedCalls = 0;
+        int patchedFeedbackCalls = 0;
+        int patchedDirectDamageMethods = 0;
         try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(output))) {
             for (Map.Entry<String, byte[]> item : classes.entrySet()) {
                 String name = item.getKey();
@@ -959,25 +1017,34 @@ public class SmmParryFeedbackPatcher {
 
                 Set<String> hitCallers = hitCallerMethods(
                         item.getValue(), plan, parents, declarations);
-                if (hitCallers.isEmpty()) continue;
+                boolean charSubclass = isCharType(name, parents);
+                if (hitCallers.isEmpty() && !charSubclass) continue;
 
-                int[] changed = {0};
+                int[] feedbackChanged = {0};
+                int[] directDamageChanged = {0};
                 byte[] patched = patch(
-                        item.getValue(), hitCallers, parents, changed);
-                if (changed[0] == 0) continue;
+                        item.getValue(),
+                        name,
+                        hitCallers,
+                        parents,
+                        feedbackChanged,
+                        directDamageChanged);
+                if (feedbackChanged[0] == 0 && directDamageChanged[0] == 0) continue;
 
                 JarEntry entry = new JarEntry(name + ".class");
                 out.putNextEntry(entry);
                 out.write(patched);
                 out.closeEntry();
                 patchedClasses++;
-                patchedCalls += changed[0];
+                patchedFeedbackCalls += feedbackChanged[0];
+                patchedDirectDamageMethods += directDamageChanged[0];
             }
         }
 
         System.out.println(
-                "Parry hit-caller feedback JAR patch: "
-                        + patchedCalls + " call(s) across "
+                "Parry JAR overlay patch: "
+                        + patchedFeedbackCalls + " feedback call(s), "
+                        + patchedDirectDamageMethods + " direct-damage override(s) across "
                         + patchedClasses + " class(es)");
     }
 }
@@ -2049,6 +2116,8 @@ public class SmmAnkhCharAttackPatcher {
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
     static final String COMBAT_HOOK_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
+    static final String DIRECT_DAMAGE_HOOK_DESC =
+            "(L" + CHAR + ";ILjava/lang/Object;)L" + CHAR + ";";
     static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
     static final String FORCE_ACTIVE_DESC = "(L" + CHAR + ";)Z";
     static final String FINISH_ATTACK_DESC = "(Z)V";
@@ -2403,7 +2472,10 @@ public class SmmAnkhCharAttackPatcher {
                 payload, MOD_PARRY_RIPOSTE, "onHitCheck", COMBAT_HOOK_DESC)
                 && hasPublicStaticHook(
                         payload, MOD_PARRY_RIPOSTE, "defenseVerb",
-                        DEFENSE_FEEDBACK_DESC);
+                        DEFENSE_FEEDBACK_DESC)
+                && hasPublicStaticHook(
+                        payload, MOD_PARRY_RIPOSTE, "resolveDirectDamage",
+                        DIRECT_DAMAGE_HOOK_DESC);
         boolean donorInstant = hasPublicStaticHook(
                 payload, MOD_INSTANT_KILL, "resolveSuccessfulAttack",
                 COMBAT_HOOK_DESC)
