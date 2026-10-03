@@ -229,7 +229,7 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertIn("Float.TYPE", combat_compat)
 
 
-    def test_jar_parry_feedback_is_limited_to_selected_hit_callers(self):
+    def test_jar_parry_overlay_scopes_feedback_and_direct_damage(self):
         source = mod.PARRY_FEEDBACK_HELPER
         self.assertIn("hitCallerMethods(", source)
         self.assertIn("resolvesToSelectedHit(", source)
@@ -237,16 +237,22 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertIn("hitEdges", source)
         self.assertIn("plan.hitAliases.add(selected)", source)
         self.assertIn(
-            "if (!hitCallers.contains(methodKey(name, desc)))",
+            "boolean feedback = hitCallers.contains(methodKey(name, desc));",
             source,
         )
         self.assertIn('"defenseVerb".equals(methodName)', source)
         self.assertIn("opcode == Opcodes.INVOKEVIRTUAL", source)
         self.assertIn("isCharType(owner, parents)", source)
+        self.assertIn("DIRECT_DAMAGE_DESC", source)
+        self.assertIn('"damage".equals(name)', source)
+        self.assertIn('"resolveDirectDamage"', source)
+        self.assertIn("!CHAR.equals(className)", source)
         self.assertNotIn("canonical", source.lower())
 
         for helper in (mod.CHAR_HELPER, mod.ANKH_CHAR_HELPER):
             self.assertIn("DEFENSE_FEEDBACK_DESC", helper)
+            self.assertIn("DIRECT_DAMAGE_HOOK_DESC", helper)
+            self.assertIn('"resolveDirectDamage"', helper)
             self.assertIn('"onHitCheck"', helper)
             self.assertIn("terminal", helper)
             self.assertNotIn('"onIncomingAttack"', helper)
