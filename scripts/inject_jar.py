@@ -640,14 +640,14 @@ public class SmmCharAttackPatcher {
 
 
 
-PARRY_FEEDBACK_HELPER = r'''
+PARRY_OVERLAY_HELPER = r'''
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 import java.util.jar.*;
 import jdk.internal.org.objectweb.asm.*;
 
-public class SmmParryFeedbackPatcher {
+public class SmmParryOverlayPatcher {
     static final int API = Opcodes.ASM8;
     static final String CHAR = "__CHAR__";
     static final String GAME_ROOT = "__GAME_ROOT__";
@@ -960,7 +960,7 @@ public class SmmParryFeedbackPatcher {
     public static void main(String[] args) throws Exception {
         if (args.length != 2) {
             throw new IllegalArgumentException(
-                    "Usage: SmmParryFeedbackPatcher <target.jar> <out-patches.jar>");
+                    "Usage: SmmParryOverlayPatcher <target.jar> <out-patches.jar>");
         }
         Path target = Paths.get(args[0]);
         Path output = Paths.get(args[1]);
@@ -1051,20 +1051,20 @@ public class SmmParryFeedbackPatcher {
 '''
 
 
-def patch_parry_feedback_classes(
+def patch_parry_overlay_classes(
     java: Path,
     target: Path,
     work: Path,
     target_game_root: str,
 ) -> dict[str, bytes]:
-    helper = work / "SmmParryFeedbackPatcher.java"
+    helper = work / "SmmParryOverlayPatcher.java"
     helper.write_text(
-        PARRY_FEEDBACK_HELPER
+        PARRY_OVERLAY_HELPER
         .replace("__CHAR__", target_game_root + "/actors/Char")
         .replace("__GAME_ROOT__", target_game_root),
         encoding="utf-8",
     )
-    output = work / "parry-feedback-patches.jar"
+    output = work / "parry-overlay-patches.jar"
     injector.run([
         java,
         "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
@@ -1074,7 +1074,7 @@ def patch_parry_feedback_classes(
     ])
     if not output.is_file():
         raise injector.InjectError(
-            "Parry feedback bytecode helper did not produce a patch JAR"
+            "Parry overlay bytecode helper did not produce a patch JAR"
         )
 
     patches: dict[str, bytes] = {}
@@ -1136,7 +1136,7 @@ def rebuild_full_jar(
     patched_wnd_use_item: tuple[str, Path] | None,
     patched_buff_click: tuple[str, Path],
     patched_modankh: Path,
-    feedback_classes: dict[str, bytes],
+    parry_overlay_classes: dict[str, bytes],
     payload: dict[str, bytes],
     output: Path,
     dungeon_entry: str,
@@ -1210,8 +1210,8 @@ def rebuild_full_jar(
                     data = wnd_use_item_bytes
                 elif name == buff_entry:
                     data = buff_bytes
-                elif name in feedback_classes:
-                    data = feedback_classes[name]
+                elif name in parry_overlay_classes:
+                    data = parry_overlay_classes[name]
                 else:
                     data = zin.read(name)
                 zout.writestr(injector.clone_zipinfo(info), data)
@@ -2706,7 +2706,7 @@ def rebuild_ankh_jar(
     patched_wnd_use_item: tuple[str, Path] | None,
     patched_buff_click: tuple[str, Path],
     patched_modankh: Path,
-    feedback_classes: dict[str, bytes],
+    parry_overlay_classes: dict[str, bytes],
     payload: dict[str, bytes],
     output: Path,
     dungeon_entry: str,
@@ -2775,8 +2775,8 @@ def rebuild_ankh_jar(
                     data = wnd_use_item_bytes
                 elif info.filename == buff_entry:
                     data = buff_bytes
-                elif info.filename in feedback_classes:
-                    data = feedback_classes[info.filename]
+                elif info.filename in parry_overlay_classes:
+                    data = parry_overlay_classes[info.filename]
                 else:
                     data = zin.read(info.filename)
                 zout.writestr(injector.clone_zipinfo(info), data)
@@ -2881,8 +2881,8 @@ def run_ankh_only(
         assassinate="assassinate" in payload_features,
         enemy_surge="enemy_surge" in payload_features,
     )
-    feedback_classes = (
-        patch_parry_feedback_classes(java, target, work, target_game_root)
+    parry_overlay_classes = (
+        patch_parry_overlay_classes(java, target, work, target_game_root)
         if "parry" in payload_features
         else {}
     )
@@ -2901,7 +2901,7 @@ def run_ankh_only(
         patched_wnd_use_item,
         patched_buff_click,
         patched_modankh,
-        feedback_classes,
+        parry_overlay_classes,
         payload,
         tmp,
         dungeon_entry,
@@ -2911,7 +2911,7 @@ def run_ankh_only(
         dungeon_entry,
         char_entry,
         injector.MOD_ANKH_ENTRY,
-        *sorted(feedback_classes),
+        *sorted(parry_overlay_classes),
         *sorted(payload),
     ]
     if patched_wnd_use_item is not None:
@@ -3072,7 +3072,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             assassinate=True,
             enemy_surge=True,
         )
-        feedback_classes = patch_parry_feedback_classes(
+        parry_overlay_classes = patch_parry_overlay_classes(
             java, target, work, target_game_root
         )
 
@@ -3086,7 +3086,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             patched_wnd_use_item,
             patched_buff_click,
             patched_modankh,
-            feedback_classes,
+            parry_overlay_classes,
             payload,
             unsigned_tmp,
             dungeon_entry,
@@ -3095,7 +3095,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             wnd_entry,
             char_entry,
             patched_buff_click[0],
-            *sorted(feedback_classes),
+            *sorted(parry_overlay_classes),
             injector.MOD_ANKH_ENTRY,
             *payload_names,
         ]
