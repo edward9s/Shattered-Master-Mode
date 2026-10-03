@@ -13,8 +13,9 @@ The target JAR remains the base. The injector:
   * validates ModAnkh's executable SPD API references against the target JAR
     plus the injected ModAnkhStore payload;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
-  * preserves every other target JAR entry byte-for-byte at the uncompressed
-    data level and removes stale JAR signature/index metadata.
+  * applies SMM's bracketed application name to Specification-Title;
+  * preserves other target JAR entries byte-for-byte at the uncompressed data
+    level and removes stale JAR signature/index metadata.
 
 No source recompilation or whole-JAR decompilation/rebuild is performed.
 Java 17+ is recommended. The helper uses the ASM bundled inside the JDK, so no
