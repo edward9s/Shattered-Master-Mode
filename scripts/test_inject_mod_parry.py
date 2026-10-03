@@ -15,20 +15,28 @@ class SourceParryInjectionTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
-    def _make_tree(self, root: pathlib.Path, *, legacy_hit: bool) -> pathlib.Path:
+    def _make_tree(
+            self, root: pathlib.Path, *, legacy_hit: bool, structural_hit: bool = False
+    ) -> pathlib.Path:
         java = root / "core/src/main/java"
         game = java / "com/example/game"
 
-        hit_signature = (
-            "public static boolean hit(Char attacker, Char defender, boolean magic)"
-            if legacy_hit
-            else "public static boolean hit(Char attacker, Char defender, float acc, boolean magic)"
-        )
-        hit_call = (
-            "hit(this, enemy, false)"
-            if legacy_hit
-            else "hit(this, enemy, 1f, false)"
-        )
+        if structural_hit:
+            hit_signature = (
+                "public static boolean resolvesAttack(Char attacker, Char defender, int mode)"
+            )
+            hit_call = "resolvesAttack(this, enemy, 1)"
+        else:
+            hit_signature = (
+                "public static boolean hit(Char attacker, Char defender, boolean magic)"
+                if legacy_hit
+                else "public static boolean hit(Char attacker, Char defender, float acc, boolean magic)"
+            )
+            hit_call = (
+                "hit(this, enemy, false)"
+                if legacy_hit
+                else "hit(this, enemy, 1f, false)"
+            )
 
         self._write(
             java,
@@ -140,6 +148,17 @@ public class WndGame {
         )
         self._write(
             java,
+            "com/example/game/windows/WndUseItem.java",
+            """package com.example.game.windows;
+public class WndUseItem {
+    public WndUseItem(Item item, String action) {
+        String label = Messages.get(item, "ac_" + action);
+    }
+}
+""",
+        )
+        self._write(
+            java,
             "com/example/game/ui/BuffIndicator.java",
             """package com.example.game.ui;
 public class BuffIndicator {
@@ -154,8 +173,12 @@ public class BuffIndicator {
         )
         return java
 
-    def _run(self, root: pathlib.Path, *, legacy_hit: bool) -> pathlib.Path:
-        java = self._make_tree(root, legacy_hit=legacy_hit)
+    def _run(
+            self, root: pathlib.Path, *, legacy_hit: bool, structural_hit: bool = False
+    ) -> pathlib.Path:
+        java = self._make_tree(
+            root, legacy_hit=legacy_hit, structural_hit=structural_hit
+        )
         result = subprocess.run(
             [sys.executable, str(SCRIPT), str(root)],
             text=True,
@@ -177,14 +200,29 @@ public class BuffIndicator {
         self.assertEqual(1, hero.count(marker))
         self.assertEqual(1, eye.count(marker))
         self.assertEqual(1, boss.count(marker))
-        self.assertNotIn(marker, char)
+        self.assertEqual(1, char.count(marker))
         self.assertNotIn(marker, unrelated)
 
-        for source in (hero, eye, boss):
+        for source in (hero, eye, boss, char):
             self.assertIn("ModParryRiposte.resolveDirectDamage(this,", source)
 
         self.assertIn("ModParryRiposte.onHitCheck(", char)
         self.assertNotIn("Focus", char)
+
+        buff_indicator = (
+            java / "com/example/game/ui/BuffIndicator.java"
+        ).read_text()
+        self.assertIn("ModEnemySurge", buff_indicator)
+
+        wnd_use_item = (
+            java / "com/example/game/windows/WndUseItem.java"
+        ).read_text()
+        self.assertIn("MASTER_MODE_ITEM_ACTION_NAME", wnd_use_item)
+        self.assertIn(
+            "item.actionName(action, com.example.game.Dungeon.hero)",
+            wnd_use_item,
+        )
+        self.assertNotIn('"ac_" + action', wnd_use_item)
 
     def _assert_instant_kill_completion_scope(self, java: pathlib.Path) -> None:
         char = (java / "com/example/game/actors/Char.java").read_text()
@@ -213,6 +251,17 @@ public class BuffIndicator {
             java = self._run(pathlib.Path(tmp), legacy_hit=True)
             self._assert_direct_damage_scope(java)
             self._assert_instant_kill_completion_scope(java)
+
+    def test_structural_source_hit_fallback_matches_binary_strategy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            java = self._run(
+                pathlib.Path(tmp), legacy_hit=False, structural_hit=True
+            )
+            char = (java / "com/example/game/actors/Char.java").read_text()
+            hook = char.index("ModParryRiposte.onHitCheck(")
+            helper = char.index("boolean resolvesAttack(")
+            self.assertLess(helper, hook)
+            self._assert_direct_damage_scope(java)
 
     def test_injector_contains_no_focus_bridge(self):
         source = SCRIPT.read_text(encoding="utf-8")

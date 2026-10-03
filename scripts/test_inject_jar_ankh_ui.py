@@ -158,21 +158,21 @@ class AnkhJarUiTests(unittest.TestCase):
             assassinate_source,
         )
 
-    def test_enemy_surge_minimal_payload_avoids_overlay_dependency(self):
+    def test_enemy_surge_overlay_is_removed(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         surge = (
             root / "core/src/main/java/com/spd/mod/mechanics/ModEnemySurge.java"
         ).read_text(encoding="utf-8")
+        overlay = (
+            root / "core/src/main/java/com/spd/mod/journal/ModEnemySurgeInfoOverlay.java"
+        )
         window = (
             root / "core/src/main/java/com/spd/mod/journal/WndEnemySurgeInfo.java"
         ).read_text(encoding="utf-8")
 
         self.assertIn("public void openInfo()", surge)
-        self.assertIn('invokeOptionalOverlay("ensureInstalled")', surge)
-        self.assertNotIn(
-            "import com.spd.mod.journal.ModEnemySurgeInfoOverlay;",
-            surge,
-        )
+        self.assertFalse(overlay.exists())
+        self.assertNotIn("ModEnemySurgeInfoOverlay", surge)
         self.assertNotIn("ModEnemySurgeInfoOverlay", window)
         self.assertNotIn("RenderedTextBlock", window)
 
@@ -209,6 +209,12 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertNotIn("currentAttackSource", source)
         self.assertIn('getDeclaredField("current")', source)
         self.assertIn("getEnclosingClass()", source)
+        attacker_helper = source[
+            source.index("private static Char directDamageAttacker"):
+            source.index("private static boolean isCharOwnedSourceMarker")
+        ]
+        self.assertNotIn("src instanceof Char", attacker_helper)
+        self.assertNotIn("Buff.target", attacker_helper)
         direct_damage = source[
             source.index("public static Char resolveDirectDamage"):
             source.index("private static Char directDamageAttacker")
@@ -251,8 +257,10 @@ class AnkhJarUiTests(unittest.TestCase):
 
         for helper in (mod.CHAR_HELPER, mod.ANKH_CHAR_HELPER):
             self.assertIn("DEFENSE_FEEDBACK_DESC", helper)
+            self.assertIn("DIRECT_DAMAGE_DESC", helper)
             self.assertIn("DIRECT_DAMAGE_HOOK_DESC", helper)
             self.assertIn('"resolveDirectDamage"', helper)
+            self.assertIn('"damage".equals(name)', helper)
             self.assertIn('"onHitCheck"', helper)
             self.assertIn("terminal", helper)
             self.assertNotIn('"onIncomingAttack"', helper)
@@ -1088,6 +1096,8 @@ public class ParryHarness {{
             self.assertEqual(0, result.returncode, result.stdout)
             parry_result = self._run_parry_harness(classes)
             self.assertEqual(0, parry_result.returncode, parry_result.stdout)
+            direct_damage = self._run_direct_damage_harness(classes)
+            self.assertEqual(0, direct_damage.returncode, direct_damage.stdout)
 
     def test_ark_legacy_hit_supported_by_full_jar_for_parry_force_and_instant(self):
         java = pathlib.Path(self._tool("java"))
@@ -1128,6 +1138,8 @@ public class ParryHarness {{
             self.assertEqual(
                 0, parry_harness.returncode, parry_harness.stdout
             )
+            direct_damage = self._run_direct_damage_harness(classes)
+            self.assertEqual(0, direct_damage.returncode, direct_damage.stdout)
 
     def test_legacy_wnduseitem_synthetic_bridge(self):
         java = pathlib.Path(self._tool("java"))

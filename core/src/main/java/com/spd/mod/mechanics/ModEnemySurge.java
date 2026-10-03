@@ -76,33 +76,8 @@ public class ModEnemySurge extends Buff {
         }
     }
 
-    /**
-     * Source builds may install the richer transparent overlay. Binary injection
-     * uses the BuffIndicator click bridge instead, so keep this UI dependency
-     * reflective and out of the Enemy Surge gameplay closure.
-     */
-    private static void ensureOptionalOverlay() {
-        invokeOptionalOverlay("ensureInstalled");
-    }
-
     private static void refreshIndicators() {
         BuffIndicator.refreshHero();
-        invokeOptionalOverlay("refreshIndicators");
-    }
-
-    private static void invokeOptionalOverlay(String methodName) {
-        try {
-            String className = ModEnemySurge.class.getName().replace(
-                    ".mechanics.ModEnemySurge",
-                    ".journal.ModEnemySurgeInfoOverlay");
-            Class<?> overlay = Class.forName(
-                    className, false, ModEnemySurge.class.getClassLoader());
-            Method method = overlay.getDeclaredMethod(methodName);
-            method.setAccessible(true);
-            method.invoke(null);
-        } catch (ReflectiveOperationException | LinkageError ignored) {
-            // Minimal/legacy injection intentionally omits the overlay layer.
-        }
     }
 
     @Override
@@ -122,15 +97,7 @@ public class ModEnemySurge extends Buff {
             }
         }
 
-        ensureOptionalOverlay();
         return true;
-    }
-
-    @Override
-    public void fx(boolean on) {
-        if (on) {
-            ensureOptionalOverlay();
-        }
     }
 
     public int spawnMultiplier() {

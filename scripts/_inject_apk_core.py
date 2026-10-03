@@ -71,8 +71,6 @@ WND_TOTAL_BUFF_INFO = "Lcom/spd/mod/journal/WndTotalBuffInfo;"
 WND_TOTAL_BUFF_INFO_INNER_PREFIX = "Lcom/spd/mod/journal/WndTotalBuffInfo$"
 MOD_ENEMY_SURGE = "Lcom/spd/mod/mechanics/ModEnemySurge;"
 MOD_ENEMY_SURGE_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModEnemySurge$"
-MOD_ENEMY_SURGE_INFO_OVERLAY = "Lcom/spd/mod/journal/ModEnemySurgeInfoOverlay;"
-MOD_ENEMY_SURGE_INFO_OVERLAY_INNER_PREFIX = "Lcom/spd/mod/journal/ModEnemySurgeInfoOverlay$"
 WND_ENEMY_SURGE_INFO = "Lcom/spd/mod/journal/WndEnemySurgeInfo;"
 WND_ENEMY_SURGE_INFO_INNER_PREFIX = "Lcom/spd/mod/journal/WndEnemySurgeInfo$"
 LOOT_PAYLOAD_FAMILIES = (
@@ -752,8 +750,6 @@ def is_debug_root(descriptor: str) -> bool:
         or descriptor.startswith(WND_TOTAL_BUFF_INFO_INNER_PREFIX)
         or descriptor == MOD_ENEMY_SURGE
         or descriptor.startswith(MOD_ENEMY_SURGE_INNER_PREFIX)
-        or descriptor == MOD_ENEMY_SURGE_INFO_OVERLAY
-        or descriptor.startswith(MOD_ENEMY_SURGE_INFO_OVERLAY_INNER_PREFIX)
         or descriptor == WND_ENEMY_SURGE_INFO
         or descriptor.startswith(WND_ENEMY_SURGE_INFO_INNER_PREFIX)
         or any(descriptor == root or descriptor.startswith(inner) for root, inner in LOOT_PAYLOAD_FAMILIES)
@@ -863,7 +859,6 @@ def build_debug_payload(
         MOD_PARRY_RIPOSTE,
         WND_TOTAL_BUFF_INFO,
         MOD_ENEMY_SURGE,
-        MOD_ENEMY_SURGE_INFO_OVERLAY,
         WND_ENEMY_SURGE_INFO,
         *LOOT_REQUIRED_ROOTS,
         *ITEM_HELPER_REQUIRED_ROOTS,

@@ -157,10 +157,12 @@ public class ModParryRiposte extends Buff {
      * Supplementary combat hook for fork-specific attacks that bypass hit()
      * and call damage(int,Object) directly.
      *
-     * The attacker is explicit when src is a Char. For marker-style sources
-     * owned by a Char subclass, infer the currently executing Char from Actor's
-     * scheduler state. Non-Char actors such as Buffs/Blobs do
-     * not become parryable merely because they deal damage.
+     * Direct-damage Parry is deliberately narrower than generic damage
+     * attribution. Only marker-style sources owned by a Char subclass may infer
+     * the currently executing Char from Actor's scheduler state. A Char used
+     * directly as src is not enough: explosions, death effects, collisions, and
+     * other indirect mechanics often use the originating Char as their source.
+     * Non-Char actors such as Buffs/Blobs likewise stay non-parryable.
      */
     public static Char resolveDirectDamage(Char defender, int damage, Object src) {
         if (defender == null || damage < 0) {
@@ -203,15 +205,14 @@ public class ModParryRiposte extends Buff {
     }
 
     private static Char directDamageAttacker(Char defender, Object src) {
-        if (src instanceof Char && src != defender) {
-            return (Char) src;
-        }
-
         /*
-         * Only use scheduler inference for source-marker classes that belong to
-         * a Char type. This covers fork-defined direct attack markers without
-         * turning Hunger, traps, Buffs, Blobs, etc. into
-         * parryable attacks merely because a Char happened to trigger them.
+         * Normal Char-vs-Char attacks already use hit(). Do not treat a Char
+         * passed directly as src as a direct attack: death explosions and other
+         * indirect mechanics commonly use that form.
+         *
+         * Scheduler inference is reserved for source-marker classes that belong
+         * to a Char type. This covers direct beam/bolt markers while keeping
+         * Hunger, traps, explosions, Buffs, Blobs, and delayed actors native.
          */
         if (!isCharOwnedSourceMarker(src)) {
             return null;

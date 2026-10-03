@@ -211,6 +211,7 @@ public class SmmCharAttackPatcher {
     static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
     static final String FINISH_ATTACK_DESC = "(Z)V";
     static final String DEFENSE_FEEDBACK_DESC = "(L" + CHAR + ";)Ljava/lang/String;";
+    static final String DIRECT_DAMAGE_DESC = "(ILjava/lang/Object;)V";
     static final String DIRECT_DAMAGE_HOOK_DESC =
             "(L" + CHAR + ";ILjava/lang/Object;)L" + CHAR + ";";
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
@@ -428,6 +429,7 @@ public class SmmCharAttackPatcher {
 
         final int[] terminalAttackMethods = {0};
         final int[] hitMethods = {0};
+        final int[] directDamageMethods = {0};
         final boolean[] alreadyRiposte = {false};
         final boolean[] alreadyForce = {false};
         final boolean[] alreadyInstant = {false};
@@ -505,6 +507,39 @@ public class SmmCharAttackPatcher {
                         @Override
                         public void visitMaxs(int maxStack, int maxLocals) {
                             super.visitMaxs(maxStack + 2, maxLocals);
+                        }
+                    };
+                }
+
+                if ("damage".equals(name)
+                        && DIRECT_DAMAGE_DESC.equals(desc)
+                        && (access & (Opcodes.ACC_STATIC
+                                | Opcodes.ACC_ABSTRACT
+                                | Opcodes.ACC_NATIVE)) == 0) {
+                    directDamageMethods[0]++;
+                    return new MethodVisitor(API, base) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            Label nativeDamage = new Label();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitVarInsn(Opcodes.ILOAD, 1);
+                            super.visitVarInsn(Opcodes.ALOAD, 2);
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_PARRY_RIPOSTE,
+                                    "resolveDirectDamage",
+                                    DIRECT_DAMAGE_HOOK_DESC,
+                                    false);
+                            super.visitJumpInsn(Opcodes.IFNONNULL, nativeDamage);
+                            super.visitInsn(Opcodes.RETURN);
+                            super.visitLabel(nativeDamage);
+                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(maxStack + 3, maxLocals);
                         }
                     };
                 }
@@ -613,7 +648,13 @@ public class SmmCharAttackPatcher {
             throw new IllegalStateException(
                     "Expected one selected hit-check method, found " + hitMethods[0]);
         }
+        if (directDamageMethods[0] != 1) {
+            throw new IllegalStateException(
+                    "Expected one base Char.damage(int,Object), found "
+                            + directDamageMethods[0]);
+        }
 
+        System.out.println("Base Char.damage direct-damage Parry patch: OK");
         System.out.println(
                 "Char.attack Instant Kill attack-context return patch: OK ("
                         + plan.terminalAttackDesc + ")");
@@ -2116,6 +2157,7 @@ public class SmmAnkhCharAttackPatcher {
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
     static final String COMBAT_HOOK_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
+    static final String DIRECT_DAMAGE_DESC = "(ILjava/lang/Object;)V";
     static final String DIRECT_DAMAGE_HOOK_DESC =
             "(L" + CHAR + ";ILjava/lang/Object;)L" + CHAR + ";";
     static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
@@ -2294,6 +2336,7 @@ public class SmmAnkhCharAttackPatcher {
             Scan scan) {
         ClassReader reader = new ClassReader(original);
         ClassWriter writer = new ClassWriter(0);
+        final int[] directDamageMethods = {0};
 
         ClassVisitor visitor = new ClassVisitor(API, writer) {
             @Override
@@ -2376,6 +2419,40 @@ public class SmmAnkhCharAttackPatcher {
                     };
                 }
 
+                if (parry
+                        && "damage".equals(name)
+                        && DIRECT_DAMAGE_DESC.equals(desc)
+                        && (access & (Opcodes.ACC_STATIC
+                                | Opcodes.ACC_ABSTRACT
+                                | Opcodes.ACC_NATIVE)) == 0) {
+                    directDamageMethods[0]++;
+                    return new MethodVisitor(API, base) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            Label nativeDamage = new Label();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitVarInsn(Opcodes.ILOAD, 1);
+                            super.visitVarInsn(Opcodes.ALOAD, 2);
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    MOD_PARRY_RIPOSTE,
+                                    "resolveDirectDamage",
+                                    DIRECT_DAMAGE_HOOK_DESC,
+                                    false);
+                            super.visitJumpInsn(Opcodes.IFNONNULL, nativeDamage);
+                            super.visitInsn(Opcodes.RETURN);
+                            super.visitLabel(nativeDamage);
+                            super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                        }
+
+                        @Override
+                        public void visitMaxs(int maxStack, int maxLocals) {
+                            super.visitMaxs(maxStack + 3, maxLocals);
+                        }
+                    };
+                }
+
                 if ((force || parry)
                         && scan.hitMethod.equals(name)
                         && scan.hitDesc.equals(desc)
@@ -2448,6 +2525,11 @@ public class SmmAnkhCharAttackPatcher {
             }
         };
         reader.accept(visitor, 0);
+        if (parry && directDamageMethods[0] != 1) {
+            throw new IllegalStateException(
+                    "Expected one base Char.damage(int,Object), found "
+                            + directDamageMethods[0]);
+        }
         return writer.toByteArray();
     }
 

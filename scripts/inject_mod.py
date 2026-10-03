@@ -22,6 +22,10 @@ _HIT_METHOD_RE = re.compile(
     r'(?P<head>(?:(?:public|protected|private|final|static|synchronized|native|strictfp)\s+)*'
     r'boolean\s+hit\s*\((?P<params>[^)]*)\)\s*\{)'
 )
+_STATIC_BOOLEAN_METHOD_RE = re.compile(
+    r'(?P<head>(?:(?:public|protected|private|final|static|synchronized|native|strictfp)\s+)*'
+    r'boolean\s+(?P<name>[A-Za-z_$][\w$]*)\s*\((?P<params>[^)]*)\)\s*\{)'
+)
 
 _DEFENSE_VERB_CALL_RE = re.compile(
     r'(?<![\w$])'
@@ -136,6 +140,31 @@ def _argument_count(masked: str) -> int:
     return count
 
 
+def _split_top_level_arguments(masked: str) -> list[str]:
+    if not masked.strip():
+        return []
+
+    result = []
+    depth = 0
+    start = 0
+    pairs = {'(': ')', '[': ']', '{': '}'}
+    closers = set(pairs.values())
+    for index, ch in enumerate(masked):
+        if ch in pairs:
+            depth += 1
+        elif ch in closers:
+            depth -= 1
+            if depth < 0:
+                raise RuntimeError('Unbalanced expression while parsing Java call')
+        elif ch == ',' and depth == 0:
+            result.append(masked[start:index].strip())
+            start = index + 1
+    if depth != 0:
+        raise RuntimeError('Unbalanced expression while parsing Java call')
+    result.append(masked[start:].strip())
+    return result
+
+
 def _self_attack_arities(masked_body: str) -> list[int]:
     arities = []
     for match in _SELF_ATTACK_RE.finditer(masked_body):
@@ -199,45 +228,103 @@ def _terminal_attack_method(content: str) -> tuple[str, int, int]:
     return defender, open_brace, close_brace
 
 
+def _parse_method_params(params: str) -> list[tuple[str, str]] | None:
+    raw_parts = _split_top_level_arguments(params)
+    parsed = []
+    for raw in raw_parts:
+        tokens = [
+            token for token in re.split(r'\s+', raw.strip())
+            if token and token not in ('final',)
+        ]
+        if len(tokens) < 2:
+            return None
+        parsed.append((tokens[-2].rsplit('.', 1)[-1], tokens[-1]))
+    return parsed
+
+
 def _char_hit_method(content: str) -> tuple[str, str, int]:
-    """Find the preferred supported Char.hit ABI and its parameter names."""
+    """Select the same direct-first hit hook used by APK/JAR injection."""
     masked = _mask_non_code(content)
     modern = []
     legacy = []
+    structural = []
+    candidates = []
 
-    for match in _HIT_METHOD_RE.finditer(masked):
+    for match in _STATIC_BOOLEAN_METHOD_RE.finditer(masked):
         if not re.search(r'\bstatic\b', match.group('head')):
             continue
 
         params = content[match.start('params'):match.end('params')]
-        parts = [part.strip() for part in params.split(',')]
-        parsed = []
-        valid = True
-        for part in parts:
-            tokens = [token for token in re.split(r'\s+', part) if token and token != 'final']
-            if len(tokens) < 2:
-                valid = False
-                break
-            parsed.append((tokens[-2], tokens[-1]))
-
-        if not valid:
+        parsed = _parse_method_params(params)
+        if parsed is None:
             continue
 
         types = [typ for typ, _ in parsed]
-        open_brace = match.end('head') - 1
-        if types == ['Char', 'Char', 'float', 'boolean']:
-            modern.append((parsed[0][1], parsed[1][1], open_brace))
-        elif types == ['Char', 'Char', 'boolean']:
-            legacy.append((parsed[0][1], parsed[1][1], open_brace))
+        if len(types) < 2 or types[0] != 'Char' or types[1] != 'Char':
+            continue
 
-    matches = modern if modern else legacy
-    if len(matches) != 1:
-        label = 'modern' if modern else 'legacy'
-        raise RuntimeError(
-            f'Expected exactly one supported {label} static Char.hit overload, '
-            f'found {len(matches)}'
+        candidate = {
+            'name': match.group('name'),
+            'parsed': parsed,
+            'arity': len(parsed),
+            'open': match.end('head') - 1,
+        }
+        candidates.append(candidate)
+
+        if candidate['name'] == 'hit' and types == ['Char', 'Char', 'float', 'boolean']:
+            modern.append(candidate)
+        elif candidate['name'] == 'hit' and types == ['Char', 'Char', 'boolean']:
+            legacy.append(candidate)
+
+    direct = modern if modern else legacy
+    if direct:
+        if len(direct) != 1:
+            label = 'modern' if modern else 'legacy'
+            raise RuntimeError(
+                f'Expected exactly one supported {label} static Char.hit overload, '
+                f'found {len(direct)}'
+            )
+        selected = direct[0]
+        return selected['parsed'][0][1], selected['parsed'][1][1], selected['open']
+
+    terminal_defender, attack_open, attack_close = _terminal_attack_method(content)
+    body = masked[attack_open + 1:attack_close]
+
+    for candidate in candidates:
+        call_re = re.compile(
+            r'(?<![\w.])(?:Char\s*\.\s*)?'
+            + re.escape(candidate['name'])
+            + r'\s*\('
         )
-    return matches[0]
+        matched = False
+        for call in call_re.finditer(body):
+            open_paren = body.find('(', call.start(), call.end())
+            close_paren = _find_matching(body, open_paren, '(', ')')
+            args = _split_top_level_arguments(body[open_paren + 1:close_paren])
+            if len(args) != candidate['arity']:
+                continue
+            if len(args) >= 2 and args[0] == 'this' and args[1] == terminal_defender:
+                matched = True
+                break
+        if matched:
+            structural.append(candidate)
+
+    if len(structural) != 1:
+        found = ', '.join(
+            f"{item['name']}/{item['arity']}" for item in structural
+        ) if structural else 'none'
+        raise RuntimeError(
+            'Expected exactly one structural static boolean hit helper called '
+            f'from terminal Char.attack with (this, {terminal_defender}, ...); '
+            f'found {len(structural)}: {found}'
+        )
+
+    selected = structural[0]
+    print(
+        'Source structural hit-check selected: '
+        f"{selected['name']}/{selected['arity']}"
+    )
+    return selected['parsed'][0][1], selected['parsed'][1][1], selected['open']
 
 
 def patch_char_hit(file_path: Path) -> None:
@@ -366,7 +453,7 @@ def _is_char_subclass(
 
 
 def patch_direct_damage_overrides(package_root: Path, char_path: Path) -> None:
-    """Patch Char-subclass damage(int,Object) overrides without using Focus."""
+    """Patch Char.damage(int,Object) plus every Char-subclass override."""
     declarations, by_name = _class_declarations(package_root)
     char_candidates = [
         decl for decl in declarations
@@ -403,7 +490,7 @@ def patch_direct_damage_overrides(package_root: Path, char_path: Path) -> None:
                 containing,
                 key=lambda item: item['end'] - item['start'],
             )
-            if owner is char_decl or not _is_char_subclass(
+            if owner is not char_decl and not _is_char_subclass(
                 owner, char_decl, by_name, memo, set()
             ):
                 continue
@@ -440,7 +527,7 @@ def patch_direct_damage_overrides(package_root: Path, char_path: Path) -> None:
 
     print(
         f"Parry/Riposte direct-damage hook injected into {patched_methods} "
-        f"Char-subclass damage override(s) across {patched_files} source file(s)"
+        f"Char damage implementation(s) across {patched_files} source file(s)"
     )
 
 
@@ -533,6 +620,8 @@ def patch_buff_indicator(file_path: Path) -> None:
 {indent}\t\t((com.spd.mod.mechanics.ModForceHit) buff).openInfo();
 {indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModAssassinate) {{
 {indent}\t\t((com.spd.mod.mechanics.ModAssassinate) buff).openInfo();
+{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModEnemySurge) {{
+{indent}\t\t((com.spd.mod.mechanics.ModEnemySurge) buff).openInfo();
 {indent}\t}} else if (buff.icon() != NONE) {{
 {indent}\t\tGameScene.show(new WndInfoBuff(buff));
 {indent}\t}}
@@ -544,7 +633,8 @@ def patch_buff_indicator(file_path: Path) -> None:
 {indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModParryRiposte
 {indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModInstantKill
 {indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModForceHit
-{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModAssassinate) {{
+{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModAssassinate
+{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModEnemySurge) {{
 {indent}\t\tif (buff.icon() != NONE) GameScene.show(new WndInfoBuff(buff));
 {indent}\t\treturn true;
 {indent}\t}}
@@ -554,6 +644,56 @@ def patch_buff_indicator(file_path: Path) -> None:
     content = content[:match.start()] + body + content[match.end():]
     file_path.write_text(content, encoding='utf-8')
     print(f"SMM BuffIndicator click bridge injected successfully into {file_path}")
+
+
+_LEGACY_ACTION_NAME_RE = re.compile(
+    r'(?P<messages>(?:[A-Za-z_$][\w$]*\.)*Messages)\s*\.\s*get\s*\(\s*'
+    r'(?P<item>[A-Za-z_$][\w$]*)\s*,\s*"ac_"\s*\+\s*'
+    r'(?P<action>[A-Za-z_$][\w$]*)'
+    r'(?:\s*,\s*new\s+Object\s*\[\s*0\s*\])?\s*\)'
+)
+
+
+def patch_wnd_use_item_action_names(file_path: Path) -> None:
+    """Route legacy ac_* labels through Item.actionName(action, hero)."""
+    content = file_path.read_text(encoding='utf-8')
+    marker = 'MASTER_MODE_ITEM_ACTION_NAME'
+    if marker in content:
+        print(f"WndUseItem action-name bridge already injected into {file_path}")
+        return
+
+    masked = _mask_non_code(content)
+    if re.search(r'\.\s*actionName\s*\(', masked):
+        print(f"WndUseItem already uses Item.actionName(): {file_path}")
+        return
+
+    package_match = re.search(
+        r'(?m)^\s*package\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;',
+        content,
+    )
+    if package_match is None or '.' not in package_match.group(1):
+        raise RuntimeError(f"Unable to determine WndUseItem game package: {file_path}")
+    game_package = package_match.group(1).rsplit('.', 1)[0]
+
+    matches = list(_LEGACY_ACTION_NAME_RE.finditer(content))
+    if not matches:
+        raise RuntimeError(
+            f"WndUseItem bypasses Item.actionName() but no supported legacy ac_* "
+            f"Messages.get() call was found: {file_path}"
+        )
+
+    def replace(match: re.Match) -> str:
+        return (
+            f"{match.group('item')}.actionName({match.group('action')}, "
+            f"{game_package}.Dungeon.hero) /* {marker} */"
+        )
+
+    content = _LEGACY_ACTION_NAME_RE.sub(replace, content)
+    file_path.write_text(content, encoding='utf-8')
+    print(
+        f"WndUseItem legacy action labels routed through Item.actionName() "
+        f"at {len(matches)} call(s): {file_path}"
+    )
 
 def patch_wndgame(file_path: Path) -> None:
     content = file_path.read_text(encoding='utf-8')
@@ -643,8 +783,8 @@ patch_wndgame(wnd_path)
 
 # WndGame and Char live under the detected SPD-family package root.
 # Instant Kill remains on Char.attack. Parry/Riposte uses the same two generic
-# combat layers as APK/JAR injection: selected Char.hit plus Char-subclass
-# damage(int,Object) overrides. No Focus bridge participates in combat.
+# combat layers as APK/JAR injection: selected Char.hit plus Char.damage and
+# Char-subclass damage(int,Object) overrides. No Focus bridge participates in combat.
 package_root = wnd_path.parent.parent
 char_path = package_root / 'actors' / 'Char.java'
 if not char_path.is_file():
@@ -653,6 +793,10 @@ patch_char(char_path)
 patch_char_hit(char_path)
 patch_direct_damage_overrides(package_root, char_path)
 patch_defense_feedback(package_root)
+
+wnd_use_item_path = package_root / 'windows' / 'WndUseItem.java'
+if wnd_use_item_path.is_file():
+    patch_wnd_use_item_action_names(wnd_use_item_path)
 
 buff_indicator_path = package_root / 'ui' / 'BuffIndicator.java'
 if not buff_indicator_path.is_file():
