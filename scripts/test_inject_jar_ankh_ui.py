@@ -230,7 +230,7 @@ class AnkhJarUiTests(unittest.TestCase):
 
 
     def test_jar_parry_overlay_scopes_feedback_and_direct_damage(self):
-        source = mod.PARRY_FEEDBACK_HELPER
+        source = mod.PARRY_OVERLAY_HELPER
         self.assertIn("hitCallerMethods(", source)
         self.assertIn("resolvesToSelectedHit(", source)
         self.assertIn("hitAliases", source)
@@ -1038,7 +1038,7 @@ public class ParryHarness {{
             before = self._run_feedback_harness(classes)
             self.assertNotEqual(0, before.returncode)
 
-            patches = mod.patch_parry_feedback_classes(
+            patches = mod.patch_parry_overlay_classes(
                 java, target, work, GAME_ROOT
             )
             self.assertIn(f"{GAME_ROOT}/actors/Eye.class", patches)
@@ -1059,7 +1059,7 @@ public class ParryHarness {{
             before = self._run_direct_damage_harness(classes)
             self.assertNotEqual(0, before.returncode)
 
-            patches = mod.patch_parry_feedback_classes(
+            patches = mod.patch_parry_overlay_classes(
                 java, target, work, GAME_ROOT
             )
             self.assertIn(f"{GAME_ROOT}/actors/Eye.class", patches)
