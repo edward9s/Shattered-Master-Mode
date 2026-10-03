@@ -32,6 +32,7 @@ _DEFENSE_VERB_CALL_RE = re.compile(
 
 _CLASS_RE = re.compile(
     r'\bclass\s+(?P<name>[A-Za-z_$][\w$]*)'
+    r'(?:\s*<[^;{}]+>)?'
     r'(?:\s+extends\s+(?P<parent>(?:[A-Za-z_$][\w$]*\.)*[A-Za-z_$][\w$]*))?'
     r'[^;{}]*\{'
 )
@@ -378,31 +379,22 @@ def patch_direct_damage_overrides(package_root: Path, char_path: Path) -> None:
         )
     char_decl = char_candidates[0]
     memo: dict[int, bool] = {}
-    char_subclasses = [
-        decl for decl in declarations
-        if decl is not char_decl
-        and _is_char_subclass(decl, char_decl, by_name, memo, set())
-    ]
-
-    by_file: dict[Path, list[dict]] = {}
-    for decl in char_subclasses:
-        by_file.setdefault(decl['file'], []).append(decl)
-
     marker = '// MASTER_MODE_PARRY_RIPOSTE_DIRECT_DAMAGE'
     patched_methods = 0
     patched_files = 0
 
-    for file_path, file_decls in by_file.items():
+    declarations_by_file: dict[Path, list[dict]] = {}
+    for decl in declarations:
+        declarations_by_file.setdefault(decl['file'], []).append(decl)
+
+    for file_path, file_decls in declarations_by_file.items():
         content = file_path.read_text(encoding='utf-8')
         masked = _mask_non_code(content)
-        all_file_decls = [
-            decl for decl in declarations if decl['file'] == file_path
-        ]
         insertions: list[tuple[int, str]] = []
 
         for match in _DAMAGE_METHOD_RE.finditer(masked):
             containing = [
-                decl for decl in all_file_decls
+                decl for decl in file_decls
                 if decl['open'] < match.start() < decl['end']
             ]
             if not containing:
@@ -411,7 +403,9 @@ def patch_direct_damage_overrides(package_root: Path, char_path: Path) -> None:
                 containing,
                 key=lambda item: item['end'] - item['start'],
             )
-            if owner not in file_decls:
+            if owner is char_decl or not _is_char_subclass(
+                owner, char_decl, by_name, memo, set()
+            ):
                 continue
 
             open_brace = match.end('head') - 1
