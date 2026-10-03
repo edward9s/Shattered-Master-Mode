@@ -3,6 +3,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import package_inject_kit as package
@@ -48,6 +49,64 @@ class InjectionKitPackagingTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(0, result.returncode, result.stdout)
+
+
+    def _write_parry_donors(
+        self,
+        root: pathlib.Path,
+        *,
+        jar_extra: bytes = b"",
+        apk_extra: bytes = b"",
+    ):
+        donor_jar = root / "donor.jar"
+        donor_apk = root / "donor.apk"
+        parry = b"onHitCheck resolveDirectDamage defenseVerb " + jar_extra
+        with zipfile.ZipFile(donor_jar, "w") as jar:
+            jar.writestr(package.PARRY_CLASS, parry)
+        with zipfile.ZipFile(donor_apk, "w") as apk:
+            apk.writestr(
+                "classes.dex",
+                b"onHitCheck resolveDirectDamage " + apk_extra,
+            )
+        return donor_apk, donor_jar
+
+    def test_parry_donor_validation_accepts_focus_free_abi(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            donor_apk, donor_jar = self._write_parry_donors(root)
+            package.validate_parry_donors(donor_apk, donor_jar)
+
+    def test_parry_donor_validation_rejects_focus_era_jar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            donor_apk, donor_jar = self._write_parry_donors(
+                root,
+                jar_extra=b"MonkEnergy$MonkAbility$Focus$FocusBuff",
+            )
+            with self.assertRaisesRegex(RuntimeError, "obsolete hook"):
+                package.validate_parry_donors(donor_apk, donor_jar)
+
+    def test_parry_donor_validation_rejects_focus_era_nested_class(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            donor_apk, donor_jar = self._write_parry_donors(root)
+            with zipfile.ZipFile(donor_jar, "a") as jar:
+                jar.writestr(
+                    "com/spd/mod/mechanics/ModParryRiposte$TotalParryFocus.class",
+                    b"old focus bridge",
+                )
+            with self.assertRaisesRegex(RuntimeError, "obsolete Parry lifecycle"):
+                package.validate_parry_donors(donor_apk, donor_jar)
+
+    def test_parry_donor_validation_rejects_focus_era_apk_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            donor_apk, donor_jar = self._write_parry_donors(
+                root,
+                apk_extra=b"ModParryRiposte$TotalParryFocus",
+            )
+            with self.assertRaisesRegex(RuntimeError, "obsolete Parry ABI marker"):
+                package.validate_parry_donors(donor_apk, donor_jar)
 
 
 if __name__ == "__main__":
