@@ -306,7 +306,7 @@ def _class_declarations(package_root: Path) -> tuple[list[dict], dict[str, list[
     return declarations, by_name
 
 
-def _resolve_parent(decl: dict, by_name: dict[str, list[dict]]) -> dict | None:
+def _resolve_parent(decl: dict, by_name: dict[str, list[dict]]):
     parent = decl['parent']
     if parent is None:
         return None
