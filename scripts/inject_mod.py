@@ -111,7 +111,7 @@ def _find_matching(text: str, open_index: int, opener: str, closer: str) -> int:
             depth -= 1
             if depth == 0:
                 return index
-    raise RuntimeError(f'Unmatched {opener}{closer} while parsing Char.attack')
+    raise RuntimeError(f'Unmatched {opener}{closer} while parsing Java source')
 
 
 def _argument_count(masked: str) -> int:
@@ -445,10 +445,11 @@ def patch_direct_damage_overrides(package_root: Path, char_path: Path) -> None:
 
 
 def patch_defense_feedback(package_root: Path) -> None:
-    """Route every Char defenseVerb display call through ModParryRiposte.
+    """Route source-build defense feedback through ModParryRiposte.
 
-    The helper preserves normal virtual dispatch for non-SMM misses. Calls to
-    super.defenseVerb() are deliberately left alone so class overrides keep
+    Source builds can use a broad presentation bridge because the helper falls
+    straight back to the target's virtual defenseVerb() when no Parry feedback
+    is pending. Calls to super.defenseVerb() are left alone so overrides keep
     their native fallback behavior.
     """
     total = 0
