@@ -207,5 +207,15 @@ public class FileHandle {
         )
 
 
+    def test_desktop_picker_uses_reflective_jdk_ui_only(self):
+        source = SAVE_TRANSFER.read_text(encoding="utf-8")
+
+        self.assertNotIn("org.lwjgl.util.tinyfd", source)
+        self.assertIn('Class.forName("javax.swing.JFileChooser")', source)
+        self.assertIn('Class.forName("javax.swing.SwingUtilities")', source)
+        self.assertNotIn("import javax.swing", source)
+        self.assertNotIn("import java.awt", source)
+
+
 if __name__ == "__main__":
     unittest.main()

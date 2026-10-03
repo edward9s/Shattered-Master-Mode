@@ -391,22 +391,53 @@ public final class ModSaveTransfer {
             defaultDirectory = new File(System.getProperty("user.home", "."));
         }
 
-        Class<?> dialogs = Class.forName("org.lwjgl.util.tinyfd.TinyFileDialogs");
-        Object selected = dialogs
-                .getMethod(
-                        "tinyfd_selectFolderDialog",
-                        CharSequence.class,
-                        CharSequence.class)
-                .invoke(
-                        null,
+        // Do not use the target game's LWJGL/TinyFD here. SPD forks can bundle
+        // mutually incompatible LWJGL modules, so even reflective TinyFD access
+        // can fail during class initialization with NoSuchMethodError.
+        //
+        // Swing is part of the desktop JDK and is loaded only by name so the
+        // shared payload keeps no hard java.desktop dependency on Android.
+        File initialDirectory = defaultDirectory;
+        Object[] selected = new Object[1];
+        Exception[] failure = new Exception[1];
+        Runnable chooserTask = () -> {
+            try {
+                selected[0] = showDesktopDirectoryChooser(
                         title,
-                        defaultDirectory.getAbsolutePath());
+                        initialDirectory);
+            } catch (Exception e) {
+                failure[0] = e;
+            }
+        };
 
-        if (selected == null || selected.toString().isEmpty()) {
+        Class<?> swingUtilities;
+        try {
+            swingUtilities = Class.forName("javax.swing.SwingUtilities");
+        } catch (ClassNotFoundException e) {
+            throw new IOException(
+                    "JDK desktop folder chooser is unavailable",
+                    e);
+        }
+
+        boolean onEventDispatchThread = ((Boolean) swingUtilities
+                .getMethod("isEventDispatchThread")
+                .invoke(null)).booleanValue();
+        if (onEventDispatchThread) {
+            chooserTask.run();
+        } else {
+            swingUtilities
+                    .getMethod("invokeAndWait", Runnable.class)
+                    .invoke(null, chooserTask);
+        }
+
+        if (failure[0] != null) {
+            throw failure[0];
+        }
+        if (selected[0] == null) {
             return null;
         }
 
-        File directory = new File(selected.toString()).getCanonicalFile();
+        File directory = ((File) selected[0]).getCanonicalFile();
         if (!directory.exists() || !directory.isDirectory()) {
             throw new IOException(
                     "Selected path is not a directory: "
@@ -415,6 +446,53 @@ public final class ModSaveTransfer {
 
         desktopPreferencePut(preferenceKey, directory.getAbsolutePath());
         return directory;
+    }
+
+    private static File showDesktopDirectoryChooser(
+            String title,
+            File initialDirectory) throws Exception {
+
+        Class<?> chooserClass;
+        Class<?> componentClass;
+        try {
+            chooserClass = Class.forName("javax.swing.JFileChooser");
+            componentClass = Class.forName("java.awt.Component");
+        } catch (ClassNotFoundException e) {
+            throw new IOException(
+                    "JDK desktop folder chooser is unavailable",
+                    e);
+        }
+
+        Object chooser = chooserClass
+                .getConstructor(File.class)
+                .newInstance(initialDirectory);
+        int directoriesOnly = chooserClass
+                .getField("DIRECTORIES_ONLY")
+                .getInt(null);
+        chooserClass
+                .getMethod("setFileSelectionMode", int.class)
+                .invoke(chooser, directoriesOnly);
+        chooserClass
+                .getMethod("setDialogTitle", String.class)
+                .invoke(chooser, title);
+        chooserClass
+                .getMethod("setAcceptAllFileFilterUsed", boolean.class)
+                .invoke(chooser, false);
+
+        int result = ((Integer) chooserClass
+                .getMethod("showDialog", componentClass, String.class)
+                .invoke(chooser, new Object[] {null, "Select"})).intValue();
+        int approveOption = chooserClass
+                .getField("APPROVE_OPTION")
+                .getInt(null);
+        if (result != approveOption) {
+            return null;
+        }
+
+        Object selected = chooserClass
+                .getMethod("getSelectedFile")
+                .invoke(chooser);
+        return selected instanceof File ? (File) selected : null;
     }
 
     private static String desktopPreferenceGet(
