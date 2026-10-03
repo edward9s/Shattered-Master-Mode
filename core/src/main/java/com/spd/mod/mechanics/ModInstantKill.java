@@ -187,6 +187,12 @@ public class ModInstantKill extends Buff {
         }
     }
 
+    /** Source-build return wrapper; preserves the native Char.attack result. */
+    public static boolean finishAttackResult(boolean successful) {
+        finishAttack(successful);
+        return successful;
+    }
+
     /**
      * Resolves Instant Kill for an attack that the native Char.attack path is
      * already returning as successful. Native attack presentation, including

@@ -186,15 +186,33 @@ public class BuffIndicator {
         self.assertIn("ModParryRiposte.onHitCheck(", char)
         self.assertNotIn("Focus", char)
 
+    def _assert_instant_kill_completion_scope(self, java: pathlib.Path) -> None:
+        char = (java / "com/example/game/actors/Char.java").read_text()
+        begin = "ModInstantKill.beginAttack(this, enemy);"
+        finish_true = "ModInstantKill.finishAttackResult(true);"
+        finish_false = "ModInstantKill.finishAttackResult(false);"
+
+        self.assertEqual(1, char.count(begin))
+        self.assertEqual(1, char.count(finish_true))
+        self.assertEqual(1, char.count(finish_false))
+        self.assertNotIn("ModInstantKill.resolveSuccessfulAttack(this, enemy)", char)
+
+        # Native successful-hit work must run before Instant Kill completion.
+        native_hit_work = char.index("enemy.defenseVerb();")
+        instant_completion = char.index(finish_true)
+        self.assertLess(native_hit_work, instant_completion)
+
     def test_modern_source_uses_hit_and_direct_damage_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
             java = self._run(pathlib.Path(tmp), legacy_hit=False)
             self._assert_direct_damage_scope(java)
+            self._assert_instant_kill_completion_scope(java)
 
     def test_legacy_source_uses_same_focus_free_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
             java = self._run(pathlib.Path(tmp), legacy_hit=True)
             self._assert_direct_damage_scope(java)
+            self._assert_instant_kill_completion_scope(java)
 
     def test_injector_contains_no_focus_bridge(self):
         source = SCRIPT.read_text(encoding="utf-8")

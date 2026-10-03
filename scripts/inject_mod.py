@@ -595,27 +595,45 @@ def patch_char(file_path: Path) -> None:
     defender, open_brace, close_brace = _terminal_attack_method(content)
     body = content[open_brace + 1:close_brace]
 
-    # Instant Kill remains an attack-layer concern. Parry/Riposte is handled only
-    # by the selected Char.hit() hook.
-    hit_success = re.compile(
-        r'(?P<head>(?:}\s*else\s+)?if\s*\(\s*hit\s*\(\s*this\s*,\s*'
-        + re.escape(defender)
-        + r'\s*,[^{};]*?\)\s*\)\s*{)'
-    )
-    instant_code = (
-        "\n\t\t\t// MASTER_MODE_INSTANT_KILL\n"
-        f"\t\t\tif (com.spd.mod.mechanics.ModInstantKill.resolveSuccessfulAttack(this, {defender})) return true;"
-    )
-    patched_body, instant_count = hit_success.subn(
-        lambda m: m.group('head') + instant_code,
-        body,
-    )
-    if instant_count != 1:
+    # Keep Instant Kill behind the native attack path, matching binary injection.
+    # Every boolean return carries the native result through finishAttackResult(),
+    # so weapon-specific hit sound and all normal attack presentation/procs run
+    # before Instant Kill resolves.
+    masked_body = _mask_non_code(body)
+    return_re = re.compile(r'\breturn\b')
+    returns: list[tuple[int, int, str]] = []
+    for match in return_re.finditer(masked_body):
+        semicolon = masked_body.find(';', match.end())
+        if semicolon < 0:
+            raise RuntimeError(
+                f"Malformed return in terminal Char.attack: {file_path}"
+            )
+        expression = body[match.end():semicolon].strip()
+        if not expression:
+            raise RuntimeError(
+                f"Void return found in boolean Char.attack: {file_path}"
+            )
+        returns.append((match.start(), semicolon + 1, expression))
+
+    if not returns:
         raise RuntimeError(
-            f"Expected exactly one successful Char.hit branch in terminal Char.attack, "
-            f"found {instant_count}: {file_path}"
+            f"Terminal Char.attack has no boolean return for Instant Kill: {file_path}"
         )
 
+    for start, end, expression in reversed(returns):
+        body = (
+            body[:start]
+            + "return com.spd.mod.mechanics.ModInstantKill.finishAttackResult("
+            + expression
+            + ");"
+            + body[end:]
+        )
+
+    entry_code = (
+        "\n\t\t// MASTER_MODE_INSTANT_KILL\n"
+        f"\t\tcom.spd.mod.mechanics.ModInstantKill.beginAttack(this, {defender});"
+    )
+    patched_body = entry_code + body
     content = content[:open_brace + 1] + patched_body + content[close_brace:]
     file_path.write_text(content, encoding='utf-8')
     print(f"Char.attack Instant Kill hook injected successfully into {file_path}")
