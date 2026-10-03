@@ -7,7 +7,7 @@
 - Designed for in-game sandbox testing, rapid editing, and easily creating meme images.
 - **Preserves Vanilla Mechanics:** SMM does not replace or rewrite vanilla gameplay mechanics. Vanilla behavior remains unchanged unless an SMM feature is explicitly enabled.
 - **Minimal Integration:** SMM uses existing vanilla extension points whenever possible. Full SMM installs combat hooks for Riposte and Force Hit. Minimal `--ankh-only` guarantees the Last Stand runtime Tag and best-effort injects Parry/Riposte, Instant Kill, Force Hit, and Assassinate when compatible.
-- **Save transfer:** Tools can export/import full save snapshots with one-click Android storage or a native Desktop folder chooser; Desktop remembers the last export/import locations separately.
+- **Save transfer:** Tools export/import full snapshots under `Documents/spd_saves/<app name>/` on Android and Desktop. SMM source builds and binary injectors apply the same bracketed app-name transformation, so each build gets a stable, platform-consistent snapshot directory.
 
 ## Known Limitations & Warnings
 
