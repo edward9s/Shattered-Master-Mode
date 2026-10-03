@@ -13,6 +13,7 @@ PARRY_CLASS = "com/spd/mod/mechanics/ModParryRiposte.class"
 OBSOLETE_PARRY_CLASSES = {
     "com/spd/mod/mechanics/ModParryRiposte$IncomingAttackContext.class",
     "com/spd/mod/mechanics/ModParryRiposte$ParryDetachSink.class",
+    "com/spd/mod/mechanics/ModParryRiposte$TotalParryFocus.class",
 }
 
 
@@ -48,6 +49,9 @@ def validate_parry_donors(donor_apk: Path, donor_jar: Path) -> None:
             b"onIncomingAttackComplete",
             b"shouldParry",
             b"onDirectDamage",
+            b"MonkEnergy$MonkAbility$Focus$FocusBuff",
+            b"TotalParryFocus",
+            b"ParryDetachSink",
         ):
             if obsolete_name in parry_class:
                 raise RuntimeError(
@@ -74,6 +78,7 @@ def validate_parry_donors(donor_apk: Path, donor_jar: Path) -> None:
         for obsolete_name in (
             b"ModParryRiposte$IncomingAttackContext",
             b"ModParryRiposte$ParryDetachSink",
+            b"ModParryRiposte$TotalParryFocus",
             b"onIncomingAttack",
             b"onIncomingAttackComplete",
             b"shouldParry",
