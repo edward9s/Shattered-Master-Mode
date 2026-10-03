@@ -586,62 +586,147 @@ def patch_defense_feedback(package_root: Path) -> None:
 
 def patch_buff_indicator(file_path: Path) -> None:
     content = file_path.read_text(encoding='utf-8')
-    marker = '// MASTER_MODE_BUFF_INFO'
+    click_marker = '// MASTER_MODE_BUFF_INFO'
+    long_marker = '// MASTER_MODE_BUFF_LONG_CLICK'
 
-    if marker in content:
-        print(f"BuffIndicator click bridge already injected into {file_path}")
-        return
+    def buff_button_range(text: str) -> tuple[int, int]:
+        masked = _mask_non_code(text)
+        class_match = re.search(r'\\bclass\\s+BuffButton\\b[^\\{]*\\{', masked)
+        if class_match is None:
+            raise RuntimeError(f"BuffIndicator BuffButton class not found: {file_path}")
+        open_brace = masked.find('{', class_match.start(), class_match.end())
+        close_brace = _find_matching(masked, open_brace, '{', '}')
+        return open_brace, close_brace
 
-    pattern = re.compile(
-        r'(?P<indent>^[ \t]*)@Override\s*\n'
-        r'(?P=indent)protected void onClick\(\)\s*\{\s*\n'
-        r'(?P=indent)[ \t]+if\s*\(\s*buff\.icon\(\)\s*!=\s*NONE\s*\)\s*'
-        r'GameScene\.show\(new WndInfoBuff\(buff\)\);\s*\n'
-        r'(?P=indent)\}',
+    def method_count(text: str, return_type: str, name: str) -> int:
+        begin, finish = buff_button_range(text)
+        body = _mask_non_code(text[begin + 1:finish])
+        pattern = re.compile(
+            r'(?m)^[ \\t]*(?:(?:public|protected|private|final|synchronized)\\s+)*'
+            + re.escape(return_type)
+            + r'\\s+'
+            + re.escape(name)
+            + r'\\s*\\(\\s*\\)'
+        )
+        return len(pattern.findall(body))
+
+    if click_marker in content or long_marker in content:
+        if (
+            click_marker in content
+            and long_marker in content
+            and method_count(content, 'void', 'onClick') == 1
+            and method_count(content, 'boolean', 'onLongClick') == 1
+        ):
+            print(f"BuffIndicator click bridge already injected into {file_path}")
+            return
+        raise RuntimeError(
+            f"Partial or ambiguous BuffIndicator click bridge found: {file_path}"
+        )
+
+    click_pattern = re.compile(
+        r'(?P<indent>^[ \\t]*)@Override\\s*\\n'
+        r'(?P=indent)protected void onClick\\(\\)\\s*\\{\\s*\\n'
+        r'(?P=indent)[ \\t]+if\\s*\\(\\s*buff\\.icon\\(\\)\\s*!=\\s*NONE\\s*\\)\\s*'
+        r'GameScene\\.show\\(new WndInfoBuff\\(buff\\)\\);\\s*\\n'
+        r'(?P=indent)\\}',
         re.MULTILINE,
     )
-    match = pattern.search(content)
-    if match is None:
+    click_match = click_pattern.search(content)
+    if click_match is None:
         raise RuntimeError(
             f"Expected native BuffIndicator BuffButton.onClick() info handler: {file_path}"
         )
 
-    indent = match.group('indent')
-    body = f"""{indent}@Override
-{indent}protected void onClick() {{
-{indent}\t// MASTER_MODE_BUFF_INFO
-{indent}\tif (buff instanceof com.spd.mod.mechanics.ModLastStand) {{
-{indent}\t\t((com.spd.mod.mechanics.ModLastStand) buff).open();
-{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModParryRiposte) {{
-{indent}\t\t((com.spd.mod.mechanics.ModParryRiposte) buff).openInfo();
-{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModInstantKill) {{
-{indent}\t\t((com.spd.mod.mechanics.ModInstantKill) buff).openInfo();
-{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModForceHit) {{
-{indent}\t\t((com.spd.mod.mechanics.ModForceHit) buff).openInfo();
-{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModAssassinate) {{
-{indent}\t\t((com.spd.mod.mechanics.ModAssassinate) buff).openInfo();
-{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModEnemySurge) {{
-{indent}\t\t((com.spd.mod.mechanics.ModEnemySurge) buff).openInfo();
-{indent}\t}} else if (buff.icon() != NONE) {{
-{indent}\t\tGameScene.show(new WndInfoBuff(buff));
-{indent}\t}}
-{indent}}}
+    class_begin, class_end = buff_button_range(content)
+    class_text = content[class_begin + 1:class_end]
+    class_masked = _mask_non_code(class_text)
+    long_pattern = re.compile(
+        r'(?m)^(?P<indent>[ \\t]*)'
+        r'(?:(?:public|protected|private|final|synchronized)\\s+)*'
+        r'boolean\\s+onLongClick\\s*\\(\\s*\\)\\s*\\{'
+    )
+    long_matches = list(long_pattern.finditer(class_masked))
+    if len(long_matches) > 1:
+        raise RuntimeError(
+            f"Expected at most one BuffButton.onLongClick(): {file_path}"
+        )
 
-{indent}@Override
-{indent}protected boolean onLongClick() {{
-{indent}\tif (buff instanceof com.spd.mod.mechanics.ModLastStand
-{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModParryRiposte
-{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModInstantKill
-{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModForceHit
-{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModAssassinate
-{indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModEnemySurge) {{
-{indent}\t\tif (buff.icon() != NONE) GameScene.show(new WndInfoBuff(buff));
-{indent}\t\treturn true;
-{indent}\t}}
-{indent}\treturn super.onLongClick();
-{indent}}}"""
+    indent = click_match.group('indent')
+    click_body = f"""{{indent}}@Override
+{{indent}}protected void onClick() {{
+{{indent}}\\t{{click_marker}}
+{{indent}}\\tif (buff instanceof com.spd.mod.mechanics.ModLastStand) {{
+{{indent}}\\t\\t((com.spd.mod.mechanics.ModLastStand) buff).open();
+{{indent}}\\t}} else if (buff instanceof com.spd.mod.mechanics.ModParryRiposte) {{
+{{indent}}\\t\\t((com.spd.mod.mechanics.ModParryRiposte) buff).openInfo();
+{{indent}}\\t}} else if (buff instanceof com.spd.mod.mechanics.ModInstantKill) {{
+{{indent}}\\t\\t((com.spd.mod.mechanics.ModInstantKill) buff).openInfo();
+{{indent}}\\t}} else if (buff instanceof com.spd.mod.mechanics.ModForceHit) {{
+{{indent}}\\t\\t((com.spd.mod.mechanics.ModForceHit) buff).openInfo();
+{{indent}}\\t}} else if (buff instanceof com.spd.mod.mechanics.ModAssassinate) {{
+{{indent}}\\t\\t((com.spd.mod.mechanics.ModAssassinate) buff).openInfo();
+{{indent}}\\t}} else if (buff instanceof com.spd.mod.mechanics.ModEnemySurge) {{
+{{indent}}\\t\\t((com.spd.mod.mechanics.ModEnemySurge) buff).openInfo();
+{{indent}}\\t}} else if (buff.icon() != NONE) {{
+{{indent}}\\t\\tGameScene.show(new WndInfoBuff(buff));
+{{indent}}\\t}}
+{{indent}}}}"""
 
-    content = content[:match.start()] + body + content[match.end():]
+    def long_dispatch(method_indent: str) -> str:
+        return f"""
+{{method_indent}}\\t{{long_marker}}
+{{method_indent}}\\tif (buff instanceof com.spd.mod.mechanics.ModLastStand
+{{method_indent}}\\t\\t\\t|| buff instanceof com.spd.mod.mechanics.ModParryRiposte
+{{method_indent}}\\t\\t\\t|| buff instanceof com.spd.mod.mechanics.ModInstantKill
+{{method_indent}}\\t\\t\\t|| buff instanceof com.spd.mod.mechanics.ModForceHit
+{{method_indent}}\\t\\t\\t|| buff instanceof com.spd.mod.mechanics.ModAssassinate
+{{method_indent}}\\t\\t\\t|| buff instanceof com.spd.mod.mechanics.ModEnemySurge) {{
+{{method_indent}}\\t\\tif (buff.icon() != NONE) GameScene.show(new WndInfoBuff(buff));
+{{method_indent}}\\t\\treturn true;
+{{method_indent}}\\t}}
+"""
+
+    edits: list[tuple[int, int, str]] = [
+        (click_match.start(), click_match.end(), click_body)
+    ]
+
+    if long_matches:
+        long_match = long_matches[0]
+        long_open_local = class_masked.find(
+            '{', long_match.start(), long_match.end()
+        )
+        long_open = class_begin + 1 + long_open_local
+        native_indent = long_match.group('indent')
+        edits.append((
+            long_open + 1,
+            long_open + 1,
+            long_dispatch(native_indent),
+        ))
+    else:
+        long_body = f"""
+
+{{indent}}@Override
+{{indent}}protected boolean onLongClick() {{{long_dispatch(indent)}{{indent}}\\treturn super.onLongClick();
+{{indent}}}}}"""
+        edits[0] = (
+            click_match.start(),
+            click_match.end(),
+            click_body + long_body,
+        )
+
+    for begin, finish, replacement in sorted(edits, reverse=True):
+        content = content[:begin] + replacement + content[finish:]
+
+    if (
+        method_count(content, 'void', 'onClick') != 1
+        or method_count(content, 'boolean', 'onLongClick') != 1
+        or click_marker not in content
+        or long_marker not in content
+    ):
+        raise RuntimeError(
+            f"BuffIndicator click bridge validation failed after patch: {file_path}"
+        )
+
     file_path.write_text(content, encoding='utf-8')
     print(f"SMM BuffIndicator click bridge injected successfully into {file_path}")
 
