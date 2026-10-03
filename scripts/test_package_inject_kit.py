@@ -27,6 +27,7 @@ class InjectionKitPackagingTests(unittest.TestCase):
             expected = {
                 "inject_apk.py",
                 "_attack_hook_common.py",
+                "_inject_app_name.py",
                 "_inject_apk_core.py",
                 "_inject_apk_ankh.py",
                 "_inject_action_name.py",
