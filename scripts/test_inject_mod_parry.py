@@ -16,7 +16,8 @@ class SourceParryInjectionTests(unittest.TestCase):
         path.write_text(content, encoding="utf-8")
 
     def _make_tree(
-            self, root: pathlib.Path, *, legacy_hit: bool, structural_hit: bool = False
+            self, root: pathlib.Path, *, legacy_hit: bool,
+            structural_hit: bool = False, native_long_click: bool = False
     ) -> pathlib.Path:
         java = root / "core/src/main/java"
         game = java / "com/example/game"
@@ -157,27 +158,39 @@ public class WndUseItem {
 }
 """,
         )
+        native_long = """
+        @Override
+        protected boolean onLongClick() {
+            // NATIVE_LONG_CLICK
+            return false;
+        }
+""" if native_long_click else ""
+
         self._write(
             java,
             "com/example/game/ui/BuffIndicator.java",
-            """package com.example.game.ui;
-public class BuffIndicator {
-    class BuffButton {
+            f"""package com.example.game.ui;
+public class BuffIndicator {{
+    class BuffButton {{
         @Override
-        protected void onClick() {
+        protected void onClick() {{
             if (buff.icon() != NONE) GameScene.show(new WndInfoBuff(buff));
-        }
-    }
-}
+        }}
+{native_long}    }}
+}}
 """,
         )
         return java
 
     def _run(
-            self, root: pathlib.Path, *, legacy_hit: bool, structural_hit: bool = False
+            self, root: pathlib.Path, *, legacy_hit: bool,
+            structural_hit: bool = False, native_long_click: bool = False
     ) -> pathlib.Path:
         java = self._make_tree(
-            root, legacy_hit=legacy_hit, structural_hit=structural_hit
+            root,
+            legacy_hit=legacy_hit,
+            structural_hit=structural_hit,
+            native_long_click=native_long_click,
         )
         result = subprocess.run(
             [sys.executable, str(SCRIPT), str(root)],
@@ -213,6 +226,9 @@ public class BuffIndicator {
             java / "com/example/game/ui/BuffIndicator.java"
         ).read_text()
         self.assertIn("ModEnemySurge", buff_indicator)
+        self.assertEqual(1, buff_indicator.count("protected boolean onLongClick()"))
+        self.assertEqual(1, buff_indicator.count("// MASTER_MODE_BUFF_LONG_CLICK"))
+        self.assertIn("return super.onLongClick();", buff_indicator)
 
         wnd_use_item = (
             java / "com/example/game/windows/WndUseItem.java"
@@ -262,6 +278,30 @@ public class BuffIndicator {
             helper = char.index("boolean resolvesAttack(")
             self.assertLess(helper, hook)
             self._assert_direct_damage_scope(java)
+
+    def test_buff_indicator_preserves_native_long_click(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            java = self._run(
+                pathlib.Path(tmp),
+                legacy_hit=False,
+                native_long_click=True,
+            )
+            buff_indicator = (
+                java / "com/example/game/ui/BuffIndicator.java"
+            ).read_text()
+
+            self.assertEqual(
+                1, buff_indicator.count("protected boolean onLongClick()")
+            )
+            self.assertEqual(
+                1, buff_indicator.count("// MASTER_MODE_BUFF_LONG_CLICK")
+            )
+            self.assertEqual(1, buff_indicator.count("// NATIVE_LONG_CLICK"))
+            self.assertNotIn("return super.onLongClick();", buff_indicator)
+            self.assertLess(
+                buff_indicator.index("// MASTER_MODE_BUFF_LONG_CLICK"),
+                buff_indicator.index("// NATIVE_LONG_CLICK"),
+            )
 
     def test_injector_contains_no_focus_bridge(self):
         source = SCRIPT.read_text(encoding="utf-8")
