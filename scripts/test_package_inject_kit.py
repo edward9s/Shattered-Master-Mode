@@ -83,7 +83,7 @@ class InjectionKitPackagingTests(unittest.TestCase):
                 root,
                 jar_extra=b"MonkEnergy$MonkAbility$Focus$FocusBuff",
             )
-            with self.assertRaisesRegex(RuntimeError, "obsolete hook"):
+            with self.assertRaisesRegex(RuntimeError, "obsolete ABI marker"):
                 package.validate_parry_donors(donor_apk, donor_jar)
 
     def test_parry_donor_validation_rejects_focus_era_nested_class(self):
