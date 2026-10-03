@@ -13,8 +13,9 @@ The target JAR remains the base. The injector:
   * validates ModAnkh's executable SPD API references against the target JAR
     plus the injected ModAnkhStore payload;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
-  * preserves every other target JAR entry byte-for-byte at the uncompressed
-    data level and removes stale JAR signature/index metadata.
+  * applies SMM's bracketed application name to Specification-Title;
+  * preserves other target JAR entries byte-for-byte at the uncompressed data
+    level and removes stale JAR signature/index metadata.
 
 No source recompilation or whole-JAR decompilation/rebuild is performed.
 Java 17+ is recommended. The helper uses the ASM bundled inside the JDK, so no
@@ -40,6 +41,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Sequence
+
+from _inject_app_name import AppNameError, smm_app_name
 
 MOD_ANKH_ENTRY = "com/spd/mod/items/ModAnkh.class"
 MOD_ANKH_STORE_PREFIX = "com/spd/mod/items/ModAnkhStore"
@@ -400,6 +403,53 @@ def stale_meta_entry(name: str) -> bool:
     return leaf.startswith("SIG-") or leaf.endswith((".SF", ".RSA", ".DSA", ".EC"))
 
 
+def patch_manifest_specification_title(data: bytes) -> tuple[bytes, str, str]:
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise InjectError("JAR manifest is not valid UTF-8") from exc
+
+    newline = "\r\n" if "\r\n" in text else "\n"
+    had_final_newline = text.endswith(("\r\n", "\n"))
+    lines = text.splitlines()
+    main_end = next((i for i, line in enumerate(lines) if line == ""), len(lines))
+
+    matches: list[tuple[int, int, str]] = []
+    i = 0
+    while i < main_end:
+        line = lines[i]
+        if ":" not in line:
+            i += 1
+            continue
+        key, value = line.split(":", 1)
+        start = i
+        logical = value.lstrip(" ")
+        i += 1
+        while i < main_end and lines[i].startswith(" "):
+            logical += lines[i][1:]
+            i += 1
+        if key.lower() == "specification-title":
+            matches.append((start, i, logical))
+
+    if len(matches) != 1:
+        raise InjectError(
+            "Expected exactly one Specification-Title in JAR manifest, found "
+            + str(len(matches))
+        )
+
+    start, end, old_title = matches[0]
+    try:
+        new_title = smm_app_name(old_title)
+    except AppNameError as exc:
+        raise InjectError(str(exc)) from exc
+
+    lines[start:end] = [f"Specification-Title: {new_title}"]
+    patched = newline.join(lines)
+    if had_final_newline:
+        patched += newline
+    return patched.encode("utf-8"), old_title, new_title
+
+
 def rebuild_jar(
     target: Path,
     patched_dungeon: Path,
@@ -468,12 +518,33 @@ def rebuild_jar(
             if info.filename == dungeon_entry
         )
 
+        manifest_entries = [
+            info.filename
+            for info in zin.infolist()
+            if info.filename.upper() == "META-INF/MANIFEST.MF"
+        ]
+        if len(manifest_entries) != 1:
+            raise InjectError(
+                "Expected exactly one META-INF/MANIFEST.MF, found "
+                + str(len(manifest_entries))
+            )
+        manifest_name = manifest_entries[0]
+        patched_manifest, old_title, new_title = patch_manifest_specification_title(
+            zin.read(manifest_name)
+        )
+        log(f"Application title: {old_title} -> {new_title}")
+
         with zipfile.ZipFile(output, "w", allowZip64=True) as zout:
             for info in zin.infolist():
                 name = info.filename
                 if stale_meta_entry(name):
                     continue
-                data = dungeon_bytes if name == dungeon_entry else zin.read(name)
+                if name == dungeon_entry:
+                    data = dungeon_bytes
+                elif name == manifest_name:
+                    data = patched_manifest
+                else:
+                    data = zin.read(name)
                 zout.writestr(clone_zipinfo(info), data)
 
             zout.writestr(

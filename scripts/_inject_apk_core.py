@@ -9,6 +9,7 @@ Scope is intentionally narrow:
   * copies the controlled ModDebug payload, supported feature families, and all controlled Mod item families;
   * patches Dungeon.init() immediately after HeroClass.initHero(Hero);
   * adds the storage permissions required by ModDebug save/load;
+  * applies SMM's bracketed application name to the target APK label;
   * otherwise leaves target resources and non-DEX APK entries untouched;
   * builds one small first-dex overlay containing patched target classes + injected classes;
   * removes each shadowed target class from its original DEX before shifting target DEX files;
@@ -42,6 +43,8 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
+
+from _inject_app_name import AppNameError, smm_app_name
 
 DEFAULT_CACHE = Path(os.environ.get("SMM_INJECT_CACHE", Path.home() / ".cache" / "smm-apk-injector"))
 APKTOOL_VERSION = "3.0.3"
@@ -1299,6 +1302,7 @@ RES_XML_NO_INDEX = 0xFFFFFFFF
 RES_STRING_POOL_UTF8_FLAG = 0x00000100
 RES_STRING_POOL_SORTED_FLAG = 0x00000001
 RES_VALUE_TYPE_STRING = 0x03
+ANDROID_LABEL_RESOURCE_ID = 0x01010001
 ANDROID_NAME_RESOURCE_ID = 0x01010003
 
 
@@ -1693,6 +1697,172 @@ def build_axml_permission_node(
     return bytes(start) + end
 
 
+def patch_binary_manifest_app_name(data: bytes) -> tuple[bytes, str, str]:
+    if len(data) < 8:
+        raise InjectError("AndroidManifest.xml is too short")
+
+    xml_type, header_size, total_size = struct.unpack_from("<HHI", data, 0)
+    if (
+        xml_type != RES_XML_TYPE
+        or header_size != 8
+        or total_size != len(data)
+    ):
+        raise InjectError("AndroidManifest.xml is not standard binary XML")
+
+    chunks = list(axml_chunks(data))
+    string_chunk = next(
+        (chunk for chunk in chunks if chunk[1] == RES_STRING_POOL_TYPE),
+        None,
+    )
+    if string_chunk is None:
+        raise InjectError("Binary AndroidManifest.xml has no string pool")
+
+    pool = parse_axml_string_pool(data, string_chunk[0])
+    string_index = {
+        value: index
+        for index, value in enumerate(pool.strings)
+    }
+
+    android_uri = "http://schemas.android.com/apk/res/android"
+    if android_uri not in string_index or "application" not in string_index:
+        raise InjectError(
+            "Binary AndroidManifest.xml lacks application label metadata"
+        )
+    android_namespace_index = string_index[android_uri]
+
+    resource_map = next(
+        (chunk for chunk in chunks if chunk[1] == RES_XML_RESOURCE_MAP_TYPE),
+        None,
+    )
+    if resource_map is None:
+        raise InjectError("Binary AndroidManifest.xml has no resource map")
+
+    map_offset, _, map_header_size, map_size = resource_map
+    resource_count = (map_size - map_header_size) // 4
+    resource_ids = list(struct.unpack_from(
+        "<" + ("I" * resource_count),
+        data,
+        map_offset + map_header_size,
+    )) if resource_count else []
+
+    matches: list[tuple[int, str]] = []
+    for offset, chunk_type, chunk_header_size, _ in chunks:
+        if chunk_type != RES_XML_START_ELEMENT_TYPE:
+            continue
+
+        _, element_name, attributes = parse_axml_start_element(
+            data,
+            offset,
+            chunk_header_size,
+        )
+        if (
+            element_name >= len(pool.strings)
+            or pool.strings[element_name] != "application"
+        ):
+            continue
+
+        extension = offset + chunk_header_size
+        (
+            _,
+            _,
+            attribute_start,
+            attribute_size,
+            attribute_count,
+            _,
+            _,
+            _,
+        ) = struct.unpack_from("<IIHHHHHH", data, extension)
+        first_attribute = extension + attribute_start
+
+        for index in range(attribute_count):
+            attribute_offset = first_attribute + index * attribute_size
+            (
+                attr_namespace,
+                attr_name,
+                raw_value,
+                value_size,
+                value_res0,
+                value_type,
+                value_data,
+            ) = struct.unpack_from("<IIIHBBI", data, attribute_offset)
+
+            if value_size != 8 or value_res0 != 0:
+                raise InjectError(
+                    "Binary manifest has an unsupported attribute value layout"
+                )
+            if (
+                attr_namespace != android_namespace_index
+                or attr_name >= len(resource_ids)
+                or resource_ids[attr_name] != ANDROID_LABEL_RESOURCE_ID
+            ):
+                continue
+
+            old_name: str | None = None
+            if (
+                raw_value != RES_XML_NO_INDEX
+                and raw_value < len(pool.strings)
+            ):
+                old_name = pool.strings[raw_value]
+            elif (
+                value_type == RES_VALUE_TYPE_STRING
+                and value_data < len(pool.strings)
+            ):
+                old_name = pool.strings[value_data]
+
+            if old_name is None:
+                raise InjectError(
+                    "Target APK application label is resource-backed; "
+                    "binary injection requires a literal stable app name"
+                )
+            matches.append((attribute_offset, old_name))
+
+    if len(matches) != 1:
+        raise InjectError(
+            "Expected exactly one literal Android application label, found "
+            + str(len(matches))
+        )
+
+    attribute_offset, old_name = matches[0]
+    try:
+        new_name = smm_app_name(old_name)
+    except AppNameError as exc:
+        raise InjectError(str(exc)) from exc
+
+    new_string_chunk, added_indices = rebuild_axml_string_pool(
+        data,
+        pool,
+        [new_name],
+    )
+    new_name_index = string_index.get(new_name, added_indices.get(new_name))
+    if new_name_index is None:
+        raise InjectError("Unable to add transformed application name")
+
+    patched_body = bytearray(data)
+    struct.pack_into("<I", patched_body, attribute_offset + 8, new_name_index)
+    struct.pack_into("<B", patched_body, attribute_offset + 15, RES_VALUE_TYPE_STRING)
+    struct.pack_into("<I", patched_body, attribute_offset + 16, new_name_index)
+
+    pool_end = pool.offset + pool.size
+    if attribute_offset < pool_end:
+        raise InjectError(
+            "Binary AndroidManifest.xml has an unexpected chunk order"
+        )
+
+    patched = bytearray(
+        patched_body[:pool.offset]
+        + new_string_chunk
+        + patched_body[pool_end:]
+    )
+    struct.pack_into("<I", patched, 4, len(patched))
+    list(axml_chunks(bytes(patched)))
+
+    reparsed_pool = parse_axml_string_pool(bytes(patched), pool.offset)
+    if new_name not in reparsed_pool.strings:
+        raise InjectError("Patched binary manifest lost application name")
+
+    return bytes(patched), old_name, new_name
+
+
 def patch_binary_manifest_permissions(
     data: bytes,
     permissions: Sequence[str],
@@ -1915,8 +2085,8 @@ def patch_binary_manifest_permissions(
     return bytes(patched), missing
 
 
-def manifest_with_storage_permissions(target: Path) -> bytes:
-    step("Patching target binary manifest storage permissions")
+def manifest_with_smm_identity(target: Path) -> bytes:
+    step("Patching target binary manifest")
 
     with zipfile.ZipFile(target, "r") as zf:
         try:
@@ -1928,13 +2098,14 @@ def manifest_with_storage_permissions(target: Path) -> bytes:
         original,
         STORAGE_PERMISSIONS,
     )
-
     if added:
         for permission in added:
             log("  added " + permission)
     else:
         log("Storage permissions already present in target manifest")
 
+    patched, old_name, new_name = patch_binary_manifest_app_name(patched)
+    log(f"Application name: {old_name} -> {new_name}")
     return patched
 
 
@@ -2281,7 +2452,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         log("ModAnkh target API check: OK")
 
-        manifest_bytes = manifest_with_storage_permissions(target)
+        manifest_bytes = manifest_with_smm_identity(target)
 
         step("Building first-dex overlay: patched Dungeon + ModAnkh payloads")
         original_dungeon = dungeon_path.read_text(

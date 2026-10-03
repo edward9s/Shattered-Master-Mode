@@ -207,14 +207,18 @@ public class FileHandle {
         )
 
 
-    def test_desktop_picker_uses_reflective_jdk_ui_only(self):
+    def test_transfer_paths_use_stable_app_names_without_desktop_picker(self):
         source = SAVE_TRANSFER.read_text(encoding="utf-8")
 
         self.assertNotIn("org.lwjgl.util.tinyfd", source)
-        self.assertIn('Class.forName("javax.swing.JFileChooser")', source)
-        self.assertIn('Class.forName("javax.swing.SwingUtilities")', source)
-        self.assertNotIn("import javax.swing", source)
-        self.assertNotIn("import java.awt", source)
+        self.assertNotIn("javax.swing.JFileChooser", source)
+        self.assertNotIn("java.util.prefs.Preferences", source)
+        self.assertIn('"/sdcard/Documents/spd_saves/"', source)
+        self.assertIn('"Documents"', source)
+        self.assertIn('"spd_saves"', source)
+        self.assertIn("getSpecificationTitle()", source)
+        self.assertIn('"android.content.pm.PackageManager"', source)
+        self.assertIn("loadLabel", source)
 
 
 if __name__ == "__main__":

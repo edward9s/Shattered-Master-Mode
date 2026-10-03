@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 from zipfile import ZipFile
 
 from spd_source import detect_game_package
+from _inject_app_name import smm_app_name
 
 
 PLAY_GAMES_MAVEN = (
@@ -22,10 +23,7 @@ def patch_gradle(file_path):
 
     # 2. 修改顯示名稱：首字母加上中括號
     def label_replacer(match):
-        val = match.group(1)
-        if len(val) > 0:
-            return f"appName = '[{val[0]}]{val[1:]}'"
-        return match.group(0)
+        return f"appName = '{smm_app_name(match.group(1))}'"
     
     data = re.sub(r"appName\s*=\s*'([^']+)'", label_replacer, data)
 

@@ -9,22 +9,16 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 
 /**
  * Shared save-file transfer core used by the Tools window and ModDebug.
  *
- * <p>Android keeps SMM's existing one-click full-snapshot behavior. Desktop
- * uses a native folder chooser; the selected directory is the complete
- * snapshot source or destination.</p>
+ * <p>Android and Desktop use one-click full snapshots under a shared
+ * Documents/spd_saves root. Each build uses its stable application name as
+ * the snapshot directory.</p>
  */
 public final class ModSaveTransfer {
 
-    private static final String PREF_EXPORT_DIRECTORY =
-            "desktop_export_directory";
-    private static final String PREF_IMPORT_DIRECTORY =
-            "desktop_import_directory";
 
     private ModSaveTransfer() {
     }
@@ -113,10 +107,7 @@ public final class ModSaveTransfer {
         File sourceDir = (File) context.getClass()
                 .getMethod("getFilesDir")
                 .invoke(context);
-        String packageName = (String) context.getClass()
-                .getMethod("getPackageName")
-                .invoke(context);
-        File targetDir = new File("/sdcard/Download/" + packageName);
+        File targetDir = androidExternalSaveDirectory(context);
 
         System.out.println("SPD_Mod: Source: " + sourceDir.getAbsolutePath());
 
@@ -151,10 +142,7 @@ public final class ModSaveTransfer {
             return;
         }
 
-        String packageName = (String) context.getClass()
-                .getMethod("getPackageName")
-                .invoke(context);
-        File sourceDir = new File("/sdcard/Download/" + packageName);
+        File sourceDir = androidExternalSaveDirectory(context);
         File targetDir = (File) context.getClass()
                 .getMethod("getFilesDir")
                 .invoke(context);
@@ -194,22 +182,17 @@ public final class ModSaveTransfer {
 
     private static boolean exportDesktopSnapshot() throws Exception {
         File sourceDir = desktopSaveDirectory();
-        File targetDir = chooseDesktopDirectory(
-                "Export Save",
-                PREF_EXPORT_DIRECTORY);
-        if (targetDir == null) {
-            return false;
-        }
+        File targetDir = desktopTransferDirectory();
 
         if (directoriesOverlap(sourceDir, targetDir)) {
             throw new IOException(
-                    "Selected export directory overlaps the active save directory");
+                    "Desktop transfer directory overlaps the active save directory");
         }
 
         if (desktopListFiles(targetDir).length > 0
                 && !looksLikeSpdSaveDirectory(targetDir)) {
             throw new IOException(
-                    "Selected export directory does not look like SPD save data: "
+                    "Desktop transfer directory does not look like SPD save data: "
                             + targetDir.getAbsolutePath());
         }
 
@@ -220,17 +203,12 @@ public final class ModSaveTransfer {
     }
 
     private static void importDesktopSnapshot() throws Exception {
-        File sourceDir = chooseDesktopDirectory(
-                "Import Save",
-                PREF_IMPORT_DIRECTORY);
-        if (sourceDir == null) {
-            return;
-        }
-
+        File sourceDir = desktopTransferDirectory();
         File targetDir = desktopSaveDirectory();
+
         if (directoriesOverlap(sourceDir, targetDir)) {
             throw new IOException(
-                    "Selected import directory overlaps the active save directory");
+                    "Desktop transfer directory overlaps the active save directory");
         }
 
         if (desktopListFiles(sourceDir).length == 0) {
@@ -244,6 +222,45 @@ public final class ModSaveTransfer {
         // Imported settings and saves are now on disk while this process still
         // holds the old state in memory. Exit instead of mixing the two states.
         System.exit(0);
+    }
+
+    private static File desktopTransferDirectory() throws IOException {
+        String appName = desktopAppName();
+        File documents = new File(System.getProperty("user.home"), "Documents");
+        return new File(new File(documents, "spd_saves"), appName)
+                .getCanonicalFile();
+    }
+
+    private static String desktopAppName() throws IOException {
+        Package packageInfo = ModSaveTransfer.class.getPackage();
+        String appName = packageInfo == null
+                ? null
+                : packageInfo.getSpecificationTitle();
+        if (appName == null || appName.trim().isEmpty()) {
+            appName = System.getProperty("Specification-Title");
+        }
+        return validateAppName(appName);
+    }
+
+    private static String validateAppName(String appName) throws IOException {
+        if (appName == null || appName.isEmpty()) {
+            throw new IOException("Application name is unavailable");
+        }
+        if (!appName.equals(appName.trim())
+                || ".".equals(appName)
+                || "..".equals(appName)
+                || appName.endsWith(".")) {
+            throw new IOException("Invalid application name: " + appName);
+        }
+
+        String invalid = "<>:\"/\\|?*";
+        for (int i = 0; i < appName.length(); i++) {
+            char c = appName.charAt(i);
+            if (c < 32 || invalid.indexOf(c) >= 0) {
+                throw new IOException("Invalid application name: " + appName);
+            }
+        }
+        return appName;
     }
 
     private static File desktopSaveDirectory() throws IOException {
@@ -377,171 +394,6 @@ public final class ModSaveTransfer {
         } catch (NoSuchMethodException ignored) {
             return null;
         }
-    }
-
-    private static File chooseDesktopDirectory(
-            String title,
-            String preferenceKey) throws Exception {
-
-        String defaultPath = desktopPreferenceGet(
-                preferenceKey,
-                System.getProperty("user.home", "."));
-        File defaultDirectory = new File(defaultPath);
-        if (!defaultDirectory.exists() || !defaultDirectory.isDirectory()) {
-            defaultDirectory = new File(System.getProperty("user.home", "."));
-        }
-
-        // Do not use the target game's LWJGL/TinyFD here. SPD forks can bundle
-        // mutually incompatible LWJGL modules, so even reflective TinyFD access
-        // can fail during class initialization with NoSuchMethodError.
-        //
-        // Swing is part of the desktop JDK and is loaded only by name so the
-        // shared payload keeps no hard java.desktop dependency on Android.
-        File initialDirectory = defaultDirectory;
-        Object[] selected = new Object[1];
-        Exception[] failure = new Exception[1];
-        Runnable chooserTask = () -> {
-            try {
-                selected[0] = showDesktopDirectoryChooser(
-                        title,
-                        initialDirectory);
-            } catch (Exception e) {
-                failure[0] = e;
-            }
-        };
-
-        Class<?> swingUtilities;
-        try {
-            swingUtilities = Class.forName("javax.swing.SwingUtilities");
-        } catch (ClassNotFoundException e) {
-            throw new IOException(
-                    "JDK desktop folder chooser is unavailable",
-                    e);
-        }
-
-        boolean onEventDispatchThread = ((Boolean) swingUtilities
-                .getMethod("isEventDispatchThread")
-                .invoke(null)).booleanValue();
-        if (onEventDispatchThread) {
-            chooserTask.run();
-        } else {
-            swingUtilities
-                    .getMethod("invokeAndWait", Runnable.class)
-                    .invoke(null, chooserTask);
-        }
-
-        if (failure[0] != null) {
-            throw failure[0];
-        }
-        if (selected[0] == null) {
-            return null;
-        }
-
-        File directory = ((File) selected[0]).getCanonicalFile();
-        if (!directory.exists() || !directory.isDirectory()) {
-            throw new IOException(
-                    "Selected path is not a directory: "
-                            + directory.getAbsolutePath());
-        }
-
-        desktopPreferencePut(preferenceKey, directory.getAbsolutePath());
-        return directory;
-    }
-
-    private static File showDesktopDirectoryChooser(
-            String title,
-            File initialDirectory) throws Exception {
-
-        Class<?> chooserClass;
-        Class<?> componentClass;
-        try {
-            chooserClass = Class.forName("javax.swing.JFileChooser");
-            componentClass = Class.forName("java.awt.Component");
-        } catch (ClassNotFoundException e) {
-            throw new IOException(
-                    "JDK desktop folder chooser is unavailable",
-                    e);
-        }
-
-        Object chooser = chooserClass
-                .getConstructor(File.class)
-                .newInstance(initialDirectory);
-        int directoriesOnly = chooserClass
-                .getField("DIRECTORIES_ONLY")
-                .getInt(null);
-        chooserClass
-                .getMethod("setFileSelectionMode", int.class)
-                .invoke(chooser, directoriesOnly);
-        chooserClass
-                .getMethod("setDialogTitle", String.class)
-                .invoke(chooser, title);
-        chooserClass
-                .getMethod("setAcceptAllFileFilterUsed", boolean.class)
-                .invoke(chooser, false);
-
-        int result = ((Integer) chooserClass
-                .getMethod("showDialog", componentClass, String.class)
-                .invoke(chooser, new Object[] {null, "Select"})).intValue();
-        int approveOption = chooserClass
-                .getField("APPROVE_OPTION")
-                .getInt(null);
-        if (result != approveOption) {
-            return null;
-        }
-
-        Object selected = chooserClass
-                .getMethod("getSelectedFile")
-                .invoke(chooser);
-        return selected instanceof File ? (File) selected : null;
-    }
-
-    private static String desktopPreferenceGet(
-            String key,
-            String defaultValue) throws Exception {
-
-        Class<?> preferencesClass =
-                Class.forName("java.util.prefs.Preferences");
-        Object preferences = desktopPreferences(preferencesClass);
-        return (String) preferencesClass
-                .getMethod("get", String.class, String.class)
-                .invoke(
-                        preferences,
-                        desktopPreferenceKey(key),
-                        defaultValue);
-    }
-
-    private static void desktopPreferencePut(String key, String value)
-            throws Exception {
-
-        Class<?> preferencesClass =
-                Class.forName("java.util.prefs.Preferences");
-        Object preferences = desktopPreferences(preferencesClass);
-        preferencesClass
-                .getMethod("put", String.class, String.class)
-                .invoke(
-                        preferences,
-                        desktopPreferenceKey(key),
-                        value);
-        preferencesClass
-                .getMethod("flush")
-                .invoke(preferences);
-    }
-
-    private static Object desktopPreferences(Class<?> preferencesClass)
-            throws Exception {
-
-        return preferencesClass
-                .getMethod("userNodeForPackage", Class.class)
-                .invoke(null, ModSaveTransfer.class);
-    }
-
-    private static String desktopPreferenceKey(String key)
-            throws IOException {
-
-        String savePath = desktopSaveDirectory().getAbsolutePath();
-        String identity = UUID.nameUUIDFromBytes(
-                savePath.getBytes(StandardCharsets.UTF_8)).toString();
-        return key + "." + identity;
     }
 
     private static File[] desktopListFiles(File directory)
@@ -808,6 +660,30 @@ public final class ModSaveTransfer {
                 }
             }
         }
+    }
+
+    private static File androidExternalSaveDirectory(Object context)
+            throws Exception {
+
+        return new File(
+                "/sdcard/Documents/spd_saves/",
+                androidAppName(context));
+    }
+
+    private static String androidAppName(Object context) throws Exception {
+        Object applicationInfo = context.getClass()
+                .getMethod("getApplicationInfo")
+                .invoke(context);
+        Object packageManager = context.getClass()
+                .getMethod("getPackageManager")
+                .invoke(context);
+        Class<?> packageManagerClass =
+                Class.forName("android.content.pm.PackageManager");
+        Object label = applicationInfo.getClass()
+                .getMethod("loadLabel", packageManagerClass)
+                .invoke(applicationInfo, packageManager);
+
+        return validateAppName(label == null ? null : label.toString());
     }
 
     private static Object androidContext() throws Exception {
