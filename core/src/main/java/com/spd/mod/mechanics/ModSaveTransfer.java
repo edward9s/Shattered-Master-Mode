@@ -13,9 +13,9 @@ import java.io.IOException;
 /**
  * Shared save-file transfer core used by the Tools window and ModDebug.
  *
- * <p>Android keeps SMM's existing one-click full-snapshot behavior. Desktop
- * uses a native folder chooser; the selected directory is the complete
- * snapshot source or destination.</p>
+ * <p>Android and Desktop use one-click full snapshots under a shared
+ * Documents/spd_saves root. Each build uses its stable application name as
+ * the snapshot directory.</p>
  */
 public final class ModSaveTransfer {
 
