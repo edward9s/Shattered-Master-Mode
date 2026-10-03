@@ -229,24 +229,30 @@ class AnkhJarUiTests(unittest.TestCase):
         self.assertIn("Float.TYPE", combat_compat)
 
 
-    def test_jar_parry_feedback_is_limited_to_selected_hit_callers(self):
-        source = mod.PARRY_FEEDBACK_HELPER
+    def test_jar_parry_overlay_scopes_feedback_and_direct_damage(self):
+        source = mod.PARRY_OVERLAY_HELPER
         self.assertIn("hitCallerMethods(", source)
         self.assertIn("resolvesToSelectedHit(", source)
         self.assertIn("hitAliases", source)
         self.assertIn("hitEdges", source)
         self.assertIn("plan.hitAliases.add(selected)", source)
         self.assertIn(
-            "if (!hitCallers.contains(methodKey(name, desc)))",
+            "boolean feedback = hitCallers.contains(methodKey(name, desc));",
             source,
         )
         self.assertIn('"defenseVerb".equals(methodName)', source)
         self.assertIn("opcode == Opcodes.INVOKEVIRTUAL", source)
         self.assertIn("isCharType(owner, parents)", source)
+        self.assertIn("DIRECT_DAMAGE_DESC", source)
+        self.assertIn('"damage".equals(name)', source)
+        self.assertIn('"resolveDirectDamage"', source)
+        self.assertIn("!CHAR.equals(className)", source)
         self.assertNotIn("canonical", source.lower())
 
         for helper in (mod.CHAR_HELPER, mod.ANKH_CHAR_HELPER):
             self.assertIn("DEFENSE_FEEDBACK_DESC", helper)
+            self.assertIn("DIRECT_DAMAGE_HOOK_DESC", helper)
+            self.assertIn('"resolveDirectDamage"', helper)
             self.assertIn('"onHitCheck"', helper)
             self.assertIn("terminal", helper)
             self.assertNotIn('"onIncomingAttack"', helper)
@@ -658,6 +664,7 @@ package {package}.actors;
 public class Char {{
     public static boolean nativeHit = true;
     public static boolean invulnerable = false;
+    public int hp = 10;
     public String defenseVerb() {
         return "Dodge";
     }
@@ -675,6 +682,9 @@ public class Char {{
     public static boolean hit(Char attacker, Char defender, boolean magic) {{
         return nativeHit;
     }}
+    public void damage(int damage, Object src) {{
+        hp -= damage;
+    }}
 }}
 """,
         )
@@ -686,6 +696,10 @@ package {package}.actors;
 public class Eye extends Char {{
     public String miss(Eye defender) {{
         return defender.defenseVerb();
+    }}
+    @Override
+    public void damage(int damage, Object src) {{
+        super.damage(damage, src);
     }}
 }}
 """,
@@ -705,6 +719,37 @@ public class FeedbackHarness {{
         if (ModParryRiposte.feedbackCalls != 1) {{
             throw new AssertionError("feedbackCalls=" + ModParryRiposte.feedbackCalls);
         }}
+    }}
+}}
+""",
+        )
+
+        cls._write(
+            src,
+            f"{GAME_ROOT}/actors/DirectDamageHarness.java",
+            f"""
+package {package}.actors;
+import com.spd.mod.mechanics.ModParryRiposte;
+public class DirectDamageHarness {{
+    private static void check(boolean value, String label) {{
+        if (!value) throw new AssertionError(label);
+    }}
+    public static void main(String[] args) {{
+        Char attacker = new Char();
+        Eye defender = new Eye();
+
+        ModParryRiposte.enabled = true;
+        ModParryRiposte.directDamageChecks = 0;
+        defender.damage(4, attacker);
+        check(defender.hp == 10, "Parry did not block direct damage");
+        check(ModParryRiposte.directDamageChecks == 1,
+                "Direct damage did not reach Parry/Riposte hook");
+
+        ModParryRiposte.enabled = false;
+        defender.damage(4, attacker);
+        check(defender.hp == 6, "Native direct damage was not preserved");
+        check(ModParryRiposte.directDamageChecks == 2,
+                "Direct damage hook did not preserve disabled Parry observation");
     }}
 }}
 """,
@@ -758,6 +803,7 @@ public class ModParryRiposte {{
     public static boolean enabled;
     public static int hitChecks;
     public static int feedbackCalls;
+    public static int directDamageChecks;
     public static boolean onHitCheck(Char attacker, Char defender) {{
         hitChecks++;
         return enabled;
@@ -765,6 +811,10 @@ public class ModParryRiposte {{
     public static String defenseVerb(Char defender) {{
         feedbackCalls++;
         return "Parried";
+    }}
+    public static Char resolveDirectDamage(Char defender, int damage, Object src) {{
+        directDamageChecks++;
+        return enabled ? null : defender;
     }}
 }}
 """,
@@ -869,6 +919,7 @@ public class ParryHarness {{
             src / f"{GAME_ROOT}/actors/CombatHarness.java",
             src / f"{GAME_ROOT}/actors/ParryHarness.java",
             src / f"{GAME_ROOT}/actors/FeedbackHarness.java",
+            src / f"{GAME_ROOT}/actors/DirectDamageHarness.java",
             src / "com/spd/mod/mechanics/ModInstantKill.java",
             src / "com/spd/mod/mechanics/ModForceHit.java",
             src / "com/spd/mod/mechanics/ModParryRiposte.java",
@@ -960,6 +1011,24 @@ public class ParryHarness {{
             stderr=subprocess.STDOUT,
         )
 
+    @staticmethod
+    def _run_direct_damage_harness(classes: pathlib.Path) -> subprocess.CompletedProcess[str]:
+        java = shutil.which("java")
+        if java is None:
+            raise unittest.SkipTest("java is unavailable")
+        return subprocess.run(
+            [
+                java,
+                "-cp",
+                str(classes),
+                f"{GAME_ROOT.replace('/', '.')}.actors.DirectDamageHarness",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+
     def test_nonhero_char_subclass_uses_jar_parry_feedback_bridge(self):
         java = pathlib.Path(self._tool("java"))
         with tempfile.TemporaryDirectory() as tmp:
@@ -969,7 +1038,7 @@ public class ParryHarness {{
             before = self._run_feedback_harness(classes)
             self.assertNotEqual(0, before.returncode)
 
-            patches = mod.patch_parry_feedback_classes(
+            patches = mod.patch_parry_overlay_classes(
                 java, target, work, GAME_ROOT
             )
             self.assertIn(f"{GAME_ROOT}/actors/Eye.class", patches)
@@ -981,6 +1050,26 @@ public class ParryHarness {{
             after = self._run_feedback_harness(classes)
             self.assertEqual(0, after.returncode, after.stdout)
 
+    def test_char_subclass_direct_damage_uses_jar_parry_hook(self):
+        java = pathlib.Path(self._tool("java"))
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            target, _payload, classes = self._compile_ark_combat_target(work)
+
+            before = self._run_direct_damage_harness(classes)
+            self.assertNotEqual(0, before.returncode)
+
+            patches = mod.patch_parry_overlay_classes(
+                java, target, work, GAME_ROOT
+            )
+            self.assertIn(f"{GAME_ROOT}/actors/Eye.class", patches)
+            for entry, data in patches.items():
+                target_class = classes / entry
+                target_class.parent.mkdir(parents=True, exist_ok=True)
+                target_class.write_bytes(data)
+
+            after = self._run_direct_damage_harness(classes)
+            self.assertEqual(0, after.returncode, after.stdout)
 
     def test_ark_legacy_hit_supported_by_ankh_jar_for_parry_force_and_instant(self):
         java = pathlib.Path(self._tool("java"))

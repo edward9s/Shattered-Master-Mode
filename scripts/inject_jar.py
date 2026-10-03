@@ -211,6 +211,8 @@ public class SmmCharAttackPatcher {
     static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
     static final String FINISH_ATTACK_DESC = "(Z)V";
     static final String DEFENSE_FEEDBACK_DESC = "(L" + CHAR + ";)Ljava/lang/String;";
+    static final String DIRECT_DAMAGE_HOOK_DESC =
+            "(L" + CHAR + ";ILjava/lang/Object;)L" + CHAR + ";";
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
 
@@ -237,6 +239,12 @@ public class SmmCharAttackPatcher {
                 "defenseVerb",
                 DEFENSE_FEEDBACK_DESC,
                 "ModParryRiposte defense-feedback hook API");
+        validatePublicStatic(
+                payloadJar,
+                MOD_PARRY_RIPOSTE,
+                "resolveDirectDamage",
+                DIRECT_DAMAGE_HOOK_DESC,
+                "ModParryRiposte direct-damage hook API");
         validatePublicStatic(
                 payloadJar,
                 MOD_FORCE_HIT,
@@ -632,19 +640,22 @@ public class SmmCharAttackPatcher {
 
 
 
-PARRY_FEEDBACK_HELPER = r'''
+PARRY_OVERLAY_HELPER = r'''
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 import java.util.jar.*;
 import jdk.internal.org.objectweb.asm.*;
 
-public class SmmParryFeedbackPatcher {
+public class SmmParryOverlayPatcher {
     static final int API = Opcodes.ASM8;
     static final String CHAR = "__CHAR__";
     static final String GAME_ROOT = "__GAME_ROOT__";
     static final String MOD_PARRY_RIPOSTE = "com/spd/mod/mechanics/ModParryRiposte";
     static final String DEFENSE_FEEDBACK_DESC = "(L" + CHAR + ";)Ljava/lang/String;";
+    static final String DIRECT_DAMAGE_DESC = "(ILjava/lang/Object;)V";
+    static final String DIRECT_DAMAGE_HOOK_DESC =
+            "(L" + CHAR + ";ILjava/lang/Object;)L" + CHAR + ";";
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
 
@@ -861,9 +872,11 @@ public class SmmParryFeedbackPatcher {
 
     static byte[] patch(
             byte[] original,
+            String className,
             Set<String> hitCallers,
             Map<String, String> parents,
-            int[] changed) {
+            int[] feedbackChanged,
+            int[] directDamageChanged) {
         ClassReader reader = new ClassReader(original);
         ClassWriter writer = new ClassWriter(0);
         ClassVisitor visitor = new ClassVisitor(API, writer) {
@@ -871,18 +884,57 @@ public class SmmParryFeedbackPatcher {
             public MethodVisitor visitMethod(int access, String name, String desc,
                                              String signature, String[] exceptions) {
                 MethodVisitor base = super.visitMethod(access, name, desc, signature, exceptions);
-                if (!hitCallers.contains(methodKey(name, desc))) {
+                boolean feedback = hitCallers.contains(methodKey(name, desc));
+                boolean directDamage = !CHAR.equals(className)
+                        && isCharType(className, parents)
+                        && "damage".equals(name)
+                        && DIRECT_DAMAGE_DESC.equals(desc)
+                        && (access & (Opcodes.ACC_STATIC
+                                | Opcodes.ACC_ABSTRACT
+                                | Opcodes.ACC_NATIVE)) == 0;
+                if (!feedback && !directDamage) {
                     return base;
                 }
                 return new MethodVisitor(API, base) {
                     @Override
+                    public void visitCode() {
+                        super.visitCode();
+                        if (!directDamage) return;
+
+                        Label nativeDamage = new Label();
+                        super.visitVarInsn(Opcodes.ALOAD, 0);
+                        super.visitVarInsn(Opcodes.ILOAD, 1);
+                        super.visitVarInsn(Opcodes.ALOAD, 2);
+                        super.visitMethodInsn(
+                                Opcodes.INVOKESTATIC,
+                                MOD_PARRY_RIPOSTE,
+                                "resolveDirectDamage",
+                                DIRECT_DAMAGE_HOOK_DESC,
+                                false);
+                        super.visitJumpInsn(Opcodes.IFNONNULL, nativeDamage);
+                        super.visitInsn(Opcodes.RETURN);
+                        super.visitLabel(nativeDamage);
+                        super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                        directDamageChanged[0]++;
+                    }
+
+                    @Override
                     public void visitMethodInsn(int opcode, String owner, String methodName,
                                                 String methodDesc, boolean isInterface) {
-                        if (opcode == Opcodes.INVOKEVIRTUAL
+                        if (directDamage
+                                && MOD_PARRY_RIPOSTE.equals(owner)
+                                && "resolveDirectDamage".equals(methodName)
+                                && DIRECT_DAMAGE_HOOK_DESC.equals(methodDesc)) {
+                            throw new IllegalStateException(
+                                    "damage(int,Object) already contains SMM direct-damage Parry hook: "
+                                            + className);
+                        }
+                        if (feedback
+                                && opcode == Opcodes.INVOKEVIRTUAL
                                 && "defenseVerb".equals(methodName)
                                 && "()Ljava/lang/String;".equals(methodDesc)
                                 && isCharType(owner, parents)) {
-                            changed[0]++;
+                            feedbackChanged[0]++;
                             super.visitMethodInsn(
                                     Opcodes.INVOKESTATIC,
                                     MOD_PARRY_RIPOSTE,
@@ -892,6 +944,11 @@ public class SmmParryFeedbackPatcher {
                             return;
                         }
                         super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+                    }
+
+                    @Override
+                    public void visitMaxs(int maxStack, int maxLocals) {
+                        super.visitMaxs(maxStack + (directDamage ? 3 : 0), maxLocals);
                     }
                 };
             }
@@ -903,7 +960,7 @@ public class SmmParryFeedbackPatcher {
     public static void main(String[] args) throws Exception {
         if (args.length != 2) {
             throw new IllegalArgumentException(
-                    "Usage: SmmParryFeedbackPatcher <target.jar> <out-patches.jar>");
+                    "Usage: SmmParryOverlayPatcher <target.jar> <out-patches.jar>");
         }
         Path target = Paths.get(args[0]);
         Path output = Paths.get(args[1]);
@@ -951,7 +1008,8 @@ public class SmmParryFeedbackPatcher {
         Plan plan = analyzeChar(charBytes);
 
         int patchedClasses = 0;
-        int patchedCalls = 0;
+        int patchedFeedbackCalls = 0;
+        int patchedDirectDamageMethods = 0;
         try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(output))) {
             for (Map.Entry<String, byte[]> item : classes.entrySet()) {
                 String name = item.getKey();
@@ -959,45 +1017,54 @@ public class SmmParryFeedbackPatcher {
 
                 Set<String> hitCallers = hitCallerMethods(
                         item.getValue(), plan, parents, declarations);
-                if (hitCallers.isEmpty()) continue;
+                boolean charSubclass = isCharType(name, parents);
+                if (hitCallers.isEmpty() && !charSubclass) continue;
 
-                int[] changed = {0};
+                int[] feedbackChanged = {0};
+                int[] directDamageChanged = {0};
                 byte[] patched = patch(
-                        item.getValue(), hitCallers, parents, changed);
-                if (changed[0] == 0) continue;
+                        item.getValue(),
+                        name,
+                        hitCallers,
+                        parents,
+                        feedbackChanged,
+                        directDamageChanged);
+                if (feedbackChanged[0] == 0 && directDamageChanged[0] == 0) continue;
 
                 JarEntry entry = new JarEntry(name + ".class");
                 out.putNextEntry(entry);
                 out.write(patched);
                 out.closeEntry();
                 patchedClasses++;
-                patchedCalls += changed[0];
+                patchedFeedbackCalls += feedbackChanged[0];
+                patchedDirectDamageMethods += directDamageChanged[0];
             }
         }
 
         System.out.println(
-                "Parry hit-caller feedback JAR patch: "
-                        + patchedCalls + " call(s) across "
+                "Parry JAR overlay patch: "
+                        + patchedFeedbackCalls + " feedback call(s), "
+                        + patchedDirectDamageMethods + " direct-damage override(s) across "
                         + patchedClasses + " class(es)");
     }
 }
 '''
 
 
-def patch_parry_feedback_classes(
+def patch_parry_overlay_classes(
     java: Path,
     target: Path,
     work: Path,
     target_game_root: str,
 ) -> dict[str, bytes]:
-    helper = work / "SmmParryFeedbackPatcher.java"
+    helper = work / "SmmParryOverlayPatcher.java"
     helper.write_text(
-        PARRY_FEEDBACK_HELPER
+        PARRY_OVERLAY_HELPER
         .replace("__CHAR__", target_game_root + "/actors/Char")
         .replace("__GAME_ROOT__", target_game_root),
         encoding="utf-8",
     )
-    output = work / "parry-feedback-patches.jar"
+    output = work / "parry-overlay-patches.jar"
     injector.run([
         java,
         "--add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
@@ -1007,7 +1074,7 @@ def patch_parry_feedback_classes(
     ])
     if not output.is_file():
         raise injector.InjectError(
-            "Parry feedback bytecode helper did not produce a patch JAR"
+            "Parry overlay bytecode helper did not produce a patch JAR"
         )
 
     patches: dict[str, bytes] = {}
@@ -1069,7 +1136,7 @@ def rebuild_full_jar(
     patched_wnd_use_item: tuple[str, Path] | None,
     patched_buff_click: tuple[str, Path],
     patched_modankh: Path,
-    feedback_classes: dict[str, bytes],
+    parry_overlay_classes: dict[str, bytes],
     payload: dict[str, bytes],
     output: Path,
     dungeon_entry: str,
@@ -1143,8 +1210,8 @@ def rebuild_full_jar(
                     data = wnd_use_item_bytes
                 elif name == buff_entry:
                     data = buff_bytes
-                elif name in feedback_classes:
-                    data = feedback_classes[name]
+                elif name in parry_overlay_classes:
+                    data = parry_overlay_classes[name]
                 else:
                     data = zin.read(name)
                 zout.writestr(injector.clone_zipinfo(info), data)
@@ -2049,6 +2116,8 @@ public class SmmAnkhCharAttackPatcher {
     static final String MODERN_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";FZ)Z";
     static final String LEGACY_HIT_DESC = "(L" + CHAR + ";L" + CHAR + ";Z)Z";
     static final String COMBAT_HOOK_DESC = "(L" + CHAR + ";L" + CHAR + ";)Z";
+    static final String DIRECT_DAMAGE_HOOK_DESC =
+            "(L" + CHAR + ";ILjava/lang/Object;)L" + CHAR + ";";
     static final String INCOMING_DESC = "(L" + CHAR + ";L" + CHAR + ";)V";
     static final String FORCE_ACTIVE_DESC = "(L" + CHAR + ";)Z";
     static final String FINISH_ATTACK_DESC = "(Z)V";
@@ -2403,7 +2472,10 @@ public class SmmAnkhCharAttackPatcher {
                 payload, MOD_PARRY_RIPOSTE, "onHitCheck", COMBAT_HOOK_DESC)
                 && hasPublicStaticHook(
                         payload, MOD_PARRY_RIPOSTE, "defenseVerb",
-                        DEFENSE_FEEDBACK_DESC);
+                        DEFENSE_FEEDBACK_DESC)
+                && hasPublicStaticHook(
+                        payload, MOD_PARRY_RIPOSTE, "resolveDirectDamage",
+                        DIRECT_DAMAGE_HOOK_DESC);
         boolean donorInstant = hasPublicStaticHook(
                 payload, MOD_INSTANT_KILL, "resolveSuccessfulAttack",
                 COMBAT_HOOK_DESC)
@@ -2634,7 +2706,7 @@ def rebuild_ankh_jar(
     patched_wnd_use_item: tuple[str, Path] | None,
     patched_buff_click: tuple[str, Path],
     patched_modankh: Path,
-    feedback_classes: dict[str, bytes],
+    parry_overlay_classes: dict[str, bytes],
     payload: dict[str, bytes],
     output: Path,
     dungeon_entry: str,
@@ -2703,8 +2775,8 @@ def rebuild_ankh_jar(
                     data = wnd_use_item_bytes
                 elif info.filename == buff_entry:
                     data = buff_bytes
-                elif info.filename in feedback_classes:
-                    data = feedback_classes[info.filename]
+                elif info.filename in parry_overlay_classes:
+                    data = parry_overlay_classes[info.filename]
                 else:
                     data = zin.read(info.filename)
                 zout.writestr(injector.clone_zipinfo(info), data)
@@ -2809,8 +2881,8 @@ def run_ankh_only(
         assassinate="assassinate" in payload_features,
         enemy_surge="enemy_surge" in payload_features,
     )
-    feedback_classes = (
-        patch_parry_feedback_classes(java, target, work, target_game_root)
+    parry_overlay_classes = (
+        patch_parry_overlay_classes(java, target, work, target_game_root)
         if "parry" in payload_features
         else {}
     )
@@ -2829,7 +2901,7 @@ def run_ankh_only(
         patched_wnd_use_item,
         patched_buff_click,
         patched_modankh,
-        feedback_classes,
+        parry_overlay_classes,
         payload,
         tmp,
         dungeon_entry,
@@ -2839,7 +2911,7 @@ def run_ankh_only(
         dungeon_entry,
         char_entry,
         injector.MOD_ANKH_ENTRY,
-        *sorted(feedback_classes),
+        *sorted(parry_overlay_classes),
         *sorted(payload),
     ]
     if patched_wnd_use_item is not None:
@@ -3000,7 +3072,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             assassinate=True,
             enemy_surge=True,
         )
-        feedback_classes = patch_parry_feedback_classes(
+        parry_overlay_classes = patch_parry_overlay_classes(
             java, target, work, target_game_root
         )
 
@@ -3014,7 +3086,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             patched_wnd_use_item,
             patched_buff_click,
             patched_modankh,
-            feedback_classes,
+            parry_overlay_classes,
             payload,
             unsigned_tmp,
             dungeon_entry,
@@ -3023,7 +3095,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             wnd_entry,
             char_entry,
             patched_buff_click[0],
-            *sorted(feedback_classes),
+            *sorted(parry_overlay_classes),
             injector.MOD_ANKH_ENTRY,
             *payload_names,
         ]
