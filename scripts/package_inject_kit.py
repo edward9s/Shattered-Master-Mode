@@ -13,6 +13,7 @@ PARRY_CLASS = "com/spd/mod/mechanics/ModParryRiposte.class"
 OBSOLETE_PARRY_CLASSES = {
     "com/spd/mod/mechanics/ModParryRiposte$IncomingAttackContext.class",
     "com/spd/mod/mechanics/ModParryRiposte$ParryDetachSink.class",
+    "com/spd/mod/mechanics/ModParryRiposte$TotalParryFocus.class",
 }
 
 
@@ -43,16 +44,19 @@ def validate_parry_donors(donor_apk: Path, donor_jar: Path) -> None:
                     "JAR donor ModParryRiposte is stale; missing "
                     + required.decode("ascii")
                 )
-        for obsolete_name in (
+        for obsolete_marker in (
             b"onIncomingAttack",
             b"onIncomingAttackComplete",
             b"shouldParry",
             b"onDirectDamage",
+            b"MonkEnergy$MonkAbility$Focus$FocusBuff",
+            b"TotalParryFocus",
+            b"ParryDetachSink",
         ):
-            if obsolete_name in parry_class:
+            if obsolete_marker in parry_class:
                 raise RuntimeError(
-                    "JAR donor ModParryRiposte still exposes obsolete hook "
-                    + obsolete_name.decode("ascii")
+                    "JAR donor ModParryRiposte still contains obsolete ABI marker "
+                    + obsolete_marker.decode("ascii")
                 )
 
     with zipfile.ZipFile(donor_apk) as apk:
@@ -74,6 +78,7 @@ def validate_parry_donors(donor_apk: Path, donor_jar: Path) -> None:
         for obsolete_name in (
             b"ModParryRiposte$IncomingAttackContext",
             b"ModParryRiposte$ParryDetachSink",
+            b"ModParryRiposte$TotalParryFocus",
             b"onIncomingAttack",
             b"onIncomingAttackComplete",
             b"shouldParry",

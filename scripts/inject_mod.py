@@ -30,6 +30,21 @@ _DEFENSE_VERB_CALL_RE = re.compile(
 )
 
 
+_CLASS_RE = re.compile(
+    r'\bclass\s+(?P<name>[A-Za-z_$][\w$]*)'
+    r'(?:\s*<[^;{}]+>)?'
+    r'(?:\s+extends\s+(?P<parent>(?:[A-Za-z_$][\w$]*\.)*[A-Za-z_$][\w$]*))?'
+    r'[^;{}]*\{'
+)
+_DAMAGE_METHOD_RE = re.compile(
+    r'(?P<head>(?:(?:public|protected|private|final|synchronized|strictfp)\s+)*'
+    r'void\s+damage\s*\(\s*(?:final\s+)?int\s+(?P<damage>[A-Za-z_$][\w$]*)'
+    r'\s*,\s*(?:final\s+)?(?:java\.lang\.)?Object\s+(?P<src>[A-Za-z_$][\w$]*)'
+    r'\s*\)\s*\{)'
+)
+
+
+
 def _mask_non_code(text: str) -> str:
     """Mask comments and string/char literals while preserving positions/newlines."""
     chars = list(text)
@@ -96,7 +111,7 @@ def _find_matching(text: str, open_index: int, opener: str, closer: str) -> int:
             depth -= 1
             if depth == 0:
                 return index
-    raise RuntimeError(f'Unmatched {opener}{closer} while parsing Char.attack')
+    raise RuntimeError(f'Unmatched {opener}{closer} while parsing Java source')
 
 
 def _argument_count(masked: str) -> int:
@@ -185,9 +200,10 @@ def _terminal_attack_method(content: str) -> tuple[str, int, int]:
 
 
 def _char_hit_method(content: str) -> tuple[str, str, int]:
-    """Find static Char.hit(Char, Char, float, boolean) and its parameter names."""
+    """Find the preferred supported Char.hit ABI and its parameter names."""
     masked = _mask_non_code(content)
-    matches = []
+    modern = []
+    legacy = []
 
     for match in _HIT_METHOD_RE.finditer(masked):
         if not re.search(r'\bstatic\b', match.group('head')):
@@ -195,9 +211,6 @@ def _char_hit_method(content: str) -> tuple[str, str, int]:
 
         params = content[match.start('params'):match.end('params')]
         parts = [part.strip() for part in params.split(',')]
-        if len(parts) != 4:
-            continue
-
         parsed = []
         valid = True
         for part in parts:
@@ -211,15 +224,17 @@ def _char_hit_method(content: str) -> tuple[str, str, int]:
             continue
 
         types = [typ for typ, _ in parsed]
-        if types != ['Char', 'Char', 'float', 'boolean']:
-            continue
-
         open_brace = match.end('head') - 1
-        matches.append((parsed[0][1], parsed[1][1], open_brace))
+        if types == ['Char', 'Char', 'float', 'boolean']:
+            modern.append((parsed[0][1], parsed[1][1], open_brace))
+        elif types == ['Char', 'Char', 'boolean']:
+            legacy.append((parsed[0][1], parsed[1][1], open_brace))
 
+    matches = modern if modern else legacy
     if len(matches) != 1:
+        label = 'modern' if modern else 'legacy'
         raise RuntimeError(
-            'Expected exactly one static Char.hit(Char, Char, float, boolean), '
+            f'Expected exactly one supported {label} static Char.hit overload, '
             f'found {len(matches)}'
         )
     return matches[0]
@@ -252,11 +267,189 @@ def patch_char_hit(file_path: Path) -> None:
 
 
 
-def patch_defense_feedback(package_root: Path) -> None:
-    """Route every Char defenseVerb display call through ModParryRiposte.
+def _class_declarations(package_root: Path) -> tuple[list[dict], dict[str, list[dict]]]:
+    """Parse Java class ranges and build a simple-name inheritance index."""
+    declarations: list[dict] = []
+    by_name: dict[str, list[dict]] = {}
 
-    The helper preserves normal virtual dispatch for non-SMM misses. Calls to
-    super.defenseVerb() are deliberately left alone so class overrides keep
+    for file_path in package_root.rglob('*.java'):
+        content = file_path.read_text(encoding='utf-8')
+        masked = _mask_non_code(content)
+        file_decls: list[dict] = []
+
+        for match in _CLASS_RE.finditer(masked):
+            open_brace = match.end() - 1
+            close_brace = _find_matching(masked, open_brace, '{', '}')
+            decl = {
+                'file': file_path,
+                'name': match.group('name'),
+                'parent': match.group('parent'),
+                'start': match.start(),
+                'open': open_brace,
+                'end': close_brace,
+            }
+            file_decls.append(decl)
+            declarations.append(decl)
+            by_name.setdefault(decl['name'], []).append(decl)
+
+        for decl in file_decls:
+            enclosing = [
+                other for other in file_decls
+                if other['start'] < decl['start'] < other['end']
+            ]
+            decl['enclosing'] = min(
+                enclosing,
+                key=lambda item: item['end'] - item['start'],
+                default=None,
+            )
+
+    return declarations, by_name
+
+
+def _resolve_parent(decl: dict, by_name: dict[str, list[dict]]):
+    parent = decl['parent']
+    if parent is None:
+        return None
+    simple = parent.rsplit('.', 1)[-1]
+    candidates = by_name.get(simple, [])
+    if len(candidates) == 1:
+        return candidates[0]
+
+    enclosing = decl.get('enclosing')
+    same_file = [candidate for candidate in candidates if candidate['file'] == decl['file']]
+    if enclosing is not None:
+        nested = [
+            candidate for candidate in same_file
+            if candidate['start'] < decl['start'] < candidate['end']
+        ]
+        if len(nested) == 1:
+            return nested[0]
+    if len(same_file) == 1:
+        return same_file[0]
+    if not candidates:
+        return None
+    raise RuntimeError(
+        f"Ambiguous parent class {parent} for {decl['file']}::{decl['name']}"
+    )
+
+
+def _is_char_subclass(
+    decl: dict,
+    char_decl: dict,
+    by_name: dict[str, list[dict]],
+    memo: dict[int, bool],
+    active: set[int],
+) -> bool:
+    key = id(decl)
+    if key in memo:
+        return memo[key]
+    if decl is char_decl:
+        memo[key] = True
+        return True
+    if key in active:
+        raise RuntimeError(f"Cyclic class hierarchy at {decl['file']}::{decl['name']}")
+
+    active.add(key)
+    parent_name = decl['parent']
+    if parent_name is None:
+        result = False
+    elif parent_name.rsplit('.', 1)[-1] == 'Char':
+        result = True
+    else:
+        parent = _resolve_parent(decl, by_name)
+        result = parent is not None and _is_char_subclass(
+            parent, char_decl, by_name, memo, active
+        )
+    active.remove(key)
+    memo[key] = result
+    return result
+
+
+def patch_direct_damage_overrides(package_root: Path, char_path: Path) -> None:
+    """Patch Char-subclass damage(int,Object) overrides without using Focus."""
+    declarations, by_name = _class_declarations(package_root)
+    char_candidates = [
+        decl for decl in declarations
+        if decl['file'] == char_path and decl['name'] == 'Char'
+    ]
+    if len(char_candidates) != 1:
+        raise RuntimeError(
+            f"Expected exactly one Char declaration in {char_path}, "
+            f"found {len(char_candidates)}"
+        )
+    char_decl = char_candidates[0]
+    memo: dict[int, bool] = {}
+    marker = '// MASTER_MODE_PARRY_RIPOSTE_DIRECT_DAMAGE'
+    patched_methods = 0
+    patched_files = 0
+
+    declarations_by_file: dict[Path, list[dict]] = {}
+    for decl in declarations:
+        declarations_by_file.setdefault(decl['file'], []).append(decl)
+
+    for file_path, file_decls in declarations_by_file.items():
+        content = file_path.read_text(encoding='utf-8')
+        masked = _mask_non_code(content)
+        insertions: list[tuple[int, str]] = []
+
+        for match in _DAMAGE_METHOD_RE.finditer(masked):
+            containing = [
+                decl for decl in file_decls
+                if decl['open'] < match.start() < decl['end']
+            ]
+            if not containing:
+                continue
+            owner = min(
+                containing,
+                key=lambda item: item['end'] - item['start'],
+            )
+            if owner is char_decl or not _is_char_subclass(
+                owner, char_decl, by_name, memo, set()
+            ):
+                continue
+
+            open_brace = match.end('head') - 1
+            close_brace = _find_matching(masked, open_brace, '{', '}')
+            body = content[open_brace + 1:close_brace]
+            if marker in body:
+                continue
+            if 'ModParryRiposte.resolveDirectDamage' in body:
+                raise RuntimeError(
+                    f"Unmarked direct-damage Parry hook already exists in "
+                    f"{file_path}::{owner['name']}.damage"
+                )
+
+            line_start = content.rfind('\n', 0, match.start()) + 1
+            indent_match = re.match(r'[ \t]*', content[line_start:match.start()])
+            indent = indent_match.group(0) if indent_match else ''
+            hook = (
+                f"\n{indent}\t\t{marker}\n"
+                f"{indent}\t\tif (com.spd.mod.mechanics.ModParryRiposte."
+                f"resolveDirectDamage(this, {match.group('damage')}, "
+                f"{match.group('src')}) == null) return;\n"
+            )
+            insertions.append((open_brace + 1, hook))
+
+        if not insertions:
+            continue
+        for position, hook in reversed(insertions):
+            content = content[:position] + hook + content[position:]
+        file_path.write_text(content, encoding='utf-8')
+        patched_methods += len(insertions)
+        patched_files += 1
+
+    print(
+        f"Parry/Riposte direct-damage hook injected into {patched_methods} "
+        f"Char-subclass damage override(s) across {patched_files} source file(s)"
+    )
+
+
+def patch_defense_feedback(package_root: Path) -> None:
+    """Route source-build defense feedback through ModParryRiposte.
+
+    Source builds can use a broad presentation bridge because the helper falls
+    straight back to the target's virtual defenseVerb() when no Parry feedback
+    is pending. Calls to super.defenseVerb() are left alone so overrides keep
     their native fallback behavior.
     """
     total = 0
@@ -431,14 +624,16 @@ def patch_char(file_path: Path) -> None:
 patch_wndgame(wnd_path)
 
 # WndGame and Char live under the detected SPD-family package root.
-# Derive Char.java from that root. Instant Kill remains on Char.attack while
-# Force Hit / Parry / Riposte share the selected Char.hit() hook.
+# Instant Kill remains on Char.attack. Parry/Riposte uses the same two generic
+# combat layers as APK/JAR injection: selected Char.hit plus Char-subclass
+# damage(int,Object) overrides. No Focus bridge participates in combat.
 package_root = wnd_path.parent.parent
 char_path = package_root / 'actors' / 'Char.java'
 if not char_path.is_file():
     raise RuntimeError(f"Char.java not found beside WndGame package root: {char_path}")
 patch_char(char_path)
 patch_char_hit(char_path)
+patch_direct_damage_overrides(package_root, char_path)
 patch_defense_feedback(package_root)
 
 buff_indicator_path = package_root / 'ui' / 'BuffIndicator.java'
