@@ -591,7 +591,7 @@ def patch_buff_indicator(file_path: Path) -> None:
 
     def buff_button_range(text: str) -> tuple[int, int]:
         masked = _mask_non_code(text)
-        class_match = re.search(r'\\bclass\\s+BuffButton\\b[^\\{]*\\{', masked)
+        class_match = re.search(r'\bclass\s+BuffButton\b[^{]*\{', masked)
         if class_match is None:
             raise RuntimeError(f"BuffIndicator BuffButton class not found: {file_path}")
         open_brace = masked.find('{', class_match.start(), class_match.end())
@@ -602,11 +602,11 @@ def patch_buff_indicator(file_path: Path) -> None:
         begin, finish = buff_button_range(text)
         body = _mask_non_code(text[begin + 1:finish])
         pattern = re.compile(
-            r'(?m)^[ \\t]*(?:(?:public|protected|private|final|synchronized)\\s+)*'
+            r'(?m)^[ \t]*(?:(?:public|protected|private|final|synchronized)\s+)*'
             + re.escape(return_type)
-            + r'\\s+'
+            + r'\s+'
             + re.escape(name)
-            + r'\\s*\\(\\s*\\)'
+            + r'\s*\(\s*\)'
         )
         return len(pattern.findall(body))
 
@@ -624,11 +624,11 @@ def patch_buff_indicator(file_path: Path) -> None:
         )
 
     click_pattern = re.compile(
-        r'(?P<indent>^[ \\t]*)@Override\\s*\\n'
-        r'(?P=indent)protected void onClick\\(\\)\\s*\\{\\s*\\n'
-        r'(?P=indent)[ \\t]+if\\s*\\(\\s*buff\\.icon\\(\\)\\s*!=\\s*NONE\\s*\\)\\s*'
-        r'GameScene\\.show\\(new WndInfoBuff\\(buff\\)\\);\\s*\\n'
-        r'(?P=indent)\\}',
+        r'(?P<indent>^[ \t]*)@Override\s*\n'
+        r'(?P=indent)protected void onClick\(\)\s*\{\s*\n'
+        r'(?P=indent)[ \t]+if\s*\(\s*buff\.icon\(\)\s*!=\s*NONE\s*\)\s*'
+        r'GameScene\.show\(new WndInfoBuff\(buff\)\);\s*\n'
+        r'(?P=indent)\}',
         re.MULTILINE,
     )
     click_match = click_pattern.search(content)
@@ -641,9 +641,9 @@ def patch_buff_indicator(file_path: Path) -> None:
     class_text = content[class_begin + 1:class_end]
     class_masked = _mask_non_code(class_text)
     long_pattern = re.compile(
-        r'(?m)^(?P<indent>[ \\t]*)'
-        r'(?:(?:public|protected|private|final|synchronized)\\s+)*'
-        r'boolean\\s+onLongClick\\s*\\(\\s*\\)\\s*\\{'
+        r'(?m)^(?P<indent>[ \t]*)'
+        r'(?:(?:public|protected|private|final|synchronized)\s+)*'
+        r'boolean\s+onLongClick\s*\(\s*\)\s*\{'
     )
     long_matches = list(long_pattern.finditer(class_masked))
     if len(long_matches) > 1:
@@ -652,38 +652,38 @@ def patch_buff_indicator(file_path: Path) -> None:
         )
 
     indent = click_match.group('indent')
-    click_body = f"""{{indent}}@Override
-{{indent}}protected void onClick() {{
-{{indent}}\\t{{click_marker}}
-{{indent}}\\tif (buff instanceof com.spd.mod.mechanics.ModLastStand) {{
-{{indent}}\\t\\t((com.spd.mod.mechanics.ModLastStand) buff).open();
-{{indent}}\\t}} else if (buff instanceof com.spd.mod.mechanics.ModParryRiposte) {{
-{{indent}}\\t\\t((com.spd.mod.mechanics.ModParryRiposte) buff).openInfo();
-{{indent}}\\t}} else if (buff instanceof com.spd.mod.mechanics.ModInstantKill) {{
-{{indent}}\\t\\t((com.spd.mod.mechanics.ModInstantKill) buff).openInfo();
-{{indent}}\\t}} else if (buff instanceof com.spd.mod.mechanics.ModForceHit) {{
-{{indent}}\\t\\t((com.spd.mod.mechanics.ModForceHit) buff).openInfo();
-{{indent}}\\t}} else if (buff instanceof com.spd.mod.mechanics.ModAssassinate) {{
-{{indent}}\\t\\t((com.spd.mod.mechanics.ModAssassinate) buff).openInfo();
-{{indent}}\\t}} else if (buff instanceof com.spd.mod.mechanics.ModEnemySurge) {{
-{{indent}}\\t\\t((com.spd.mod.mechanics.ModEnemySurge) buff).openInfo();
-{{indent}}\\t}} else if (buff.icon() != NONE) {{
-{{indent}}\\t\\tGameScene.show(new WndInfoBuff(buff));
-{{indent}}\\t}}
-{{indent}}}}"""
+    click_body = f"""{indent}@Override
+{indent}protected void onClick() {{
+{indent}\t{click_marker}
+{indent}\tif (buff instanceof com.spd.mod.mechanics.ModLastStand) {{
+{indent}\t\t((com.spd.mod.mechanics.ModLastStand) buff).open();
+{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModParryRiposte) {{
+{indent}\t\t((com.spd.mod.mechanics.ModParryRiposte) buff).openInfo();
+{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModInstantKill) {{
+{indent}\t\t((com.spd.mod.mechanics.ModInstantKill) buff).openInfo();
+{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModForceHit) {{
+{indent}\t\t((com.spd.mod.mechanics.ModForceHit) buff).openInfo();
+{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModAssassinate) {{
+{indent}\t\t((com.spd.mod.mechanics.ModAssassinate) buff).openInfo();
+{indent}\t}} else if (buff instanceof com.spd.mod.mechanics.ModEnemySurge) {{
+{indent}\t\t((com.spd.mod.mechanics.ModEnemySurge) buff).openInfo();
+{indent}\t}} else if (buff.icon() != NONE) {{
+{indent}\t\tGameScene.show(new WndInfoBuff(buff));
+{indent}\t}}
+{indent}}}"""
 
     def long_dispatch(method_indent: str) -> str:
         return f"""
-{{method_indent}}\\t{{long_marker}}
-{{method_indent}}\\tif (buff instanceof com.spd.mod.mechanics.ModLastStand
-{{method_indent}}\\t\\t\\t|| buff instanceof com.spd.mod.mechanics.ModParryRiposte
-{{method_indent}}\\t\\t\\t|| buff instanceof com.spd.mod.mechanics.ModInstantKill
-{{method_indent}}\\t\\t\\t|| buff instanceof com.spd.mod.mechanics.ModForceHit
-{{method_indent}}\\t\\t\\t|| buff instanceof com.spd.mod.mechanics.ModAssassinate
-{{method_indent}}\\t\\t\\t|| buff instanceof com.spd.mod.mechanics.ModEnemySurge) {{
-{{method_indent}}\\t\\tif (buff.icon() != NONE) GameScene.show(new WndInfoBuff(buff));
-{{method_indent}}\\t\\treturn true;
-{{method_indent}}\\t}}
+{method_indent}\t{long_marker}
+{method_indent}\tif (buff instanceof com.spd.mod.mechanics.ModLastStand
+{method_indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModParryRiposte
+{method_indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModInstantKill
+{method_indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModForceHit
+{method_indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModAssassinate
+{method_indent}\t\t\t|| buff instanceof com.spd.mod.mechanics.ModEnemySurge) {{
+{method_indent}\t\tif (buff.icon() != NONE) GameScene.show(new WndInfoBuff(buff));
+{method_indent}\t\treturn true;
+{method_indent}\t}}
 """
 
     edits: list[tuple[int, int, str]] = [
@@ -705,16 +705,18 @@ def patch_buff_indicator(file_path: Path) -> None:
     else:
         long_body = f"""
 
-{{indent}}@Override
-{{indent}}protected boolean onLongClick() {{{long_dispatch(indent)}{{indent}}\\treturn super.onLongClick();
-{{indent}}}}}"""
+{indent}@Override
+{indent}protected boolean onLongClick() {{{long_dispatch(indent)}{indent}\treturn super.onLongClick();
+{indent}}}"""
         edits[0] = (
             click_match.start(),
             click_match.end(),
             click_body + long_body,
         )
 
-    for begin, finish, replacement in sorted(edits, reverse=True):
+    for begin, finish, replacement in sorted(
+        edits, key=lambda edit: edit[0], reverse=True
+    ):
         content = content[:begin] + replacement + content[finish:]
 
     if (
