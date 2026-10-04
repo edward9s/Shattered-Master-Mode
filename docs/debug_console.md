@@ -386,9 +386,11 @@ save
 load
 ```
 
-On Android, `save` exports the complete app save snapshot to `Download/<package>` and `load` replaces the local app save files from that snapshot before restarting the app. Storage behavior and permissions vary by Android version and target package.
+Android and Desktop use a fixed snapshot directory under `Documents/spd_saves/<app name>/`; there is no folder chooser. Source builds and binary injectors use the same bracketed SMM application-name transformation so the snapshot path is stable for the build.
 
-On Desktop, both commands open a native folder chooser. `save` flushes the current run and replaces the selected folder with the complete active save snapshot; a non-empty export folder is accepted only when it already looks like SPD save data. `load` accepts a non-empty selected folder, replaces the active Desktop save directory, and then exits the process so imported disk state is not mixed with stale in-memory state. Export and import chooser locations are remembered separately, and selecting the active save directory or an overlapping directory is rejected.
+On Android, the directory is `/sdcard/Documents/spd_saves/<app name>/`. `save` flushes the current run, clears the existing snapshot directory, and writes a complete copy of the app-private save files. `load` first requires a real, non-empty snapshot, then replaces the app-private save files and terminates the process so the next launch reads only the imported state. Android storage permission behavior still depends on the OS version.
+
+On Desktop, the directory is `~/Documents/spd_saves/<app name>/`. `save` flushes the current run and replaces that snapshot; if the snapshot directory is already non-empty, it must already look like SPD save data. `load` requires a non-empty snapshot, replaces the active Desktop save directory, and exits the process so imported disk state is not mixed with stale in-memory state. A transfer path that overlaps the active save directory is rejected.
 
 ## Important limitations
 
