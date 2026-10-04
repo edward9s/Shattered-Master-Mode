@@ -1,31 +1,34 @@
 # Shattered-Master-Mode
 
-**In-game Editor** (in-game sandbox tester and editor) for [Shattered Pixel Dungeon](https://github.com/00-Evan/shattered-pixel-dungeon).
+**In-game Editor** for [Shattered Pixel Dungeon](https://github.com/00-Evan/shattered-pixel-dungeon).
+
+SMM is mainly for sandbox testing, debugging, quick experiments, and creating unusual game situations without manually editing saves.
 
 ## Core Features
 
-- Designed for in-game sandbox testing, rapid editing, and easily creating meme images.
-- **Preserves Vanilla Mechanics:** SMM does not replace or rewrite vanilla gameplay mechanics. Vanilla behavior remains unchanged unless an SMM feature is explicitly enabled.
-- **Minimal Integration:** SMM uses existing vanilla extension points whenever possible. Combat integration is split by semantics: Force Hit and normal Parry/Riposte use the selected `Char.hit(...)` path, direct-damage Parry uses narrow `Char.damage(...)` entry hooks, and Instant Kill alone completes at terminal `Char.attack()`. Minimal `--ankh-only` guarantees the Last Stand runtime Tag and best-effort injects Parry/Riposte, Instant Kill, Force Hit, Assassinate, and Enemy Surge when compatible.
-- **Save transfer:** Tools export/import full snapshots under `Documents/spd_saves/<app name>/` on Android and Desktop. SMM source builds and binary injectors apply the same bracketed app-name transformation, so each build gets a stable, platform-consistent snapshot directory.
+- **In-game editing:** Spawn enemies and items, change terrain, apply buffs, inspect objects, and modify game state.
+- **Debug Console:** Run commands for testing, inspection, spawning, teleporting, save transfer, and other developer tasks.
+- **Optional combat buffs:** Parry/Riposte, Instant Kill, Force Hit, Assassinate, Enemy Surge, and Last Stand.
+- **Preserves vanilla behavior:** SMM only changes gameplay when an SMM feature is actively used.
+- **Save transfer:** Export and import full save snapshots under `Documents/spd_saves/<app name>/` on Android and Desktop.
 
 ## Known Limitations & Warnings
 
-- **Boss Floor Binding (High Crash Risk):** Bosses with multi-stage transformations (for example Tengu and DM-300) have scripts deeply bound to their specific floors. Forcing them to spawn on non-designated floors may immediately crash the game.
-- **Event NPC Spawning:** Spawning event characters such as the Troll Blacksmith on non-quest floors will not advance their quests or trigger the corresponding events.
-- **Special Rooms Disabled:** Special rooms such as Sacrificial Fire rely on global generation mechanics. The editor currently does not support manually spawning special terrains or rooms with fully functioning logic.
+- **Boss Floor Binding (High Crash Risk):** Bosses with multi-stage transformations, such as Tengu and DM-300, are closely tied to their own floors. Spawning them elsewhere may crash the game.
+- **Event NPC Spawning:** Spawning event characters such as the Troll Blacksmith outside their normal quest flow will not automatically advance the related quest.
+- **Special Rooms:** Some rooms and terrain depend on hidden generation state. Creating only the visible terrain may not reproduce the original room behavior.
 
 > [!CAUTION]
 > **Mod Items and Buffs Save Upgrade Warning**
 >
-> Mod items and Mod buffs are development aids and not official in-game items. If a future SMM update changes their underlying structure, old saves containing them may fail to load.
+> Mod items and Mod buffs are development aids, not normal game content. If a future SMM update changes their internal structure, old saves containing them may fail to load.
 >
-> - **Mod Items:** Use **Tools -> Alchemize** to completely remove all Mod Items from your inventory and the map only when the new version explicitly changes Mod Items.
-> - **Mod Buffs:** If a new version explicitly changes Mod Buffs, use **Tools -> Journal -> Buff**, select the Mod Buff, and then select the character currently carrying it. Buff entries toggle attach/detach, so selecting a character that already has the buff removes it.
+> - **Mod Items:** When a release specifically requires it, use **Tools -> Alchemize** to remove all Mod Items before upgrading.
+> - **Mod Buffs:** When a release specifically requires it, use **Tools -> Journal -> Buff** and toggle the affected Mod Buff off before upgrading.
 
 ## Build from source
 
-SMM is an overlay for Shattered Pixel Dungeon rather than a standalone project. You need Git, Python 3, JDK 17, and the Android SDK.
+SMM is an overlay for Shattered Pixel Dungeon rather than a standalone game. You need Git, Python 3, JDK 17, and the Android SDK.
 
 ```bash
 git clone https://github.com/edward9s/Shattered-Master-Mode.git mod
@@ -40,13 +43,13 @@ cd spd_src
 ./gradlew android:assembleDebug :desktop:release
 ```
 
-The source-build tools detect the target SPD-family Java package from the checked-out source tree. `rebase_source.py` rewrites both dotted and JVM-internal package forms in SMM Java sources and fails if stale source-package references remain. The Android APK is produced under `android/build/outputs/apk/`, and the desktop JAR under `desktop/build/libs/`.
+The build scripts adapt SMM to the target SPD-family source tree and stop when the target is not compatible enough to patch safely.
+
+The Android APK is produced under `android/build/outputs/apk/`, and the Desktop JAR under `desktop/build/libs/`.
 
 ## Binary injection
 
-Use the `SMM-m<version>-InjectKit.zip` artifact when you need to inject SMM into an already-built SPD fork.
-
-For APK injection, the injector creates `smm-inject.keystore` beside `smm-inject-donor.apk` the first time it is needed and reuses that key for later injections. Keep this file: APKs signed with a different key cannot normally update an already-installed injected APK with the same package name. When moving to a newly extracted Injection Kit, copy your existing `smm-inject.keystore` into the new kit directory before injecting if you want to preserve update compatibility. The keystore is local-only and must not be committed to the repository.
+Use the `SMM-m<version>-InjectKit.zip` release artifact to add SMM to an already-built SPD-derived APK or JAR.
 
 ### Full SMM
 
@@ -55,7 +58,12 @@ python inject_apk.py TARGET.apk
 python inject_jar.py TARGET.jar
 ```
 
-Default outputs are `TARGET-SMM.apk` and `TARGET-SMM.jar`.
+Default outputs:
+
+```text
+TARGET-SMM.apk
+TARGET-SMM.jar
+```
 
 ### Minimal injection
 
@@ -66,17 +74,48 @@ python inject_apk.py TARGET.apk --ankh-only
 python inject_jar.py TARGET.jar --ankh-only
 ```
 
-`--ankh-only` always injects the **ModAnkh + ModLastStand** core, including the Last Stand runtime Tag, plus its Store / Loot / Debug Console dependencies. **ModParryRiposte** is attempted as an optional complete dependency closure. Normal accuracy/evasion attacks use the selected `Char.hit(...)` helper, while fork-defined direct-damage attacks use narrow `Char.damage(int,Object)` entry hooks. Riposte observes the same selected hit path; Force Hit can override Parry's miss result but still respects target invulnerability. **ModInstantKill** depends only on the unique terminal `Char.attack()` overload: it captures the attacker/defender at entry and resolves only when the native attack is already returning success, after native defense effects, procs, hit presentation, and weapon sound. **ModForceHit** is independent. Known direct `Char.hit(...)` ABIs are patched when available; structural tracing is used only when those direct ABIs are absent. **ModAssassinate** is also attempted as an optional complete dependency closure and uses normal attack accuracy unless Force Hit is enabled. Its Tag and map-long-press input layer attach at runtime and require no extra `GameScene`/`Char` hook. **ModEnemySurge** is another optional complete dependency closure; it needs no binary combat or spawn hook because the buff drives extra spawning through the target's existing `Level` API. Minimal mode still does not install the full SMM menu.
+`--ankh-only` always includes the **ModAnkh + ModLastStand** core, including Store, Loot, Debug Console, and the Last Stand Tag.
 
-Source builds and binary injectors patch `BuffIndicator` directly for configurable SMM buffs. Short-click opens the buff's SMM window (`Last Stand` Store, or the Parry/Riposte, Instant Kill, Force Hit, Assassinate, and Enemy Surge configuration windows); long-click preserves the target's native buff-info action. Full SMM enables all handlers, while `--ankh-only` emits Last Stand plus the optional Parry/Riposte / Instant Kill / Force Hit / Assassinate / Enemy Surge handlers whose payloads passed compatibility validation. The old transparent `ModTotalInfoOverlay` layer is not used. `ModLastStandTag` is part of the guaranteed narrow Last Stand core. ModAnkh action labels remain code-defined English strings; legacy `WndUseItem` implementations that bypass `Item.actionName()` are bridged at the call site, without modifying `items*.properties`.
+When the target is compatible, it also adds these optional buffs:
 
-Default outputs are `TARGET-SMM-Ankh.apk` and `TARGET-SMM-Ankh.jar`. Use `--out` to choose another path.
+- Parry/Riposte
+- Instant Kill
+- Force Hit
+- Assassinate
+- Enemy Surge
 
-If Java classes included in the payload change, rebuild the Injection Kit so the donor APK/JAR matches the source.
+If one of those optional features is incompatible with the target fork, the injector skips that feature instead of failing the entire minimal injection.
 
-See [Binary injection rules](docs/smm_injection_rules.md) | [正體中文](docs/smm_injection_rules.zh-TW.md).
+Configurable SMM buff icons can be tapped to open their settings. Long-press keeps the game's normal buff information behavior.
 
-Debug Console: [English](docs/debug_console.md) | [正體中文](docs/debug_console.zh-TW.md)
+Default outputs:
+
+```text
+TARGET-SMM-Ankh.apk
+TARGET-SMM-Ankh.jar
+```
+
+Use `--out` to choose another output path.
+
+### APK signing
+
+The APK injector creates `smm-inject.keystore` the first time it signs an injected APK.
+
+Keep that file if you want future injected APKs with the same package name to update an already-installed injected version. A different signing key normally requires uninstalling the old APK first.
+
+When moving to a newly extracted Injection Kit, copy your existing `smm-inject.keystore` into the new kit directory if signature continuity matters.
+
+Do not commit the keystore to GitHub.
+
+### Injection details
+
+Implementation details, compatibility rules, hook selection, and target ABI behavior are documented separately:
+
+[Binary injection rules](docs/smm_injection_rules.md) | [正體中文](docs/smm_injection_rules.zh-TW.md)
+
+Debug Console documentation:
+
+[English](docs/debug_console.md) | [正體中文](docs/debug_console.zh-TW.md)
 
 ## Acknowledgements
 
