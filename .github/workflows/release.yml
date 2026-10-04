@@ -43,6 +43,24 @@ jobs:
             exit 1
           fi
 
+          SOURCE_BUILD_GRADLE=$(gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/$REPO/contents/build.gradle?ref=$UPSTREAM_TAG")
+          SOURCE_VERSION=$(printf '%s\n' "$SOURCE_BUILD_GRADLE" \
+            | sed -nE "s/^[[:space:]]*appVersionName[[:space:]]*=[[:space:]]*'([^']+)'.*/\1/p" \
+            | head -n 1)
+          if [ -z "$SOURCE_VERSION" ]; then
+            echo "::error::Unable to resolve SPD source version from build.gradle at $UPSTREAM_TAG."
+            exit 1
+          fi
+
+          TAG_VERSION="${UPSTREAM_TAG#v}"
+          if [ "$SOURCE_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::SPD release tag $UPSTREAM_TAG does not match public source version $SOURCE_VERSION."
+            exit 1
+          fi
+          echo "Verified SPD source version $SOURCE_VERSION against release tag $UPSTREAM_TAG."
+
           MOD_VER=$(python mod/scripts/extract_version.py mod/core/src/main/java/com/spd/mod/ModGame.java)
           if [ -z "$MOD_VER" ]; then
             echo "::error::Unable to resolve the SMM version."
