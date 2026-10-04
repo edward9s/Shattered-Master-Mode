@@ -132,6 +132,10 @@ def patch_proguard(file_path, game_package):
         f'-keep class {game_package}.ui.ActionIndicator {{ *; }}',
         f'-keep interface {game_package}.ui.ActionIndicator$Action {{ *; }}',
         f'-keepclassmembers class {game_package}.levels.Terrain {{ public static final int *; }}',
+        # ModBuffIconCompat resolves semantic buff icons by public field name.
+        # Source-build release shrinking must preserve those target fields;
+        # binary injection still uses its existing runtime fallback behavior.
+        f'-keepclassmembers class {game_package}.ui.BuffIndicator {{ public static final int *; }}',
     )
     missing = [rule for rule in rules if rule not in data]
     if missing:
