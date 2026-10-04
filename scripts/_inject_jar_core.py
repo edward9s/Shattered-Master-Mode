@@ -68,8 +68,8 @@ MOD_FLASH_PREFIX = "com/spd/mod/mechanics/ModFlash"
 MOD_FLASH_ENTRY = "com/spd/mod/mechanics/ModFlash.class"
 MOD_PARRY_RIPOSTE_PREFIX = "com/spd/mod/mechanics/ModParryRiposte"
 MOD_PARRY_RIPOSTE_ENTRY = "com/spd/mod/mechanics/ModParryRiposte.class"
-WND_TOTAL_BUFF_INFO_PREFIX = "com/spd/mod/journal/WndTotalBuffInfo"
-WND_TOTAL_BUFF_INFO_ENTRY = "com/spd/mod/journal/WndTotalBuffInfo.class"
+WND_PARRY_RIPOSTE_INFO_PREFIX = "com/spd/mod/journal/WndParryRiposteInfo"
+WND_PARRY_RIPOSTE_INFO_ENTRY = "com/spd/mod/journal/WndParryRiposteInfo.class"
 MOD_ENEMY_SURGE_PREFIX = "com/spd/mod/mechanics/ModEnemySurge"
 MOD_ENEMY_SURGE_ENTRY = "com/spd/mod/mechanics/ModEnemySurge.class"
 MOD_ENEMY_SURGE_INFO_OVERLAY_PREFIX = "com/spd/mod/journal/ModEnemySurgeInfoOverlay"
@@ -477,7 +477,7 @@ def rebuild_jar(
         MOD_ASSASSIN_ENTRY,
         MOD_FLASH_ENTRY,
         MOD_PARRY_RIPOSTE_ENTRY,
-        WND_TOTAL_BUFF_INFO_ENTRY,
+        WND_PARRY_RIPOSTE_INFO_ENTRY,
         MOD_ENEMY_SURGE_ENTRY,
         MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
         WND_ENEMY_SURGE_INFO_ENTRY,
@@ -1247,9 +1247,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         name.startswith(MOD_PARRY_RIPOSTE_PREFIX + "$")
                         and name.endswith(".class")
                     )
-                    or name == WND_TOTAL_BUFF_INFO_ENTRY
+                    or name == WND_PARRY_RIPOSTE_INFO_ENTRY
                     or (
-                        name.startswith(WND_TOTAL_BUFF_INFO_PREFIX + "$")
+                        name.startswith(WND_PARRY_RIPOSTE_INFO_PREFIX + "$")
                         and name.endswith(".class")
                     )
                     or name == MOD_ENEMY_SURGE_ENTRY
@@ -1284,7 +1284,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_ASSASSIN_ENTRY,
                 MOD_FLASH_ENTRY,
                 MOD_PARRY_RIPOSTE_ENTRY,
-                        WND_TOTAL_BUFF_INFO_ENTRY,
+                        WND_PARRY_RIPOSTE_INFO_ENTRY,
                 MOD_ENEMY_SURGE_ENTRY,
                 MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
                 WND_ENEMY_SURGE_INFO_ENTRY,
@@ -1338,7 +1338,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 MOD_ASSASSIN_ENTRY,
                 MOD_FLASH_ENTRY,
                 MOD_PARRY_RIPOSTE_ENTRY,
-                        WND_TOTAL_BUFF_INFO_ENTRY,
+                        WND_PARRY_RIPOSTE_INFO_ENTRY,
                 MOD_ENEMY_SURGE_ENTRY,
                 MOD_ENEMY_SURGE_INFO_OVERLAY_ENTRY,
                 WND_ENEMY_SURGE_INFO_ENTRY,

@@ -9,7 +9,7 @@ import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
-import com.spd.mod.journal.WndTotalBuffInfo;
+import com.spd.mod.journal.WndParryRiposteInfo;
 import com.watabou.noosa.Image;
 import com.watabou.noosa.audio.Sample;
 import com.watabou.utils.Bundle;
@@ -104,7 +104,7 @@ public class ModParryRiposte extends Buff {
 
     public void openInfo() {
         if (target != null && find(target) == this) {
-            GameScene.show(new WndTotalBuffInfo(this));
+            GameScene.show(new WndParryRiposteInfo(this));
         }
     }
 

@@ -70,8 +70,8 @@ MOD_FLASH = "Lcom/spd/mod/mechanics/ModFlash;"
 MOD_FLASH_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModFlash$"
 MOD_PARRY_RIPOSTE = "Lcom/spd/mod/mechanics/ModParryRiposte;"
 MOD_PARRY_RIPOSTE_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModParryRiposte$"
-WND_TOTAL_BUFF_INFO = "Lcom/spd/mod/journal/WndTotalBuffInfo;"
-WND_TOTAL_BUFF_INFO_INNER_PREFIX = "Lcom/spd/mod/journal/WndTotalBuffInfo$"
+WND_PARRY_RIPOSTE_INFO = "Lcom/spd/mod/journal/WndParryRiposteInfo;"
+WND_PARRY_RIPOSTE_INFO_INNER_PREFIX = "Lcom/spd/mod/journal/WndParryRiposteInfo$"
 MOD_ENEMY_SURGE = "Lcom/spd/mod/mechanics/ModEnemySurge;"
 MOD_ENEMY_SURGE_INNER_PREFIX = "Lcom/spd/mod/mechanics/ModEnemySurge$"
 WND_ENEMY_SURGE_INFO = "Lcom/spd/mod/journal/WndEnemySurgeInfo;"
@@ -749,8 +749,8 @@ def is_debug_root(descriptor: str) -> bool:
         or descriptor.startswith(MOD_FLASH_INNER_PREFIX)
         or descriptor == MOD_PARRY_RIPOSTE
         or descriptor.startswith(MOD_PARRY_RIPOSTE_INNER_PREFIX)
-        or descriptor == WND_TOTAL_BUFF_INFO
-        or descriptor.startswith(WND_TOTAL_BUFF_INFO_INNER_PREFIX)
+        or descriptor == WND_PARRY_RIPOSTE_INFO
+        or descriptor.startswith(WND_PARRY_RIPOSTE_INFO_INNER_PREFIX)
         or descriptor == MOD_ENEMY_SURGE
         or descriptor.startswith(MOD_ENEMY_SURGE_INNER_PREFIX)
         or descriptor == WND_ENEMY_SURGE_INFO
@@ -860,7 +860,7 @@ def build_debug_payload(
         MOD_ASSASSIN,
         MOD_FLASH,
         MOD_PARRY_RIPOSTE,
-        WND_TOTAL_BUFF_INFO,
+        WND_PARRY_RIPOSTE_INFO,
         MOD_ENEMY_SURGE,
         WND_ENEMY_SURGE_INFO,
         *LOOT_REQUIRED_ROOTS,

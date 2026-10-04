@@ -326,7 +326,7 @@ class AnkhJarUiTests(unittest.TestCase):
             "core/src/main/java/com/spd/mod/mechanics/ModInstantKill.java",
             "core/src/main/java/com/spd/mod/mechanics/ModForceHit.java",
             "core/src/main/java/com/spd/mod/mechanics/ModAssassinate.java",
-            "core/src/main/java/com/spd/mod/journal/WndTotalBuffInfo.java",
+            "core/src/main/java/com/spd/mod/journal/WndParryRiposteInfo.java",
             "core/src/main/java/com/spd/mod/journal/WndInstantKillInfo.java",
         ):
             source = (root / relative).read_text(encoding="utf-8")

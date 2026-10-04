@@ -5,20 +5,20 @@ import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.mechanics.ModParryRiposte;
 import com.watabou.noosa.ui.Component;
 
-/** Live configuration window for Total Parry / Riposte. */
-public class WndTotalBuffInfo extends WndInfoBuff {
+/** Live configuration window for Parry / Riposte. */
+public class WndParryRiposteInfo extends WndInfoBuff {
 
     private static final int GAP = 3;
     private static final int CHECK_HEIGHT = 18;
 
-    public WndTotalBuffInfo(final ModParryRiposte buff) {
+    public WndParryRiposteInfo(final ModParryRiposte buff) {
         super(buff);
 
         final CheckBox parryCheck = new CheckBox("Parry") {
             @Override
             protected void onClick() {
                 if (!isCurrent(buff)) {
-                    WndTotalBuffInfo.this.hide();
+                    WndParryRiposteInfo.this.hide();
                     return;
                 }
 
@@ -33,7 +33,7 @@ public class WndTotalBuffInfo extends WndInfoBuff {
             @Override
             protected void onClick() {
                 if (!isCurrent(buff)) {
-                    WndTotalBuffInfo.this.hide();
+                    WndParryRiposteInfo.this.hide();
                     return;
                 }
 
