@@ -386,9 +386,11 @@ save
 load
 ```
 
-Android 上，`save` 會把完整 app 存檔快照匯出到 `Download/<package>`；`load` 會用該快照取代本機 app 存檔後重新啟動 app。實際 storage／permission 行為會受 Android 版本與 target package 影響。
+Android 與 Desktop 都使用固定的 `Documents/spd_saves/<app name>/` 快照目錄，不再開啟資料夾選擇器。Source build 與 binary injector 使用相同的 SMM 中括號 app-name 轉換，因此同一 build 的快照路徑保持穩定。
 
-Desktop 上兩個指令都會開啟原生資料夾選擇器。`save` 會先保存目前遊戲，再以完整存檔快照取代選定資料夾內容；若匯出目標不是空資料夾，必須先能辨識為 SPD 存檔資料。`load` 接受非空的選定資料夾，以其內容取代目前 Desktop 存檔目錄，完成後直接結束程序，避免把匯入後的磁碟狀態與舊的記憶體狀態混用。匯出與匯入會分別記住上次選擇的位置；若選到目前使用中的存檔目錄或與其重疊的目錄則直接拒絕。
+Android 路徑為 `/sdcard/Documents/spd_saves/<app name>/`。`save` 會先保存目前遊戲、清空既有快照目錄，再完整複製 app-private 存檔；`load` 會先確認快照目錄確實存在且非空，再取代 app-private 存檔並終止程序，讓下次啟動只讀取匯入後的狀態。實際 storage／permission 行為仍會受 Android 版本影響。
+
+Desktop 路徑為 `~/Documents/spd_saves/<app name>/`。`save` 會先保存目前遊戲，再取代固定快照；若快照目錄原本非空，必須能辨識為 SPD 存檔資料。`load` 要求快照非空，以其內容取代目前 Desktop 存檔目錄後直接結束程序，避免把匯入後的磁碟狀態與舊的記憶體狀態混用。若 transfer 路徑與目前使用中的存檔目錄重疊則直接拒絕。
 
 ## 重要限制
 
