@@ -78,6 +78,7 @@ public final class ModSaveTransfer {
                 if (export) {
                     if (exportDesktopSnapshot()) {
                         System.out.println("SPD_Mod: Save exported!");
+                        GLog.h("Save exported!", new Object[0]);
                     }
                 } else {
                     importDesktopSnapshot();
@@ -88,6 +89,9 @@ public final class ModSaveTransfer {
                                 + (export ? "Export" : "Import")
                                 + " Crash - "
                                 + e.getMessage());
+                GLog.w(
+                        export ? "Export failed!" : "Import failed!",
+                        new Object[0]);
                 e.printStackTrace();
             }
         });
@@ -213,6 +217,7 @@ public final class ModSaveTransfer {
 
         if (desktopListFiles(sourceDir).length == 0) {
             System.out.println("SPD_Mod: No save to import!");
+            GLog.w("No save to import!", new Object[0]);
             return;
         }
 
