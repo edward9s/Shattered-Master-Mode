@@ -11,6 +11,7 @@ import com.shatteredpixel.shatteredpixeldungeon.effects.SpellSprite;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHealing;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndInfoBuff;
 import com.spd.mod.ModGame;
 import com.spd.mod.items.WndModLoot;
 import com.watabou.noosa.Image;
@@ -129,6 +130,8 @@ public class ModLastStand extends Buff {
             storage.reclaimPending(hero);
             ModLegacyCompat.centerNextWindowOnInventoryPane();
             GameScene.show(new WndModLoot(storage, name(), WndModLoot.Mode.USE));
+        } else if (isAttached()) {
+            GameScene.show(new WndInfoBuff(this));
         }
     }
 
