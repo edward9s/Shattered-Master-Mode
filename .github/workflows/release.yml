@@ -159,17 +159,12 @@ jobs:
 
           Rules:
           - Describe only meaningful user-visible Shattered Master Mode changes.
-          - Treat ${PREV_TAG} as the baseline. Describe what is different for a user upgrading from that release.
-          - Before using words such as "new", "added", or "now", verify the claimed behavior was absent from ${PREV_TAG}. If an existing feature only became available in another build or injection mode, describe that availability change precisely.
-          - Merge related commits into one feature-level bullet and describe the final behavior, not intermediate implementation steps.
-          - Prioritize gameplay behavior, UI behavior, save behavior, and meaningful source-build or binary-injection compatibility changes.
-          - Mention Full SMM or --ankh-only changes when they materially change which user-facing features are available or usable.
-          - Avoid implementation terminology such as hooks, ABI, hit checks, overlays, payloads, or native presentation unless the term is necessary to explain a user-visible compatibility limitation.
+          - Merge related commits into one bullet and describe the final behavior, not intermediate implementation steps.
           - Ignore version bumps, CI/build/release workflow changes, refactors, cleanup, formatting, tests, and reverted or superseded changes unless they alter player-visible behavior.
           - Do not mention Shattered Pixel Dungeon upstream version changes; the workflow handles those separately.
           - Do not invent changes or infer features not supported by the diff.
           - Use concise English suitable for GitHub release notes.
-          - Prefer 4 to 10 Markdown bullet points. Use enough bullets to cover distinct major changes without padding; never exceed 10. Use no heading, preamble, links, or trailing commentary.
+          - Use at most 6 Markdown bullet points, with no heading, preamble, links, or trailing commentary.
           - If there are no meaningful user-visible changes, write exactly: NO_USER_FACING_CHANGES
           - Write only the final result to release-notes-ai.md in the current directory." \
             --allow-tool='shell(git:*)' \
