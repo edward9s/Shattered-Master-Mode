@@ -293,15 +293,77 @@ jobs:
         run: |
           (cd inject-kit && zip -q -r "../out/SMM-m${MOD_VER}-InjectKit.zip" .)
 
+      - name: Move existing release tag to this build
+        if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${EXPECTED_TAG}" >/dev/null 2>&1; then
+            gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/git/refs/tags/${EXPECTED_TAG}" \
+              -f sha="${GITHUB_SHA}" \
+              -F force=true >/dev/null
+            echo "Moved ${EXPECTED_TAG} to ${GITHUB_SHA}."
+          fi
+
       - name: Create or update Release
         if: steps.check.outputs.skip == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.EXPECTED_TAG }}
           name: ${{ env.EXPECTED_TAG }}
+          target_commitish: ${{ github.sha }}
           body_path: release-notes.md
           files: out/*
           overwrite_files: true
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify release tag
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG_SHA=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${EXPECTED_TAG}" \
+            --jq '.object.sha')
+          if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Release tag ${EXPECTED_TAG} points to $TAG_SHA instead of build commit ${GITHUB_SHA}."
+            exit 1
+          fi
+
+      - name: Remove stale release binaries
+        if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          declare -A CURRENT
+          while IFS= read -r file; do
+            CURRENT["$(basename "$file")"]=1
+          done < <(find out -maxdepth 1 -type f -print)
+
+          while IFS='|' read -r asset_id asset_name; do
+            case "$asset_name" in
+              *.apk|*.jar|*.zip)
+                if [ -z "${CURRENT[$asset_name]+x}" ]; then
+                  echo "Deleting stale release asset: $asset_name"
+                  gh api --method DELETE \
+                    "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
+                fi
+                ;;
+            esac
+          done < <(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/releases/tags/${EXPECTED_TAG}" \
+              --jq '.assets[] | "\(.id)|\(.name)"'
+          )
