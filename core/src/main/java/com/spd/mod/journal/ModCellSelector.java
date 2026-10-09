@@ -133,9 +133,6 @@ public class ModCellSelector extends CellSelector.Listener implements Callback {
 
         initMobStats(mob);
 
-        if (!(mob instanceof Mimic)) {
-            mob.state = mob.WANDERING;
-        }
         GameScene.add(mob);
         Dungeon.level.occupyCell(mob);
         
