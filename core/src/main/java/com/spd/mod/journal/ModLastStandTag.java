@@ -20,8 +20,8 @@ import java.lang.reflect.Method;
 public final class ModLastStandTag extends Gizmo {
 
     private static final int TAG_NEUTRAL = 0x7B8073;
-    private static final int BADGE_RED = 0xFFC03838;
     private static final int HEART_YELLOW = 0xFFD54A;
+    private static final int BADGE_GOLD = 0xFF000000 | HEART_YELLOW;
     private static final float BADGE_SIZE = 11f;
     private static ModLastStandTag instance;
     private LastStandTag storeTag;
@@ -125,7 +125,7 @@ public final class ModLastStandTag extends Gizmo {
             add(icon);
 
             for (int i = 0; i < badgeBorder.length; i++) {
-                badgeBorder[i] = new ColorBlock(1, 1, BADGE_RED);
+                badgeBorder[i] = new ColorBlock(1, 1, BADGE_GOLD);
                 add(badgeBorder[i]);
             }
 
