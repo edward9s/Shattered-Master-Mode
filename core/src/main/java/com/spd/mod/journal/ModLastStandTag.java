@@ -22,7 +22,7 @@ public final class ModLastStandTag extends Gizmo {
     private static final int TAG_NEUTRAL = 0x7B8073;
     private static final int BADGE_RED = 0xFFC03838;
     private static final int HEART_YELLOW = 0xFFD54A;
-    private static final float BADGE_SIZE = 9f;
+    private static final float BADGE_SIZE = 11f;
     private static ModLastStandTag instance;
     private LastStandTag storeTag;
 
