@@ -123,7 +123,7 @@ jobs:
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
-          retention-days: 7
+          retention-days: 3
           name: SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Android
           path: out/SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Android.apk
           if-no-files-found: error
@@ -131,7 +131,7 @@ jobs:
       - name: Upload Java JAR
         uses: actions/upload-artifact@v4
         with:
-          retention-days: 7
+          retention-days: 3
           name: SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Java
           path: out/SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Java.jar
           if-no-files-found: error
@@ -139,7 +139,7 @@ jobs:
       - name: Upload Windows ZIP
         uses: actions/upload-artifact@v4
         with:
-          retention-days: 7
+          retention-days: 3
           name: SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Windows
           path: out/SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Windows.zip
           if-no-files-found: error
@@ -147,7 +147,7 @@ jobs:
       - name: Upload Injection Kit
         uses: actions/upload-artifact@v4
         with:
-          retention-days: 7
+          retention-days: 3
           name: SMM-m${{ env.MOD_VER }}-InjectKit
           path: inject-kit/*
           if-no-files-found: error
