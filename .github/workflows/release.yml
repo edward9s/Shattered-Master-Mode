@@ -293,6 +293,17 @@ jobs:
         run: |
           (cd inject-kit && zip -q -r "../out/SMM-m${MOD_VER}-InjectKit.zip" .)
 
+      - name: Verify direct release files
+        if: steps.check.outputs.skip == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "out/SPD-${UPSTREAM_TAG}-m${MOD_VER}-Android.apk"
+          test -f "out/SPD-${UPSTREAM_TAG}-m${MOD_VER}-Java.jar"
+          test -f "out/SPD-${UPSTREAM_TAG}-m${MOD_VER}-Windows.zip"
+          test -f "out/SMM-m${MOD_VER}-InjectKit.zip"
+          test "$(find out -maxdepth 1 -type f | wc -l)" -eq 4
+
       - name: Move existing release tag to this build
         if: steps.check.outputs.skip == 'false' && github.event_name == 'workflow_dispatch'
         env:
