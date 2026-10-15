@@ -9,11 +9,15 @@ env:
 on:
   workflow_dispatch:
 
+concurrency:
+  group: smm-test-release
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout Mod Source
@@ -120,35 +124,57 @@ jobs:
             "$DONOR_APK" "$DONOR_JAR" "inject-kit" \
             --repo-root mod
 
-      - name: Upload Android APK
-        uses: actions/upload-artifact@v4
-        with:
-          retention-days: 3
-          name: SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Android
-          path: out/SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Android.apk
-          if-no-files-found: error
+      - name: Package Injection Kit Release ZIP
+        run: |
+          set -euo pipefail
+          (cd inject-kit && zip -q -r "../out/SMM-m${MOD_VER}-InjectKit.zip" .)
 
-      - name: Upload Java JAR
-        uses: actions/upload-artifact@v4
-        with:
-          retention-days: 3
-          name: SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Java
-          path: out/SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Java.jar
-          if-no-files-found: error
+      - name: Verify test release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "out/SPD-${UPSTREAM_TAG}-m${MOD_VER}-Android.apk"
+          test -f "out/SPD-${UPSTREAM_TAG}-m${MOD_VER}-Java.jar"
+          test -f "out/SPD-${UPSTREAM_TAG}-m${MOD_VER}-Windows.zip"
+          test -f "out/SMM-m${MOD_VER}-InjectKit.zip"
+          test "$(find out -maxdepth 1 -type f | wc -l)" -eq 4
 
-      - name: Upload Windows ZIP
-        uses: actions/upload-artifact@v4
-        with:
-          retention-days: 3
-          name: SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Windows
-          path: out/SPD-${{ env.UPSTREAM_TAG }}-m${{ env.MOD_VER }}-Windows.zip
-          if-no-files-found: error
+      - name: Publish rolling test release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_TAG: build-test
+        run: |
+          set -euo pipefail
+          notes=$(printf 'Latest successful manual SMM test build.\n\nSMM commit: %s\nSPD: %s\nSMM: m%s\n' \
+            "$GITHUB_SHA" "$UPSTREAM_TAG" "$MOD_VER")
+          if gh release view "$TEST_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TEST_TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TEST_TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "SMM test build" --notes "$notes" --prerelease
+          else
+            gh release create "$TEST_TAG" out/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "SMM test build" \
+              --notes "$notes" \
+              --prerelease \
+              --latest=false
+          fi
 
-      - name: Upload Injection Kit
-        uses: actions/upload-artifact@v4
-        with:
-          retention-days: 3
-          name: SMM-m${{ env.MOD_VER }}-InjectKit
-          path: inject-kit/*
-          if-no-files-found: error
+          # Drop binaries from older test versions after successful upload.
+          while IFS='|' read -r asset_id asset_name; do
+            case "$asset_name" in
+              *.apk|*.jar|*.zip)
+                if [[ ! -f "out/$asset_name" ]]; then
+                  gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+                fi
+                ;;
+            esac
+          done < <(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TEST_TAG" \
+            --jq '.assets[] | "\(.id)|\(.name)"')
 
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TEST_TAG" \
+            -f sha="$GITHUB_SHA" -F force=true >/dev/null
+          actual_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TEST_TAG" --jq '.object.sha')
+          test "$actual_sha" = "$GITHUB_SHA"
